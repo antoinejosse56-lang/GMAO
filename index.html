@@ -3730,8 +3730,10 @@ function bindAll(){
   }
 
   // Rangements
-  const btnAddRng=document.getElementById('btn-add-rng')||document.getElementById('btn-add-rng2');
+  const btnAddRng=document.getElementById('btn-add-rng');
   if(btnAddRng)btnAddRng.onclick=()=>{S.modal={type:'add-rng'};render();};
+  const btnAddRng2=document.getElementById('btn-add-rng2');
+  if(btnAddRng2)btnAddRng2.onclick=()=>{S.modal={type:'add-rng'};render();};
   document.querySelectorAll('[data-edit-rng]').forEach(el=>el.onclick=()=>{
     const r=S.rangements.find(x=>x.id===el.dataset.editRng);
     if(r){S.modal={type:'edit-rng',rng:r};render();}
