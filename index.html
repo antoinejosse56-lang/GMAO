@@ -1546,29 +1546,78 @@ function renderFinances(){
   }
 
   if(fTab==='depenses'){
-    const wos = S.workOrders.filter(w=>w.cost>0).sort((a,b)=>new Date(b.date)-new Date(a.date));
-    return `${tabBar}${yearBar}
-    <div class="card"><div style="overflow-x:auto"><table>
-      <thead><tr><th>Bon de travaux</th><th>Équipement / Zone</th><th>Date</th><th>Catégorie</th><th>Coût</th></tr></thead>
-      <tbody>
-      ${wos.filter(w=>!year||!w.date||w.date.startsWith(String(year))).map(w=>{
-        const asset=S.assets.find(a=>a.id===w.asset_id);
-        const tr=w.topo_ref;
-        const loc=tr?[tr.propName,tr.zoneName,tr.subName].filter(Boolean).join(' › '):asset?.name||'—';
-        return `<tr>
-          <td style="font-weight:500">${w.title}</td>
-          <td style="font-size:12px;color:var(--text2)">${loc}</td>
-          <td style="font-size:12px">${w.date||'—'}</td>
-          <td><span class="badge ${w.category==='Urgence'?'bred':w.category==='Réparation'?'bamber':'bblue'}">${w.category||'—'}</span></td>
-          <td style="font-weight:500;color:var(--red)">${fmt(w.cost)}</td>
-        </tr>`;
-      }).join('')}
-      ${wos.length===0?'<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text2)">Aucune dépense. Les coûts sont saisis dans les bons de travaux.</td></tr>':''}
-      </tbody>
-    </table></div>
-    <div style="display:flex;justify-content:flex-end;padding:10px 0;border-top:0.5px solid var(--border);font-weight:500">
-      <span>Total : <span style="color:var(--red)">${fmt(wos.filter(w=>!year||!w.date||w.date.startsWith(String(year))).reduce((s,w)=>s+parseFloat(w.cost||0),0))}</span></span>
-    </div></div>`;
+    const allWos=S.workOrders.filter(w=>w.cost>0&&(!year||!w.date||w.date.startsWith(String(year)))).sort((a,b)=>new Date(b.date)-new Date(a.date));
+    const finSub=S.finSub||'liste';
+    const subBar=`<div class="tab-bar" style="margin-bottom:12px">
+      <div class="tab ${finSub==='liste'?'active':''}" data-fin-sub="liste">Liste détaillée</div>
+      <div class="tab ${finSub==='bien'?'active':''}" data-fin-sub="bien">Par bien</div>
+      <div class="tab ${finSub==='zone'?'active':''}" data-fin-sub="zone">Par zone</div>
+      <div class="tab ${finSub==='equipement'?'active':''}" data-fin-sub="equipement">Par équipement</div>
+      <div class="tab ${finSub==='categorie'?'active':''}" data-fin-sub="categorie">Par catégorie</div>
+    </div>`;
+    const totalDep=allWos.reduce((s,w)=>s+parseFloat(w.cost||0),0);
+
+    if(finSub==='liste'){
+      return `${tabBar}${yearBar}${subBar}
+      <div class="card"><div style="overflow-x:auto"><table>
+        <thead><tr><th>Bon de travaux</th><th>Bien / Zone</th><th>Équipement</th><th>Date</th><th>Cat.</th><th>Coût</th></tr></thead>
+        <tbody>
+        ${allWos.map(w=>{
+          const asset=S.assets.find(a=>a.id===w.asset_id);
+          const tr=w.topo_ref;
+          const bien=tr?.propName||'—';
+          const zone=tr?[tr.zoneName,tr.subName].filter(Boolean).join(' › '):'';
+          return `<tr>
+            <td style="font-weight:500;font-size:13px">${w.title}</td>
+            <td style="font-size:11px;color:var(--text2)">${bien}${zone?'<br><span style="color:var(--text3)">'+zone+'</span>':''}</td>
+            <td style="font-size:11px;color:var(--text2)">${asset?.name||'—'}</td>
+            <td style="font-size:11px">${dateLabel(w.date)}</td>
+            <td><span class="badge ${w.category==='Urgence'?'bred':w.category==='Réparation'?'bamber':'bblue'}" style="font-size:10px">${w.category||'—'}</span></td>
+            <td style="font-weight:600;color:var(--red);white-space:nowrap">${fmt(w.cost)}</td>
+          </tr>`;
+        }).join('')}
+        ${allWos.length===0?'<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text2)">Aucune dépense enregistrée.</td></tr>':''}
+        </tbody>
+      </table></div>
+      <div style="display:flex;justify-content:flex-end;padding:10px 0;border-top:0.5px solid var(--border);font-weight:600">Total : <span style="color:var(--red);margin-left:8px">${fmt(totalDep)}</span></div></div>`;
+    }
+
+    // Grouping function
+    const groupBy=(fn,label)=>{
+      const groups={};
+      allWos.forEach(w=>{const k=fn(w);if(!groups[k])groups[k]=[];groups[k].push(w);});
+      const sorted=Object.entries(groups).sort((a,b)=>b[1].reduce((s,w)=>s+parseFloat(w.cost||0),0)-a[1].reduce((s,w)=>s+parseFloat(w.cost||0),0));
+      return `${tabBar}${yearBar}${subBar}
+      <div class="card"><div style="overflow-x:auto"><table>
+        <thead><tr><th>${label}</th><th>Nb BT</th><th>Total dépenses</th><th>% du total</th></tr></thead>
+        <tbody>
+        ${sorted.map(([k,ws])=>{
+          const tot=ws.reduce((s,w)=>s+parseFloat(w.cost||0),0);
+          const pct=totalDep>0?Math.round(tot/totalDep*100):0;
+          return `<tr>
+            <td style="font-weight:500">${k||'Non défini'}</td>
+            <td style="text-align:center">${ws.length}</td>
+            <td style="font-weight:600;color:var(--red)">${fmt(tot)}</td>
+            <td>
+              <div style="display:flex;align-items:center;gap:6px">
+                <div style="flex:1;background:var(--bg2);border-radius:99px;height:6px">
+                  <div style="background:var(--red);height:100%;border-radius:99px;width:${pct}%"></div>
+                </div>
+                <span style="font-size:11px;color:var(--text2);min-width:32px">${pct}%</span>
+              </div>
+            </td>
+          </tr>`;
+        }).join('')}
+        </tbody>
+      </table></div>
+      <div style="display:flex;justify-content:flex-end;padding:10px 0;font-weight:600">Total : <span style="color:var(--red);margin-left:8px">${fmt(totalDep)}</span></div>`;
+    };
+
+    if(finSub==='bien') return groupBy(w=>{const tr=w.topo_ref;const a=S.assets.find(x=>x.id===w.asset_id);return tr?.propName||a?.name||'—';},'Bien immobilier');
+    if(finSub==='zone') return groupBy(w=>{const tr=w.topo_ref;return tr?([tr.propName,tr.zoneName,tr.subName].filter(Boolean).join(' › ')):S.assets.find(a=>a.id===w.asset_id)?.name||'—';},'Zone / Sous-zone');
+    if(finSub==='equipement') return groupBy(w=>S.assets.find(a=>a.id===w.asset_id)?.name||'—','Équipement');
+    if(finSub==='categorie') return groupBy(w=>w.category||'—','Catégorie');
+    return '';
   }
 
   if(fTab==='revenus'){
@@ -2336,7 +2385,7 @@ function renderMaintenance(){
         <div style="display:flex;gap:6px;margin-top:8px;align-items:center;flex-wrap:wrap">
           ${mt.auto_bt?`<span class="badge bteal" title="Génère un BT automatiquement">⚙ Auto-BT</span>`:''}
           ${canEdit()?`<button class="btn btn-sm btn-p" data-done-mt="${mt.id}">✓ Réalisé</button>`:''}
-          ${isAdmin()?`<button class="btn btn-d btn-sm" data-del-mt="${mt.id}">✕</button>`:''}
+          ${canEdit()?`<button class="btn btn-sm" data-edit-mt="${mt.id}">✎</button> `:''}${isAdmin()?`<button class="btn btn-d btn-sm" data-del-mt="${mt.id}">✕</button>`:''}
         </div>
       </div>`;
     }).join('')}
@@ -4159,7 +4208,8 @@ function bindAll(){
 
   // Finances tab
   if(!S.finTab) S.finTab='overview';
-  document.querySelectorAll('[data-fin-tab]').forEach(el=>el.onclick=()=>{S.finTab=el.dataset.finTab;render();});
+  document.querySelectorAll('[data-fin-tab]').forEach(el=>el.onclick=()=>{S.finTab=el.dataset.finTab;S.finSub='liste';render();});
+  document.querySelectorAll('[data-fin-sub]').forEach(el=>el.onclick=()=>{S.finSub=el.dataset.finSub;render();});
   document.querySelectorAll('[data-fin-year]').forEach(el=>el.onclick=()=>{S.finYear=parseInt(el.dataset.finYear);render();});
   const btnRev=document.getElementById('btn-add-revenue');
   if(btnRev)btnRev.onclick=()=>{S.modal={type:'add-revenue'};render();};
@@ -4885,6 +4935,330 @@ async function checkAndSendAlerts() {
   }
 
   localStorage.setItem('gmao_alerted', JSON.stringify(newAlerted));
+}
+
+
+// ============================================================
+// GOOGLE DRIVE ARCHIVAGE
+// ============================================================
+const GDRIVE_CLIENT_ID = '96627378010-nhb6r1lqsg2t904iv4pprnhc2h2u3vpv.apps.googleusercontent.com';
+const GDRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
+const GDRIVE_ROOT_FOLDER_ID = '1xEwr6MJf0Z2a7bWPUBdKJ_RNkUJyZ0I3';
+let gdriveTokens = {};
+
+function getDriveAccount(logement){
+  const l=(logement||'').toLowerCase();
+  if(l.includes('dubail')||l.includes('général dubail')||l.includes('general dubail'))
+    return {hint:'savadur56@gmail.com',label:'J&A SAVADUR',key:'savadur'};
+  return {hint:'antoinejoss56@gmail.com',label:'Antoine Josse',key:'antoine'};
+}
+
+async function getGdriveToken(accountKey,loginHint){
+  const cacheKey='gdrive_token_'+accountKey;
+  const expiryKey='gdrive_expiry_'+accountKey;
+  if(gdriveTokens[accountKey])return gdriveTokens[accountKey];
+  const stored=localStorage.getItem(cacheKey);
+  const expiry=parseInt(localStorage.getItem(expiryKey)||'0');
+  if(stored&&Date.now()<expiry){gdriveTokens[accountKey]=stored;return stored;}
+  return new Promise((resolve,reject)=>{
+    if(typeof google==='undefined'||!google.accounts){reject(new Error('Google API non chargée'));return;}
+    const client=google.accounts.oauth2.initTokenClient({
+      client_id:GDRIVE_CLIENT_ID,scope:GDRIVE_SCOPE,hint:loginHint,
+      callback:(resp)=>{
+        if(resp.error){reject(new Error(resp.error));return;}
+        gdriveTokens[accountKey]=resp.access_token;
+        localStorage.setItem(cacheKey,resp.access_token);
+        localStorage.setItem(expiryKey,String(Date.now()+(resp.expires_in-60)*1000));
+        resolve(resp.access_token);
+      }
+    });
+    client.requestAccessToken();
+  });
+}
+
+async function getOrCreateFolder(token,name,parentId=null){
+  const q=`name='${name}' and mimeType='application/vnd.google-apps.folder' and trashed=false`+(parentId?` and '${parentId}' in parents`:'');
+  const resp=await fetch('https://www.googleapis.com/drive/v3/files?q='+encodeURIComponent(q)+'&fields=files(id,name)',{headers:{Authorization:'Bearer '+token}});
+  const data=await resp.json();
+  if(data.files&&data.files.length>0)return data.files[0].id;
+  const cr=await fetch('https://www.googleapis.com/drive/v3/files',{
+    method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+    body:JSON.stringify({name,mimeType:'application/vnd.google-apps.folder',parents:parentId?[parentId]:[]})
+  });
+  return (await cr.json()).id;
+}
+
+async function uploadToDrive(token,htmlContent,filename,parentFolderId){
+  const boundary='gmao_'+Date.now();
+  const meta=JSON.stringify({name:filename+'.html',parents:[parentFolderId],mimeType:'text/html'});
+  const CRLF='\r\n';
+  const body='--'+boundary+CRLF+'Content-Type: application/json'+CRLF+CRLF+meta
+    +CRLF+'--'+boundary+CRLF+'Content-Type: text/html'+CRLF+CRLF+htmlContent
+    +CRLF+'--'+boundary+'--';
+  const up=await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart',{
+    method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'multipart/related; boundary='+boundary},body
+  });
+  if(!up.ok){const e=await up.text();throw new Error(e);}
+  return await up.json();
+}
+
+async function archiveToDrive(htmlContent,filename,mois,annee,logement){
+  if(!GDRIVE_CLIENT_ID||GDRIVE_CLIENT_ID==='VOTRE_CLIENT_ID'){console.log('Drive non configuré');return null;}
+  try{
+    const account=getDriveAccount(logement||'');
+    const token=await getGdriveToken(account.key,account.hint);
+    const yearId=await getOrCreateFolder(token,String(annee),GDRIVE_ROOT_FOLDER_ID);
+    const monthId=await getOrCreateFolder(token,mois,yearId);
+    const file=await uploadToDrive(token,htmlContent,filename,monthId);
+    console.log('✓ Archivé sur Drive ('+account.label+'):',filename,'→',file.id);
+    return file.id;
+  }catch(e){console.warn('Drive archive failed:',e.message);return null;}
+}
+
+async function archiveEauToDrive(htmlContent,filename,mois,annee){
+  if(!GDRIVE_CLIENT_ID)return null;
+  try{
+    const token=await getGdriveToken('antoine','antoinejoss56@gmail.com');
+    const eauId=await getOrCreateFolder(token,'Factures Eau',GDRIVE_ROOT_FOLDER_ID);
+    const yearId=await getOrCreateFolder(token,String(annee),eauId);
+    const monthId=await getOrCreateFolder(token,mois,yearId);
+    const file=await uploadToDrive(token,htmlContent,filename,monthId);
+    console.log('✓ Facture eau archivée:',filename,'→',file.id);
+    return file.id;
+  }catch(e){console.warn('Drive eau archive failed:',e.message);return null;}
+}
+
+// ============================================================
+// GOOGLE DRIVE PICKER
+// ============================================================
+const GDRIVE_PICKER_APP_ID='96627378010';
+function openDrivePicker(callback){
+  if(!window.google?.picker){
+    if(typeof gapi==='undefined'){alert('Google API non disponible');return;}
+    gapi.load('picker',()=>_openPicker(callback));
+  }else{_openPicker(callback);}
+}
+function _openPicker(callback){
+  getGdriveToken('antoine','antoinejoss56@gmail.com').then(token=>{
+    const view=new google.picker.DocsView().setIncludeFolders(true).setSelectFolderEnabled(false);
+    new google.picker.PickerBuilder()
+      .setAppId(GDRIVE_PICKER_APP_ID).setOAuthToken(token)
+      .addView(view).addView(new google.picker.DocsUploadView())
+      .setTitle('Sélectionner un document Drive')
+      .setCallback(data=>{
+        if(data.action===google.picker.Action.PICKED){
+          const doc=data.docs[0];
+          callback({name:doc.name,url:doc.url||'https://drive.google.com/file/d/'+doc.id+'/view',id:doc.id,mimeType:doc.mimeType});
+        }
+      }).build().setVisible(true);
+  }).catch(e=>alert('Connexion Drive requise : '+e.message));
+}
+
+// ============================================================
+// QUITTANCES & FACTURES
+// ============================================================
+async function autoSendQuittance(tenant,payment,mois,annee){
+  if(!tenant.email)return;
+  const fmt=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR',minimumFractionDigits:2}).format(n||0);
+  const isCommercial=tenant.type_bail==='commercial';
+  const charges=parseFloat(tenant.charges||0);
+  const total=parseFloat(payment.loyer||tenant.loyer_ref||0);
+  const datePaiement=payment.date_loc?new Date(payment.date_loc).toLocaleDateString('fr-FR'):new Date().toLocaleDateString('fr-FR');
+  const moisNum=String(['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'].indexOf(mois)+1).padStart(2,'0');
+  const invoiceNum=annee+'-'+moisNum+'-'+tenant.logement.replace(/[^A-Z0-9]/gi,'').toUpperCase().slice(0,6);
+  const emailHtml=isCommercial
+    ?buildFactureHtml(tenant,payment,mois,annee,total,charges,total,datePaiement,invoiceNum,fmt)
+    :buildQuittanceHtml(tenant,payment,mois,annee,total,charges,total,datePaiement,fmt);
+  const subject=isCommercial
+    ?'Facture de loyer '+mois+' '+annee+' — '+tenant.logement+' — N°'+invoiceNum
+    :'Quittance de loyer '+mois+' '+annee+' — '+tenant.logement;
+  // Archive Drive
+  const driveFilename=(tenant.logement||'').replace(/[^a-zA-Z0-9]/g,'-').replace(/-+/g,'-')
+    +'_'+mois+'_'+annee+(isCommercial?'_Facture':'_Quittance');
+  archiveToDrive(emailHtml,driveFilename,mois,annee,tenant.logement||'');
+  // Envoi Brevo
+  if(!BREVO_API_KEY)BREVO_API_KEY=ensureBrevoKey();
+  if(!BREVO_API_KEY)throw new Error('Clé Brevo manquante');
+  const resp=await fetch('https://api.brevo.com/v3/smtp/email',{
+    method:'POST',
+    headers:{'api-key':BREVO_API_KEY,'Content-Type':'application/json','Accept':'application/json'},
+    body:JSON.stringify({sender:{name:FROM_NAME,email:FROM_EMAIL},to:[{email:tenant.email,name:tenant.nom}],bcc:[{email:ALERT_EMAIL}],subject,htmlContent:emailHtml})
+  });
+  if(!resp.ok){const t=await resp.text();const w=window.open('','_blank');if(w){w.document.write(emailHtml);w.document.close();}throw new Error(t);}
+  const w=window.open('','_blank');if(w){w.document.write(emailHtml);w.document.close();}
+  return true;
+}
+
+async function sendFactureEau(releve,cpt,tenant,conso,montant,prix){
+  const fmt=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR',minimumFractionDigits:2}).format(n||0);
+  const dateReleve=dateLabel(releve.date);
+  const invoiceNum=releve.date.replace(/-/g,'').slice(0,8)+'-EAU-'+tenant.logement.replace(/[^A-Z0-9]/gi,'').toUpperCase().slice(0,4);
+  const montantHT=Math.round(montant/1.2*100)/100;
+  const montantTVA=Math.round((montant-montantHT)*100)/100;
+  const html=buildFactureEauHtml(tenant,cpt,conso,montant,montantHT,montantTVA,prix,dateReleve,invoiceNum,releve,fmt);
+  const subject='Facture eau — '+dateReleve+' — '+tenant.logement+' — N°'+invoiceNum;
+  // Archive Drive
+  const d=releve.date||new Date().toISOString().slice(0,10);
+  const moisEau=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'][parseInt(d.slice(5,7))-1]||'';
+  const anneeEau=parseInt(d.slice(0,4));
+  const driveFilenameEau=(cpt.name||'Compteur').replace(/[^a-zA-Z0-9]/g,'-').replace(/-+/g,'-')
+    +'_'+(tenant.logement||'').replace(/[^a-zA-Z0-9]/g,'-').replace(/-+/g,'-')
+    +'_'+moisEau+'_'+anneeEau+'_Facture-Eau';
+  archiveEauToDrive(html,driveFilenameEau,moisEau,anneeEau);
+  if(!BREVO_API_KEY)BREVO_API_KEY=ensureBrevoKey();
+  const resp=await fetch('https://api.brevo.com/v3/smtp/email',{
+    method:'POST',
+    headers:{'api-key':BREVO_API_KEY,'Content-Type':'application/json','Accept':'application/json'},
+    body:JSON.stringify({sender:{name:FROM_NAME,email:FROM_EMAIL},to:[{email:tenant.email,name:tenant.nom}],bcc:[{email:ALERT_EMAIL}],subject,htmlContent:html})
+  });
+  if(!resp.ok){const t=await resp.text();throw new Error(t);}
+  const w=window.open('','_blank');if(w){w.document.write(html);w.document.close();}
+  return true;
+}
+
+async function sendAccuseEau(releve,cpt,tenant,montant){
+  const fmt=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR',minimumFractionDigits:2}).format(n||0);
+  const dateReleve=dateLabel(releve.date);
+  const today=new Date().toLocaleDateString('fr-FR');
+  const html='<!DOCTYPE html><html><head><meta charset="UTF-8"><style>'
+    +'body{font-family:Arial,sans-serif;max-width:640px;margin:40px auto;padding:30px;color:#222;font-size:14px}'
+    +'.box{border:2px solid #1D9E75;padding:20px;text-align:center;margin:24px 0;border-radius:6px}'
+    +'.somme{font-size:26px;font-weight:bold;color:#1D9E75;margin:8px 0}'
+    +'</style></head><body>'
+    +'<div style="display:flex;justify-content:space-between;margin-bottom:24px">'
+    +'<div><strong>J&A SAVADUR</strong><br>29 RUE AMIRAL BOUVET<br>56100 LORIENT</div>'
+    +'<div style="text-align:right"><strong>'+tenant.nom+'</strong><br>'+tenant.logement+'<br>26 Rue Général Dubail<br>56100 LORIENT</div>'
+    +'</div>'
+    +'<div style="text-align:center;font-size:18px;font-weight:bold;margin:20px 0;text-decoration:underline">ACCUSÉ DE RÉCEPTION DE PAIEMENT</div>'
+    +'<div class="box"><div>Paiement reçu le <strong>'+today+'</strong></div>'
+    +'<div class="somme">'+fmt(montant)+'</div>'
+    +'<div>Facture eau du relevé du '+dateReleve+'</div>'
+    +'<div style="font-size:12px;color:#666;margin-top:8px">'+cpt.name+' — '+tenant.logement+'</div>'
+    +'</div>'
+    +'<p>Nous accusons réception de votre règlement de <strong>'+fmt(montant)+"</strong> concernant votre consommation d\'eau.</p>"
+    +'<div style="margin-top:40px;text-align:right">Fait à Lorient, le '+today+'<br><br><strong>JOSSE Antoine — Gérant J&A SAVADUR</strong></div>'
+    +'</body></html>';
+  if(!BREVO_API_KEY)BREVO_API_KEY=ensureBrevoKey();
+  const resp=await fetch('https://api.brevo.com/v3/smtp/email',{
+    method:'POST',
+    headers:{'api-key':BREVO_API_KEY,'Content-Type':'application/json','Accept':'application/json'},
+    body:JSON.stringify({sender:{name:FROM_NAME,email:FROM_EMAIL},to:[{email:tenant.email,name:tenant.nom}],bcc:[{email:ALERT_EMAIL}],subject:'Accusé de réception paiement eau — '+dateReleve+' — '+tenant.logement,htmlContent:html})
+  });
+  if(!resp.ok){const t=await resp.text();throw new Error(t);}
+  const w=window.open('','_blank');if(w){w.document.write(html);w.document.close();}
+  return true;
+}
+
+function buildQuittanceHtml(tenant,payment,mois,annee,loyer,charges,total,datePaiement,fmt){
+  const caf=parseFloat(payment.caf||0);
+  const locPart=parseFloat(payment.locataire_part||0);
+  const dateLoc=payment.date_loc?new Date(payment.date_loc).toLocaleDateString('fr-FR'):datePaiement;
+  const loyerRef=parseFloat(tenant.loyer_ref||0);
+  const chargesRef=parseFloat(tenant.charges||0);
+  const css='body{font-family:Arial,sans-serif;max-width:680px;margin:40px auto;padding:30px;color:#222;font-size:14px}'
+    +'.header{display:flex;justify-content:space-between;margin-bottom:30px;padding-bottom:20px;border-bottom:2px solid #222}'
+    +'.title{text-align:center;font-size:20px;font-weight:bold;margin:20px 0;text-transform:uppercase;letter-spacing:1px}'
+    +'.subtitle{text-align:center;font-size:14px;margin-bottom:24px;color:#444}'
+    +'.montant-box{border:2px solid #222;padding:20px;text-align:center;margin:24px 0;border-radius:4px}'
+    +'.montant-box .somme{font-size:26px;font-weight:bold;margin:8px 0}'
+    +'table{width:100%;border-collapse:collapse;margin:20px 0;font-size:13px}'
+    +'td{padding:6px 0;vertical-align:top}'
+    +'.mention{font-size:11px;color:#888;margin-top:24px;padding-top:12px;border-top:1px solid #ddd;line-height:1.6}'
+    +'.sig-block{margin-top:40px;display:flex;justify-content:space-between;align-items:flex-end}'
+    +'.sig-right{text-align:right;font-size:13px}'
+    +'.sig-right .name{font-weight:bold;margin-top:50px;border-top:1px solid #222;padding-top:6px}';
+  return '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>'+css+'</style></head><body>'
+    +'<div class="header">'
+    +'<div><strong>LE BAILLEUR</strong><br>J&A SAVADUR<br>29 RUE VICE AMIRAL BOUVET<br>56100 LORIENT<br>Savadur56@gmail.com<br>06.30.37.06.88</div>'
+    +'<div style="text-align:right"><strong>LE LOCATAIRE</strong><br>'+tenant.nom+'<br>'+tenant.logement+'<br>26 Rue Général Dubail<br>56100 LORIENT</div>'
+    +'</div>'
+    +'<div class="title">Quittance de loyer</div>'
+    +'<div class="subtitle">LOYER '+mois.toUpperCase()+' '+annee+'</div>'
+    +'<div class="montant-box">'
+    +'<div>REÇU LA SOMME DE</div>'
+    +'<div class="somme">'+fmt(loyerRef+chargesRef)+'</div>'
+    +'<div>LE '+dateLoc+'</div>'
+    +(caf>0?'<div style="font-size:13px;color:#555;margin-top:8px">dont part CAF : '+fmt(caf)+' — part locataire : '+fmt(locPart)+'</div>':'')
+    +'</div>'
+    +'<div style="font-size:13px;margin:20px 0;line-height:1.7"><strong>POUR LOYER DU LOGEMENT SITUÉ :</strong><br>'
+    +tenant.logement+'<br>26 RUE GÉNÉRAL DUBAIL<br>56100 LORIENT</div>'
+    +(chargesRef>0?'<table><tr><td>Loyer nu :</td><td>'+fmt(loyerRef)+'</td></tr><tr><td>Charges :</td><td>'+fmt(chargesRef)+'</td></tr><tr><td><strong>Total :</strong></td><td><strong>'+fmt(loyerRef+chargesRef)+'</strong></td></tr></table>':
+    '<table><tr><td>Loyer :</td><td>'+fmt(loyerRef)+'</td></tr></table>')
+    +'<div class="sig-block">'
+    +'<div style="font-size:13px">Fait à Lorient, le '+new Date().toLocaleDateString('fr-FR')+'</div>'
+    +'<div class="sig-right"><div>GÉRANT J&A SAVADUR</div><div class="name">JOSSE Antoine</div></div>'
+    +'</div>'
+    +'<p class="mention">Cette quittance annule tous reçus antérieurs pour les mêmes objets. Elle ne vaut qu\'après encaissement en cas de paiement par chèque.</p>'
+    +'</body></html>';
+}
+
+function buildFactureHtml(tenant,payment,mois,annee,loyer,charges,total,datePaiement,invoiceNum,fmt){
+  const loyerHT=parseFloat(tenant.loyer_ref||0);
+  const loyerTVA=Math.round(loyerHT*0.2*100)/100;
+  const loyerTTC=Math.round((loyerHT+loyerTVA)*100)/100;
+  const chargesHT=parseFloat(tenant.charges||0);
+  const chargesTVA=chargesHT>0?Math.round(chargesHT*0.2*100)/100:0;
+  const chargesTTC=Math.round((chargesHT+chargesTVA)*100)/100;
+  const totalHT=loyerHT+chargesHT;
+  const totalTVA=loyerTVA+chargesTVA;
+  const totalTTC=loyerTTC+chargesTTC;
+  const dateLoc=payment.date_loc?new Date(payment.date_loc).toLocaleDateString('fr-FR'):datePaiement;
+  const css='body{font-family:Arial,sans-serif;max-width:680px;margin:40px auto;padding:30px;color:#222;font-size:14px}'
+    +'.header{display:flex;justify-content:space-between;margin-bottom:24px}'
+    +'.title{text-align:center;font-size:20px;font-weight:bold;margin:20px 0;text-decoration:underline}'
+    +'.subtitle{text-align:center;font-size:14px;font-weight:bold;margin-bottom:20px}'
+    +'table{width:100%;border-collapse:collapse;margin:16px 0;font-size:13px}'
+    +'th{background:#222;color:#fff;padding:8px 10px;text-align:center;font-weight:500}'
+    +'td{padding:8px 10px;border:1px solid #ddd;text-align:center}'
+    +'td:first-child{text-align:left}'
+    +'.total-row td{font-weight:bold;font-size:15px;background:#f0f0f0;border-top:2px solid #222}'
+    +'.sig-block{margin-top:40px;text-align:right;font-size:13px}';
+  return '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>'+css+'</style></head><body>'
+    +'<div class="header">'
+    +'<div><strong>J&A SAVADUR</strong><br>29 RUE AMIRAL BOUVET<br>56100 LORIENT<br>savadur56@gmail.com<br>06.30.37.06.88</div>'
+    +'<div style="text-align:right"><strong>'+tenant.nom+'</strong><br>'+tenant.logement+'<br>26 rue général Dubail<br>56100 Lorient</div>'
+    +'</div>'
+    +'<div class="title">Facture de loyer</div>'
+    +'<div class="subtitle">'+mois+' '+annee+' — N° '+invoiceNum+'</div>'
+    +'<table><thead><tr><th>Description</th><th>Prix HT</th><th>TVA 20%</th><th>Prix TTC</th></tr></thead><tbody>'
+    +'<tr><td>Loyer mensuel</td><td>'+fmt(loyerHT)+'</td><td>'+fmt(loyerTVA)+'</td><td>'+fmt(loyerTTC)+'</td></tr>'
+    +(chargesHT>0?'<tr><td>Provisions sur charges</td><td>'+fmt(chargesHT)+'</td><td>'+fmt(chargesTVA)+'</td><td>'+fmt(chargesTTC)+'</td></tr>':'')
+    +'<tr class="total-row"><td colspan="3">TOTAL TTC</td><td>'+fmt(totalTTC)+'</td></tr>'
+    +'</tbody></table>'
+    +'<p style="font-size:13px">Date de paiement : '+dateLoc+'</p>'
+    +'<div class="sig-block">SCI J&A SAVADUR<br>savadur56@gmail.com<br><br><strong>JOSSE Antoine — Gérant</strong></div>'
+    +'<p style="font-size:11px;color:#888;margin-top:24px">Facture établie par J&A SAVADUR. TVA 20% appliquée. Conserver ce document pour votre comptabilité.</p>'
+    +'</body></html>';
+}
+
+function buildFactureEauHtml(tenant,cpt,conso,montant,montantHT,montantTVA,prix,dateReleve,invoiceNum,releve,fmt){
+  return '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>'
+    +'body{font-family:Arial,sans-serif;max-width:680px;margin:40px auto;padding:30px;color:#222;font-size:14px}'
+    +'.header{display:flex;justify-content:space-between;margin-bottom:24px}'
+    +'.title{text-align:center;font-size:20px;font-weight:bold;margin:20px 0;text-decoration:underline}'
+    +'table{width:100%;border-collapse:collapse;margin:16px 0;font-size:13px}'
+    +'th{background:#222;color:#fff;padding:8px 10px;text-align:center;font-weight:500}'
+    +'td{padding:8px 10px;border:1px solid #ddd;text-align:center}'
+    +'td:first-child{text-align:left}'
+    +'.total-row td{font-weight:bold;background:#f0f0f0;border-top:2px solid #222}'
+    +'</style></head><body>'
+    +'<div class="header">'
+    +'<div><strong>J&A SAVADUR</strong><br>29 RUE AMIRAL BOUVET<br>56100 LORIENT<br>savadur56@gmail.com</div>'
+    +'<div style="text-align:right"><strong>'+tenant.nom+'</strong><br>'+tenant.logement+'<br>26 rue général Dubail<br>56100 Lorient</div>'
+    +'</div>'
+    +'<div class="title">Facture Eau</div>'
+    +'<div style="text-align:center;font-weight:bold;margin-bottom:20px">Relevé du '+dateReleve+' — N° '+invoiceNum+'</div>'
+    +'<div style="background:#f8f8f8;padding:10px 14px;border-radius:4px;font-size:12px;margin:12px 0;border:1px solid #ddd">'
+    +'Compteur : <strong>'+cpt.name+'</strong>'+(cpt.numero_serie?' — N° série : '+cpt.numero_serie:'')
+    +'<br>Ancien index : <strong>'+releve.ancien_index+' '+(cpt.unite||'m³')+'</strong>'
+    +' → Nouvel index : <strong>'+releve.nouvel_index+' '+(cpt.unite||'m³')+'</strong>'
+    +'<br>Consommation : <strong>'+conso+' '+(cpt.unite||'m³')+'</strong> × '+prix+' €/m³</div>'
+    +'<table><thead><tr><th>Description</th><th>Quantité</th><th>Prix HT</th><th>TVA</th><th>Prix TTC</th></tr></thead><tbody>'
+    +'<tr><td>Consommation eau</td><td>'+conso+' m³</td><td>'+fmt(montantHT)+'</td><td>'+fmt(montantTVA)+'</td><td>'+fmt(montant)+'</td></tr>'
+    +'<tr class="total-row"><td colspan="4">TOTAL TTC</td><td>'+fmt(montant)+'</td></tr>'
+    +'</tbody></table>'
+    +'<div style="margin-top:40px;text-align:right;font-size:13px">SCI J&A SAVADUR<br>savadur56@gmail.com<br><br><strong>JOSSE Antoine — Gérant</strong></div>'
+    +'</body></html>';
 }
 
 
