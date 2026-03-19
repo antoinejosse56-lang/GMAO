@@ -1898,6 +1898,37 @@ function printLabel(tool, siteUrl){
   w.document.close();
 }
 
+function printCsoLabel(emp, items, siteUrl){
+  const qrData = siteUrl+'?cso_emp='+encodeURIComponent(emp);
+  const list = items.slice(0,12).map(i=>`<tr><td style="padding:3px 6px;font-size:11px">${i.nom}</td><td style="padding:3px 6px;font-size:11px;text-align:center">${i.stock||0} ${i.unite||'u'}</td><td style="padding:3px 6px;font-size:10px;color:#888">${i.reference||''}</td></tr>`).join('');
+  const w=window.open('','_blank','width=420,height:500');
+  if(!w){alert('Popup bloquée');return;}
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${emp}</title>
+  <style>body{font-family:Arial,sans-serif;background:#f0f0f0;padding:20px;display:flex;flex-direction:column;align-items:center;gap:12px}
+  .label{background:#fff;border:2px solid #111;border-radius:8px;width:340px;overflow:hidden}
+  .hd{background:#111;color:#fff;padding:8px 12px;font-weight:700;font-size:13px;display:flex;justify-content:space-between}
+  .body{display:flex;gap:10px;padding:10px 12px}
+  table{width:100%;border-collapse:collapse}th{background:#f5f5f5;font-size:11px;padding:4px 6px;text-align:left}
+  .btns{display:flex;gap:8px}.btn{padding:8px 18px;border:none;border-radius:6px;cursor:pointer;font-size:13px}
+  .bp{background:#111;color:#fff;font-weight:600}.bc{background:#eee}
+  @media print{body{background:#fff;padding:0}.btns{display:none}.label{box-shadow:none;width:300px;margin:0 auto}.hd{background:#000!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}}</style>
+  </head><body>
+  <div class="label">
+    <div class="hd"><span>📦 ${emp}</span><span style="font-weight:400;font-size:10px">${items.length} article(s)</span></div>
+    <div class="body">
+      <div><canvas id="qrc" width="90" height="90"></canvas></div>
+      <div style="flex:1">
+        <table><thead><tr><th>Désignation</th><th>Stock</th><th>Réf.</th></tr></thead><tbody>${list}</tbody></table>
+        ${items.length>12?`<div style="font-size:10px;color:#888;margin-top:4px">+ ${items.length-12} autres</div>`:''}
+      </div>
+    </div>
+  </div>
+  <div class="btns"><button class="btn bp" onclick="window.print()">🖨 Imprimer</button><button class="btn bc" onclick="window.close()">Fermer</button></div>
+  <script>var img=new Image();img.onload=function(){var c=document.getElementById('qrc');var ctx=c.getContext('2d');ctx.drawImage(img,0,0,90,90);};img.src='https://api.qrserver.com/v1/create-qr-code/?size=90x90&data='+encodeURIComponent('${qrData}');<\/script>
+  </body></html>`);
+  w.document.close();
+}
+
 function printLocationLabel(loc, tools, siteUrl){
   const qrData = siteUrl+'?location='+encodeURIComponent(loc);
   const toolList = tools.slice(0,8).map(t=>'• '+t.name).join('<br>');
@@ -2761,7 +2792,31 @@ function renderModal(){
     </div>
     <div class="form-group"><label>Notes</label><input id="m-ln" placeholder="Ex: Chantier cuisine..."></div>${mf}`;}
 
-  if(m.type==='add-mt'){html=`${mhd("Nouvelle gamme d'entretien")}
+  if(m.type==='edit-mt'){
+    const mt=m.mt||{};
+    html=`${mhd('Modifier — '+(mt.name||''))}
+    <div class="form-group"><label>Nom *</label><input id="m-mn" value="${mt.name||''}"></div>
+    <div class="form-group"><label>Description</label><textarea id="m-md">${mt.description||''}</textarea></div>
+    <div class="g2c">
+      <div class="form-group"><label>Priorité</label><select id="m-mprio">
+        ${['low','medium','high'].map(p=>`<option value="${p}" ${mt.priority===p?'selected':''}>${p==='low'?'Basse':p==='medium'?'Moyenne':'Haute'}</option>`).join('')}
+      </select></div>
+      <div class="form-group"><label>Intervenant</label>
+        <select id="m-muser">
+          <option value="">— Aucun —</option>
+          ${S.users.map(u=>`<option value="${u.id}" ${mt.assigned_to===u.id?'selected':''}>${u.name}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    ${mt.type==='periodic'?`<div class="g2c">
+      <div class="form-group"><label>Périodicité (jours)</label><input id="m-mperiod" type="number" value="${mt.period_days||30}"></div>
+      <div class="form-group"><label>Dernière réalisation</label><input id="m-mlast" type="date" value="${mt.last_done||''}"></div>
+    </div>`:''}
+    <div class="form-group"><label>Prochaine échéance</label><input id="m-mnext" type="date" value="${mt.next_due||mt.due_date||''}"></div>
+    ${mf}`;
+  }
+
+    if(m.type==='add-mt'){html=`${mhd("Nouvelle gamme d'entretien")}
     <div class="form-group"><label>Nom *</label><input id="m-mn"></div>
     <div class="form-group"><label>Équipement *</label><select id="m-ma">${S.assets.map(a=>`<option value="${a.id}">${a.name}</option>`).join('')}</select></div>
     <div class="form-group"><label>Description</label><textarea id="m-md"></textarea></div>
@@ -3448,64 +3503,6 @@ async function saveModal(){
     const upd={name:q('m-tn').value,category:q('m-tc').value,status:q('m-ts').value,location:location2,description:q('m-tdesc').value,notes:q('m-tnotes').value};
     await sb.from('tools').update(upd).eq('id',t.id);Object.assign(t,upd);}
 
-  if(m.type==='checklist-wo'){
-    const w=m.wo;
-    const items=w.checklist||[];
-    html=`${mhd('📋 Check-list — '+w.title)}
-    <div style="margin-bottom:12px">
-      ${items.map((item,idx)=>`
-        <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:0.5px solid var(--border)">
-          <div style="width:22px;height:22px;border-radius:4px;border:2px solid ${item.done?'var(--green)':'var(--border2)'};background:${item.done?'var(--green)':'transparent'};display:flex;align-items:center;justify-content:center;flex-shrink:0;cursor:pointer" data-cl-toggle="${idx}">
-            ${item.done?'<svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke="#fff" stroke-width="2" fill="none"/></svg>':''}
-          </div>
-          <span style="font-size:13px">${item.type==='cso'?'📦':'🔧'}</span>
-          <div style="flex:1">
-            <div style="font-size:13px;font-weight:500;${item.done?'text-decoration:line-through;color:var(--text2)':''}">${item.nom}</div>
-            ${item.quantite>1?`<div style="font-size:11px;color:var(--text2)">Quantité : ${item.quantite}</div>`:''}
-          </div>
-        </div>`).join('')}
-      ${items.length===0?'<div style="color:var(--text2);font-size:12px">Aucun élément dans la check-list.</div>':''}
-    </div>
-    <div style="font-size:12px;color:var(--text2);text-align:center">${items.filter(i=>i.done).length} / ${items.length} éléments validés</div>
-    ${mf}`;
-  }
-
-  if(m.type==='quick-tool'){
-    const t=m.tool;
-    const loan=S.loans.find(l=>l.tool_id===t.id&&!l.returned);
-    html=`${mhd('📷 Outil scanné — '+t.name)}
-    <div style="background:var(--bg2);padding:12px;border-radius:var(--radius);margin-bottom:14px">
-      <div style="font-size:15px;font-weight:500">${t.name}</div>
-      <div style="font-size:12px;color:var(--text2)">${t.category||''} · ${t.location||'—'}</div>
-      <div style="margin-top:6px"><span class="badge ${t.status==='available'?'bgreen':t.status==='loaned'?'bamber':'bred'}">${t.status==='available'?'Disponible':t.status==='loaned'?'Prêté':'Maintenance'}</span></div>
-      ${loan?`<div style="font-size:12px;color:var(--amber);margin-top:6px">⚠ Prêté à ${loan.borrower} — retour le ${dateLabel(loan.expected_return)}</div>`:''}
-    </div>
-    ${t.status==='available'?`<button class="btn btn-p" style="width:100%;margin-bottom:8px" id="btn-quick-lend">📤 Enregistrer un prêt</button>`:''}
-    ${t.status==='loaned'?`<button class="btn btn-p" style="width:100%;margin-bottom:8px" id="btn-quick-return">📥 Retour de l'outil</button>`:''}
-    <button class="btn" style="width:100%" id="btn-quick-inv">✓ Marquer présent (inventaire)</button>
-    ${mf}`;
-  }
-
-  if(m.type==='lend-tool'){
-    const b=q('m-lb').value.trim(),r=q('m-lr').value;if(!b||!r)return alert('Emprunteur et date requise');
-    const tool=S.tools.find(t=>t.id===m.toolId);if(tool){tool.status='loaned';await sb.from('tools').update({status:'loaned'}).eq('id',tool.id);}
-    const {data}=await sb.from('loans').insert({tool_id:m.toolId,borrower:b,date:q('m-ld').value,expected_return:r,returned:false,notes:q('m-ln').value}).select().single();
-    if(data)S.loans.push(data);}
-
-  if(m.type==='add-mt'){
-    const name=q('m-mn').value.trim();if(!name)return alert('Nom requis');
-    const type=q('m-mtype').value;
-    const autobt=q('m-mautobt')?.checked||false;
-    const btcat=q('m-mbtcat')?.value||'Entretien';
-    let rec={name,asset_id:q('m-ma').value,type,description:q('m-md').value,priority:q('m-mprio').value,assigned_to:q('m-muser').value,auto_bt:autobt,bt_category:btcat};
-    if(type==='periodic'){
-      const p=parseInt(q('m-mperiod').value)||365;const last=q('m-mlast').value;
-      const base=last?new Date(last):new Date();base.setDate(base.getDate()+p);
-      rec={...rec,period_days:p,last_done:last||null,next_due:base.toISOString().split('T')[0]};
-    }else{const due=q('m-mdue').value;if(!due)return alert('Date requise');rec={...rec,due_date:due};}
-    const {data}=await sb.from('maintenance_templates').insert(rec).select().single();
-    if(data)S.maintenanceTemplates.push(data);}
-
   if(m.type==='add-user'){
     const name=q('m-un').value.trim(),email=q('m-ue').value.trim(),pass=q('m-up').value;if(!name||!email||!pass)return alert('Champs requis');
     const checked=[...document.querySelectorAll('.ac:checked')].map(c=>c.value);
@@ -3549,55 +3546,7 @@ async function saveModal(){
     S.topoState.propId=np.id;S.topoState.zoneId=null;S.topoState.subZoneId=null;S.topoState.tradeId=null;
     await saveTopoToDB();}
 
-  if(m.type==='add-water'||m.type==='edit-water'){
-    const w=m.water||{};
-    const moisList=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
-    html=`${mhd(m.type==='add-water'?'Nouveau relevé eau':'Modifier relevé')}
-    <div class="g2c">
-      <div class="form-group"><label>Logement *</label><input id="m-wlog" value="${w.logement||''}" placeholder="Ex: Appartement 1"></div>
-      <div class="form-group"><label>Locataire</label><select id="m-wten">
-        <option value="">— Sélectionner —</option>
-        ${S.tenants.map(t=>`<option value="${t.id}" ${w.tenant_id===t.id?'selected':''}>${t.nom} (${t.logement})</option>`).join('')}
-      </select></div>
-    </div>
-    <div class="g2c">
-      <div class="form-group"><label>Mois</label><select id="m-wmois">${moisList.map(mo=>`<option ${w.mois===mo?'selected':''}>${mo}</option>`).join('')}</select></div>
-      <div class="form-group"><label>Année</label><select id="m-wannee"><option ${w.annee===2025?'selected':''}>2025</option><option ${w.annee===2026||!w.annee?'selected':''}>2026</option></select></div>
-    </div>
-    <div class="g2c">
-      <div class="form-group"><label>Ancien index (m³)</label><input id="m-wanc" type="number" step="0.001" value="${w.ancien_index||''}"></div>
-      <div class="form-group"><label>Nouvel index (m³)</label><input id="m-wnouv" type="number" step="0.001" value="${w.nouvel_index||''}"></div>
-    </div>
-    <div class="g2c">
-      <div class="form-group"><label>Prix unitaire (€/m³)</label><input id="m-wprix" type="number" step="0.01" value="${w.prix_unitaire||0}"></div>
-      <div class="form-group"><label>Montant facturé (€)</label><input id="m-wmnt" type="number" step="0.01" value="${w.montant||0}"></div>
-    </div>
-    <div class="g2c">
-      <div class="form-group"><label>Date paiement</label><input id="m-wdate" type="date" value="${w.date_paiement||''}"></div>
-      <div class="form-group"><label>Payé</label><select id="m-wpaye"><option value="false" ${!w.paye?'selected':''}>Non</option><option value="true" ${w.paye?'selected':''}>Oui</option></select></div>
-    </div>
-    ${mf}`;
-  }
 
-  if(m.type==='add-tenant'||m.type==='edit-tenant'){
-    const nom=q('m-tnom').value.trim();if(!nom)return alert('Nom requis');
-    const rec={nom,logement:q('m-tlog').value,email:q('m-temail').value,telephone:q('m-ttel').value,
-      loyer_ref:parseFloat(q('m-tloy').value)||0,charges:parseFloat(q('m-tch').value)||0,
-      caution:parseFloat(q('m-tcau').value)||0,dette:parseFloat(q('m-tdet').value)||0,
-      date_entree:q('m-tent').value||null,date_sortie:q('m-tsort').value||null,
-      type_bail:q('m-tbail')?.value||'habitation',
-      caf:q('m-tcaf').value==='true',actif:q('m-tact').value==='true',notes:q('m-tnotes').value};
-    if(m.type==='add-tenant'){
-      const {data,error}=await sb.from('tenants').insert(rec).select().single();
-      if(error){alert('Erreur lors de la sauvegarde : '+error.message);return;}
-      if(data){S.tenants.push(data);}
-    }else{
-      const {error}=await sb.from('tenants').update(rec).eq('id',m.tenant.id);
-      if(error){alert('Erreur lors de la mise à jour : '+error.message);return;}
-      Object.assign(m.tenant,rec);
-    }
-    S.locatifTab='tenants';
-  }
 
   if(m.type==='add-water'||m.type==='edit-water'){
     const anc=parseFloat(q('m-wanc').value)||null;
@@ -3616,47 +3565,6 @@ async function saveModal(){
       await sb.from('water_readings').update(rec).eq('id',m.water.id);
       Object.assign(m.water,rec);
     }
-  }
-
-  if(m.type==='edit-tenant'){
-    const log = (S.locatif?.logements||[]).find(l=>l.id===m.logId)||{};
-    html=`${mhd('Fiche locataire — '+log.name)}
-    <div class="g2c">
-      <div class="form-group"><label>Nom du locataire</label><input id="m-ten-name" value="${log.tenant||''}"></div>
-      <div class="form-group"><label>Email *</label><input id="m-ten-email" type="email" value="${log.tenant_email||''}" placeholder="locataire@email.fr"></div>
-    </div>
-    <div class="g2c">
-      <div class="form-group"><label>Loyer mensuel (€)</label><input id="m-ten-loyer" type="number" value="${log.loyer_base||0}"></div>
-      <div class="form-group"><label>Charges (€)</label><input id="m-ten-charges" type="number" value="${log.charges||0}"></div>
-    </div>
-    <div class="g2c">
-      <div class="form-group"><label>Dépôt de garantie (€)</label><input id="m-ten-dg" type="number" value="${log.depot_garantie||0}"></div>
-      <div class="form-group"><label>Début du bail</label><input id="m-ten-debut" type="date" value="${log.bail_debut||''}"></div>
-    </div>
-    <div class="form-group"><label>Fin du bail</label><input id="m-ten-fin" type="date" value="${log.bail_fin||''}"></div>
-    <div class="form-group"><label>Notes</label><textarea id="m-ten-notes">${log.notes||''}</textarea></div>
-    ${mf}`;
-  }
-
-  if(m.type==='add-water'){
-    html=`${mhd('Nouveau relevé eau')}
-    <div class="form-group"><label>Logement *</label><select id="m-wat-log">
-      ${(S.locatif?.logements||[]).map(l=>`<option value="${l.id}">${l.name}</option>`).join('')}
-    </select></div>
-    <div class="g2c">
-      <div class="form-group"><label>Année</label><input id="m-wat-year" type="number" value="${new Date().getFullYear()}"></div>
-      <div class="form-group"><label>Période</label><select id="m-wat-period"><option>Janvier</option><option>Mars</option><option>Juin</option><option>Décembre</option></select></div>
-    </div>
-    <div class="g2c">
-      <div class="form-group"><label>Ancien index (m³)</label><input id="m-wat-old" type="number" step="0.001"></div>
-      <div class="form-group"><label>Nouvel index (m³)</label><input id="m-wat-new" type="number" step="0.001"></div>
-    </div>
-    <div class="g2c">
-      <div class="form-group"><label>Prix/m³ (€)</label><input id="m-wat-prix" type="number" step="0.0001"></div>
-      <div class="form-group"><label>Montant facturé (€)</label><input id="m-wat-mnt" type="number" step="0.01"></div>
-    </div>
-    <div class="form-group"><label>Date paiement</label><input id="m-wat-date" type="date"></div>
-    ${mf}`;
   }
 
   if(m.type==='edit-tenant'){
@@ -4319,25 +4227,7 @@ function bindAll(){
     }
   }
 
-  // Rangements
-  const btnAddRng=document.getElementById('btn-add-rng');
-  if(btnAddRng)btnAddRng.onclick=()=>{S.modal={type:'add-rng'};render();};
-  const btnAddRng2=document.getElementById('btn-add-rng2');
-  if(btnAddRng2)btnAddRng2.onclick=()=>{S.modal={type:'add-rng'};render();};
-  const btnAddLoc=document.getElementById('btn-add-location');
-  if(btnAddLoc)btnAddLoc.onclick=()=>{S.modal={type:'add-rng'};render();};
-  document.querySelectorAll('[data-edit-rng]').forEach(el=>el.onclick=()=>{
-    const r=S.rangements.find(x=>x.id===el.dataset.editRng);
-    if(r){S.modal={type:'edit-rng',rng:r};render();}
-  });
-  document.querySelectorAll('[data-del-rng]').forEach(el=>el.onclick=async()=>{
-    const r=S.rangements.find(x=>x.id===el.dataset.delRng);
-    if(!r)return;
-    const toolsInRng=S.tools.filter(t=>t.location===r.nom).length;
-    if(toolsInRng>0&&!confirm(`Ce rangement contient ${toolsInRng} outil(s). Supprimer quand même ?`))return;
-    await sb.from('rangements').delete().eq('id',r.id);
-    S.rangements=S.rangements.filter(x=>x.id!==r.id);render();
-  });
+
   // Toggle custom location input in tool modal
   const locSel=document.getElementById('m-tl');
   if(locSel&&locSel.tagName==='SELECT'){
@@ -4495,763 +4385,270 @@ function bindAll(){
   if(q('mc'))q('mc').onclick=closeModal;
   if(q('mc2'))q('mc2').onclick=closeModal;
   if(q('ms'))q('ms').onclick=saveModal;
-}
 
-// ============================================================
-// GOOGLE DRIVE ARCHIVAGE
-// ============================================================
-// Deux comptes Drive selon le bien :
-//   - "26 rue général dubail" → savadur56@gmail.com (J&A SAVADUR)
-//   - Autres biens → antoinejoss56@gmail.com
-// Un seul Client ID suffit — l'utilisateur choisit le compte à la connexion OAuth
-const GDRIVE_CLIENT_ID = '96627378010-nhb6r1lqsg2t904iv4pprnhc2h2u3vpv.apps.googleusercontent.com';
-const GDRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
-
-// Tokens séparés par compte
-let gdriveTokens = {};
-
-// Détecter quel compte Drive utiliser selon le logement
-function getDriveAccount(logement){
-  const l = (logement||'').toLowerCase();
-  if(l.includes('dubail') || l.includes('général dubail') || l.includes('general dubail')){
-    return {hint:'savadur56@gmail.com', label:'J&A SAVADUR', key:'savadur'};
-  }
-  return {hint:'antoinejoss56@gmail.com', label:'Antoine Josse', key:'antoine'};
-}
-
-async function getGdriveToken(accountKey, loginHint){
-  const cacheKey = 'gdrive_token_'+accountKey;
-  const expiryKey = 'gdrive_expiry_'+accountKey;
-  if(gdriveTokens[accountKey]) return gdriveTokens[accountKey];
-  const stored = localStorage.getItem(cacheKey);
-  const expiry = parseInt(localStorage.getItem(expiryKey)||'0');
-  if(stored && Date.now() < expiry){ gdriveTokens[accountKey]=stored; return stored; }
-  return new Promise((resolve,reject)=>{
-    const client = google.accounts.oauth2.initTokenClient({
-      client_id: GDRIVE_CLIENT_ID,
-      scope: GDRIVE_SCOPE,
-      hint: loginHint,
-      callback:(resp)=>{
-        if(resp.error){ reject(new Error(resp.error)); return; }
-        gdriveTokens[accountKey] = resp.access_token;
-        localStorage.setItem(cacheKey, resp.access_token);
-        localStorage.setItem(expiryKey, String(Date.now()+(resp.expires_in-60)*1000));
-        resolve(resp.access_token);
-      }
-    });
-    client.requestAccessToken();
-  });
-}
-
-async function getOrCreateFolder(token, name, parentId=null){
-  const q = `name='${name}' and mimeType='application/vnd.google-apps.folder' and trashed=false`+(parentId?` and '${parentId}' in parents`:'');
-  const resp = await fetch('https://www.googleapis.com/drive/v3/files?q='+encodeURIComponent(q)+'&fields=files(id,name)',{
-    headers:{Authorization:'Bearer '+token}
-  });
-  const data = await resp.json();
-  if(data.files&&data.files.length>0) return data.files[0].id;
-  const cr = await fetch('https://www.googleapis.com/drive/v3/files',{
-    method:'POST',
-    headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
-    body:JSON.stringify({name, mimeType:'application/vnd.google-apps.folder', parents:parentId?[parentId]:[]})
-  });
-  const folder = await cr.json();
-  return folder.id;
-}
-
-// Dossier Drive racine pour les quittances/factures loyer ET eau
-// https://drive.google.com/drive/folders/1xEwr6MJf0Z2a7bWPUBdKJ_RNkUJyZ0I3
-const GDRIVE_ROOT_FOLDER_ID = '1xEwr6MJf0Z2a7bWPUBdKJ_RNkUJyZ0I3';
-
-async function uploadToDrive(token, htmlContent, filename, parentFolderId){
-  const boundary = 'gmao_'+Date.now();
-  const meta = JSON.stringify({name:filename+'.html', parents:[parentFolderId], mimeType:'text/html'});
-  const CRLF='\r\n';
-  const body='--'+boundary+CRLF+'Content-Type: application/json'+CRLF+CRLF+meta
-    +CRLF+'--'+boundary+CRLF+'Content-Type: text/html'+CRLF+CRLF+htmlContent
-    +CRLF+'--'+boundary+'--';
-  const up = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart',{
-    method:'POST',
-    headers:{Authorization:'Bearer '+token,'Content-Type':'multipart/related; boundary='+boundary},
-    body
-  });
-  if(!up.ok){ const e=await up.text(); throw new Error(e); }
-  return await up.json();
-}
-
-async function archiveToDrive(htmlContent, filename, mois, annee, logement){
-  if(GDRIVE_CLIENT_ID==='VOTRE_CLIENT_ID_ICI.apps.googleusercontent.com'){
-    console.log('Drive non configuré — archivage ignoré');
-    return null;
-  }
-  try {
-    const account = getDriveAccount(logement||'');
-    console.log('Archivage Drive →', account.label, '('+account.hint+')');
-    const token = await getGdriveToken(account.key, account.hint);
-
-    // Utilise le dossier racine partagé, puis crée sous-dossiers Année/Mois
-    const yearId  = await getOrCreateFolder(token, String(annee), GDRIVE_ROOT_FOLDER_ID);
-    const monthId = await getOrCreateFolder(token, mois, yearId);
-
-    const file = await uploadToDrive(token, htmlContent, filename, monthId);
-    console.log('✓ Archivé sur Drive ('+account.label+'):', filename, '→', file.id);
-    return file.id;
-  } catch(e){
-    console.warn('Drive archive failed:', e.message);
-    return null;
-  }
-}
-
-async function archiveEauToDrive(htmlContent, filename, mois, annee){
-  if(GDRIVE_CLIENT_ID==='VOTRE_CLIENT_ID_ICI.apps.googleusercontent.com') return null;
-  try {
-    // Factures eau → même dossier racine, sous-dossier Eau/Année/Mois
-    const token = await getGdriveToken('antoine', 'antoinejoss56@gmail.com');
-    const eauId   = await getOrCreateFolder(token, 'Factures Eau', GDRIVE_ROOT_FOLDER_ID);
-    const yearId  = await getOrCreateFolder(token, String(annee), eauId);
-    const monthId = await getOrCreateFolder(token, mois, yearId);
-    const file = await uploadToDrive(token, htmlContent, filename, monthId);
-    console.log('✓ Facture eau archivée:', filename, '→', file.id);
-    return file.id;
-  } catch(e){
-    console.warn('Drive eau archive failed:', e.message);
-    return null;
-  }
-}
-
-
-// ============================================================
-// GOOGLE DRIVE PICKER
-// ============================================================
-const GDRIVE_PICKER_APP_ID = '96627378010';  // = numéro avant le tiret dans le Client ID
-
-function openDrivePicker(callback){
-  // Load picker API if not loaded
-  if(!window.google?.picker){
-    gapi.load('picker', ()=>_openPicker(callback));
-  } else {
-    _openPicker(callback);
-  }
-}
-
-function _openPicker(callback){
-  getGdriveToken('antoine','antoinejoss56@gmail.com').then(token=>{
-    const view = new google.picker.DocsView()
-      .setIncludeFolders(true)
-      .setSelectFolderEnabled(false);
-    const picker = new google.picker.PickerBuilder()
-      .setAppId(GDRIVE_PICKER_APP_ID)
-      .setOAuthToken(token)
-      .addView(view)
-      .addView(new google.picker.DocsUploadView())
-      .setTitle('Sélectionner un document Drive')
-      .setCallback((data)=>{
-        if(data.action===google.picker.Action.PICKED){
-          const doc=data.docs[0];
-          callback({
-            name: doc.name,
-            url: doc.url||'https://drive.google.com/file/d/'+doc.id+'/view',
-            id: doc.id,
-            mimeType: doc.mimeType
-          });
+  // ============================================================
+  // WORK ORDERS
+  // ============================================================
+  document.querySelectorAll('[data-close-wo]').forEach(el=>el.onclick=async()=>{
+    const w=S.workOrders.find(x=>x.id===el.dataset.closeWo);if(!w)return;
+    const csoItems=(w.checklist||[]).filter(i=>i.type==='cso'&&!i.done);
+    if(csoItems.length>0){
+      const deduct=confirm('Déduire les consommables utilisés du stock ?\n'+csoItems.map(i=>`- ${i.nom} × ${i.quantite}`).join('\n'));
+      if(deduct){
+        for(const item of csoItems){
+          const cso=S.consommables.find(c=>c.id===item.id);
+          if(cso){const ns=Math.max(0,(cso.stock||0)-item.quantite);await sb.from('consommables').update({stock:ns}).eq('id',cso.id);cso.stock=ns;}
         }
-      })
-      .build();
-    picker.setVisible(true);
-  }).catch(e=>{
-    alert('Connexion Drive requise : '+e.message);
-  });
-}
-
-
-// ============================================================
-// EMAIL CONFIG — Brevo (ex-Sendinblue)
-// ============================================================
-// Clé Brevo stockée en localStorage (jamais dans le code)
-function getBrevoKey(){
-  return localStorage.getItem('brevo_api_key')||'';
-}
-function ensureBrevoKey(){
-  let k = localStorage.getItem('brevo_api_key');
-  if(!k){
-    k = prompt('Entrez votre clé API Brevo (commence par xkeysib-) :');
-    if(k && k.trim().startsWith('xkeysib-')){
-      localStorage.setItem('brevo_api_key', k.trim());
-      return k.trim();
-    } else {
-      alert('Clé invalide — les emails ne seront pas envoyés.');
-      return '';
+      }
     }
-  }
-  return k;
-}
-let BREVO_API_KEY = getBrevoKey(); // à remplacer après configuration Brevo
-const ALERT_EMAIL   = 'antoinejoss56@gmail.com';
-const FROM_EMAIL    = 'savadur56@gmail.com';
-const FROM_NAME     = 'J&A SAVADUR';
-
-async function autoSendQuittance(tenant, payment, mois, annee){
-  if(!tenant.email) return;
-  const fmt = n => new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR',minimumFractionDigits:2}).format(n||0);
-  const isCommercial = tenant.type_bail === 'commercial';
-  const charges = parseFloat(tenant.charges||0);
-  // payment.loyer = montant total encaissé (loyer + charges inclus)
-  // Pour habitation : total reçu = payment.loyer, loyer nu = loyer_ref, charges séparées
-  // Pour commercial : buildFactureHtml utilise tenant.loyer_ref et tenant.charges directement
-  const total = parseFloat(payment.loyer||tenant.loyer_ref||0);
-  const loyer = total; // passé tel quel, buildQuittanceHtml calcule loyer nu = loyer_ref
-  const datePaiement = payment.date_loc ? new Date(payment.date_loc).toLocaleDateString('fr-FR') : new Date().toLocaleDateString('fr-FR');
-
-  const moisNum = String(['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'].indexOf(mois)+1).padStart(2,'0');
-  const invoiceNum = annee+'-'+moisNum+'-'+tenant.logement.replace(/[^A-Z0-9]/gi,'').toUpperCase().slice(0,6);
-
-  const emailHtml = isCommercial
-    ? buildFactureHtml(tenant, payment, mois, annee, loyer, charges, total, datePaiement, invoiceNum, fmt)
-    : buildQuittanceHtml(tenant, payment, mois, annee, loyer, charges, total, datePaiement, fmt);
-
-  // Archive sur Google Drive (non-bloquant)
-  const driveFilename = (tenant.logement||'').replace(/[^a-zA-Z0-9]/g,'-').replace(/-+/g,'-')
-    +'_'+mois+'_'+annee
-    +(isCommercial?'_Facture':'_Quittance');
-  archiveToDrive(emailHtml, driveFilename, mois, annee, tenant.logement||'');
-
-  const subject = isCommercial
-    ? 'Facture de loyer '+mois+' '+annee+' — '+tenant.logement+' — N°'+invoiceNum
-    : 'Quittance de loyer '+mois+' '+annee+' — '+tenant.logement;
-
-  // Envoi via Brevo (ex-Sendinblue)
-  const resp = await fetch('https://api.brevo.com/v3/smtp/email',{
-    method:'POST',
-    headers:{
-      'api-key': BREVO_API_KEY,
-      'Content-Type':'application/json',
-      'Accept':'application/json'
-    },
-    body:JSON.stringify({
-      sender:{name:FROM_NAME, email:FROM_EMAIL},
-      to:[{email:tenant.email, name:tenant.nom}],
-      bcc:[{email:ALERT_EMAIL, name:'J&A SAVADUR (copie)'}],
-      subject,
-      htmlContent: emailHtml
-    })
+    await sb.from('work_orders').update({status:'done'}).eq('id',w.id);
+    w.status='done';render();
+  });
+  document.querySelectorAll('[data-edit-wo]').forEach(el=>el.onclick=()=>{
+    const w=S.workOrders.find(x=>x.id===el.dataset.editWo);
+    if(w){S.modal={type:'edit-wo',wo:w};render();}
+  });
+  document.querySelectorAll('[data-del-wo]').forEach(el=>el.onclick=async()=>{
+    if(!confirm('Supprimer ce bon de travaux ?'))return;
+    await sb.from('work_orders').delete().eq('id',el.dataset.delWo);
+    S.workOrders=S.workOrders.filter(x=>x.id!==el.dataset.delWo);render();
+  });
+  document.querySelectorAll('[data-del-wo-doc]').forEach(el=>el.onclick=async e=>{
+    e.stopPropagation();
+    const w=S.workOrders.find(x=>x.id===el.dataset.woId);if(!w)return;
+    w.docs=(w.docs||[]).filter(d=>d.id!==el.dataset.delWoDoc);
+    await sb.from('work_orders').update({docs:w.docs}).eq('id',w.id);render();
+  });
+  document.querySelectorAll('[data-add-wo-doc]').forEach(el=>el.onclick=e=>{
+    e.stopPropagation();S.modal={type:'add-wo-doc',woId:el.dataset.addWoDoc};render();
+  });
+  document.querySelectorAll('[data-checklist-wo]').forEach(el=>el.onclick=()=>{
+    const w=S.workOrders.find(x=>x.id===el.dataset.checklistWo);
+    if(w){S.modal={type:'checklist-wo',wo:w};render();}
+  });
+  document.querySelectorAll('[data-cl-toggle]').forEach(el=>el.onclick=async()=>{
+    const idx=parseInt(el.dataset.clToggle);
+    const w=S.modal?.wo;
+    if(!w||!w.checklist)return;
+    w.checklist[idx].done=!w.checklist[idx].done;
+    await sb.from('work_orders').update({checklist:w.checklist}).eq('id',w.id);render();
   });
 
-  const respText = await resp.text();
-  if(!resp.ok){
-    // Fallback : ouvrir le document pour impression manuelle
-    const w = window.open('','_blank');
-    if(w){ w.document.write(emailHtml); w.document.close(); }
-    let msg = respText;
-    try{ const j=JSON.parse(respText); msg=j.message||j.code||respText; }catch(e){}
-    throw new Error(msg+' — Document ouvert pour impression/PDF.');
-  }
-
-  // Succès : aussi ouvrir pour impression/archivage
-  const w = window.open('','_blank');
-  if(w){ w.document.write(emailHtml); w.document.close(); }
-  console.log('Email envoyé via Brevo à', tenant.email);
-  return true;
-}
-
-// ============================================================
-// FACTURE EAU
-// ============================================================
-async function sendFactureEau(releve, cpt, tenant, conso, montant, prix){
-  const fmt = n => new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR',minimumFractionDigits:2}).format(n||0);
-  const dateReleve = dateLabel(releve.date);
-  const invoiceNum = releve.date.replace(/-/g,'').slice(0,8)+'-EAU-'+tenant.logement.replace(/[^A-Z0-9]/gi,'').toUpperCase().slice(0,4);
-  const montantHT = Math.round(montant/1.2*100)/100;
-  const montantTVA = Math.round((montant-montantHT)*100)/100;
-
-  const html = buildFactureEauHtml(tenant, cpt, conso, montant, montantHT, montantTVA, prix, dateReleve, invoiceNum, releve, fmt);
-  const subject = 'Facture eau — '+dateReleve+' — '+tenant.logement+' — N°'+invoiceNum;
-
-  const resp = await fetch('https://api.brevo.com/v3/smtp/email',{
-    method:'POST',
-    headers:{'api-key':BREVO_API_KEY,'Content-Type':'application/json','Accept':'application/json'},
-    body:JSON.stringify({
-      sender:{name:FROM_NAME,email:FROM_EMAIL},
-      to:[{email:tenant.email,name:tenant.nom}],
-      bcc:[{email:ALERT_EMAIL,name:'J&A SAVADUR (copie)'}],
-      subject,htmlContent:html
-    })
+  // ============================================================
+  // CONSOMMABLES
+  // ============================================================
+  document.querySelectorAll('[data-csotab]').forEach(el=>el.onclick=()=>{S.csoTab=el.dataset.csotab;render();});
+  document.querySelectorAll('[data-csofilter]').forEach(el=>el.onclick=()=>{S.csoFilter=el.dataset.csofilter;render();});
+  const btnAddCso=document.getElementById('btn-add-cso');
+  if(btnAddCso)btnAddCso.onclick=()=>{S.modal={type:'add-cso'};render();};
+  document.querySelectorAll('[data-edit-cso]').forEach(el=>el.onclick=()=>{
+    const c=S.consommables.find(x=>x.id===el.dataset.editCso);
+    if(c){S.modal={type:'edit-cso',cso:c};render();}
   });
-  if(!resp.ok){const t=await resp.text();throw new Error(t);}
-  // Archive sur Drive
-  const dateReleve2 = releve.date||new Date().toISOString().slice(0,10);
-  const moisEau = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'][parseInt(dateReleve2.slice(5,7))-1]||'';
-  const anneeEau = parseInt(dateReleve2.slice(0,4));
-  const driveFilenameEau = (cpt.name||'Compteur').replace(/[^a-zA-Z0-9]/g,'-').replace(/-+/g,'-')
-    +'_'+(tenant.logement||'').replace(/[^a-zA-Z0-9]/g,'-').replace(/-+/g,'-')
-    +'_'+moisEau+'_'+anneeEau+'_Facture-Eau';
-  archiveEauToDrive(html, driveFilenameEau, moisEau, anneeEau);
-  // Open for print/archive
-  const w=window.open('','_blank');
-  if(w){w.document.write(html);w.document.close();}
-  return true;
-}
-
-async function sendAccuseEau(releve, cpt, tenant, montant){
-  const fmt = n => new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR',minimumFractionDigits:2}).format(n||0);
-  const dateReleve = dateLabel(releve.date);
-  const today = new Date().toLocaleDateString('fr-FR');
-
-  const html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>'
-    +'body{font-family:Arial,sans-serif;max-width:640px;margin:40px auto;padding:30px;color:#222;font-size:14px}'
-    +'.header{display:flex;justify-content:space-between;margin-bottom:24px}'
-    +'.title{text-align:center;font-size:18px;font-weight:bold;margin:20px 0;text-decoration:underline}'
-    +'.box{border:2px solid #1D9E75;padding:20px;text-align:center;margin:24px 0;border-radius:6px}'
-    +'.somme{font-size:26px;font-weight:bold;color:#1D9E75;margin:8px 0}'
-    +'.sig{margin-top:40px;text-align:right}'
-    +'</style></head><body>'
-    +'<div class="header">'
-    +'<div><strong>J&A SAVADUR</strong><br>29 RUE AMIRAL BOUVET<br>56100 LORIENT<br>savadur56@gmail.com</div>'
-    +'<div style="text-align:right"><strong>'+tenant.nom+'</strong><br>'+tenant.logement+'<br>26 Rue Général Dubail<br>56100 LORIENT</div>'
-    +'</div>'
-    +'<div class="title">ACCUSÉ DE RÉCEPTION DE PAIEMENT</div>'
-    +'<div class="box">'
-    +'<div>Paiement reçu le <strong>'+today+'</strong></div>'
-    +'<div class="somme">'+fmt(montant)+'</div>'
-    +'<div>Facture eau du relevé du '+dateReleve+'</div>'
-    +'<div style="font-size:12px;color:#666;margin-top:8px">'+cpt.name+' — '+tenant.logement+'</div>'
-    +'</div>'
-    +'<p>Nous accusons réception de votre règlement de <strong>'+fmt(montant)+'</strong> concernant votre consommation d\'eau.<br>Merci pour votre paiement.</p>'
-    +'<div class="sig"><div>Fait à Lorient, le '+today+'</div><br><div>JOSSE Antoine<br><strong>Gérant J&A SAVADUR</strong></div></div>'
-    +'</body></html>';
-
-  const resp = await fetch('https://api.brevo.com/v3/smtp/email',{
-    method:'POST',
-    headers:{'api-key':BREVO_API_KEY,'Content-Type':'application/json','Accept':'application/json'},
-    body:JSON.stringify({
-      sender:{name:FROM_NAME,email:FROM_EMAIL},
-      to:[{email:tenant.email,name:tenant.nom}],
-      bcc:[{email:ALERT_EMAIL}],
-      subject:'Accusé de réception paiement eau — '+dateReleve+' — '+tenant.logement,
-      htmlContent:html
-    })
+  document.querySelectorAll('[data-del-cso]').forEach(el=>el.onclick=async()=>{
+    if(!confirm('Supprimer ?'))return;
+    await sb.from('consommables').delete().eq('id',el.dataset.delCso);
+    S.consommables=S.consommables.filter(x=>x.id!==el.dataset.delCso);render();
   });
-  if(!resp.ok){const t=await resp.text();throw new Error(t);}
-  const w=window.open('','_blank');
-  if(w){w.document.write(html);w.document.close();}
-  return true;
-}
-
-function buildFactureEauHtml(tenant, cpt, conso, montant, montantHT, montantTVA, prix, dateReleve, invoiceNum, releve, fmt){
-  return '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>'
-    +'body{font-family:Arial,sans-serif;max-width:680px;margin:40px auto;padding:30px;color:#222;font-size:14px}'
-    +'.header{display:flex;justify-content:space-between;margin-bottom:24px}'
-    +'.bailleur,.destinataire{font-size:13px;line-height:1.7}'
-    +'.destinataire{text-align:right}'
-    +'.title{text-align:center;font-size:20px;font-weight:bold;margin:20px 0;text-decoration:underline}'
-    +'.subtitle{text-align:center;font-size:14px;font-weight:bold;margin-bottom:20px}'
-    +'table{width:100%;border-collapse:collapse;margin:16px 0;font-size:13px}'
-    +'th{background:#222;color:#fff;padding:8px 10px;text-align:center;font-weight:500}'
-    +'td{padding:8px 10px;border:1px solid #ddd;text-align:center}'
-    +'td:first-child{text-align:left}'
-    +'.total-row td{font-weight:bold;font-size:15px;background:#f0f0f0;border-top:2px solid #222}'
-    +'.index-box{background:#f8f8f8;padding:10px 14px;border-radius:4px;font-size:12px;margin:12px 0;border:1px solid #ddd}'
-    +'.sig-block{margin-top:40px;text-align:right;font-size:13px}'
-    +'</style></head><body>'
-    +'<div class="header">'
-    +'<div class="bailleur"><strong>J&A SAVADUR</strong><br>29 RUE AMIRAL BOUVET<br>56100, LORIENT<br>savadur56@gmail.com<br>06.30.37.06.88</div>'
-    +'<div class="destinataire"><strong>'+tenant.nom+'</strong><br>'+tenant.logement+'<br>26 rue général Dubail<br>56100 Lorient</div>'
-    +'</div>'
-    +'<div class="title">Facture Eau</div>'
-    +'<div class="subtitle">Relevé du '+dateReleve+' — N° '+invoiceNum+'</div>'
-    +'<div class="index-box">Compteur : <strong>'+cpt.name+'</strong>'+(cpt.numero_serie?' — N° série : '+cpt.numero_serie:'')
-    +'<br>Ancien index : <strong>'+releve.ancien_index+' '+( cpt.unite||'m³')+'</strong> → Nouvel index : <strong>'+releve.nouvel_index+' '+(cpt.unite||'m³')+'</strong>'
-    +'<br>Consommation : <strong>'+conso+' '+(cpt.unite||'m³')+'</strong> × '+prix+' €/m³</div>'
-    +'<table>'
-    +'<thead><tr><th>Description</th><th>Quantité</th><th>Prix HT</th><th>TVA</th><th>Prix TTC</th></tr></thead>'
-    +'<tbody>'
-    +'<tr><td>Consommation eau</td><td>'+conso+' m³</td><td>'+fmt(montantHT)+'</td><td>'+fmt(montantTVA)+'</td><td>'+fmt(montant)+'</td></tr>'
-    +'<tr class="total-row"><td colspan="4">TOTAL TTC</td><td>'+fmt(montant)+'</td></tr>'
-    +'</tbody></table>'
-    +'<p style="font-size:13px;margin-top:16px">En vous souhaitant bonne réception,</p>'
-    +'<div class="sig-block"><div>SCI J&A SAVADUR</div><div>savadur56@gmail.com</div><br><div><strong>JOSSE Antoine — Gérant</strong></div></div>'
-    +'</body></html>';
-}
-
-
-function buildQuittanceHtml(tenant, payment, mois, annee, loyer, charges, total, datePaiement, fmt){
-  const caf = parseFloat(payment.caf||0);
-  const locPart = parseFloat(payment.locataire_part||0);
-  const dateLoc = payment.date_loc ? new Date(payment.date_loc).toLocaleDateString('fr-FR') : datePaiement;
-  const css = 'body{font-family:Arial,sans-serif;max-width:680px;margin:40px auto;padding:30px;color:#222;font-size:14px}'
-    +'.header{display:flex;justify-content:space-between;margin-bottom:30px;padding-bottom:20px;border-bottom:2px solid #222}'
-    +'.bailleur{font-size:13px;line-height:1.7}'
-    +'.locataire{font-size:13px;line-height:1.7;text-align:right}'
-    +'.title{text-align:center;font-size:20px;font-weight:bold;margin:20px 0;text-transform:uppercase;letter-spacing:1px}'
-    +'.subtitle{text-align:center;font-size:14px;margin-bottom:24px;color:#444}'
-    +'.montant-box{border:2px solid #222;padding:20px;text-align:center;margin:24px 0;border-radius:4px}'
-    +'.montant-box .somme{font-size:26px;font-weight:bold;margin:8px 0}'
-    +'.montant-box .detail{font-size:13px;color:#555;margin-top:8px}'
-    +'.adresse{font-size:13px;margin:20px 0;line-height:1.7}'
-    +'table{width:100%;border-collapse:collapse;margin:20px 0;font-size:13px}'
-    +'td{padding:6px 0;vertical-align:top}'
-    +'.mention{font-size:11px;color:#888;margin-top:24px;padding-top:12px;border-top:1px solid #ddd;line-height:1.6}'
-    +'.sig-block{margin-top:40px;display:flex;justify-content:space-between;align-items:flex-end}'
-    +'.sig-left{font-size:13px}'
-    +'.sig-right{text-align:right;font-size:13px}'
-    +'.sig-right .name{font-weight:bold;margin-top:50px;border-top:1px solid #222;padding-top:6px}';
-
-  return '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>'+css+'</style></head><body>'
-    +'<div class="header">'
-    +'<div class="bailleur"><strong>LE BAILLEUR</strong><br>J&A SAVADUR<br>29 RUE VICE AMIRAL BOUVET<br>56100 LORIENT<br>Savadur56@gmail.com<br>06.30.37.06.88</div>'
-    +'<div class="locataire"><strong>LE LOCATAIRE</strong><br>'+tenant.nom+'<br>'+tenant.logement+'<br>26 Rue Général Dubail<br>56100 LORIENT</div>'
-    +'</div>'
-    +'<div class="title">Quittance de loyer</div>'
-    +'<div class="subtitle">LOYER '+mois.toUpperCase()+' '+annee+'</div>'
-    +'<div class="montant-box">'
-    +'<div>REÇU LA SOMME DE</div>'
-    +'<div class="somme">'+fmt(parseFloat(tenant.loyer_ref||0)+(parseFloat(tenant.charges||0)))+'</div>'
-    +'<div>LE '+dateLoc+'</div>'
-    +(caf>0?'<div class="detail">dont part CAF : '+fmt(caf)+' — part locataire : '+fmt(locPart)+'</div>':'')
-    +'</div>'
-    +'<div class="adresse"><strong>POUR LOYER DU LOGEMENT SITUÉ :</strong><br>'
-    +tenant.logement+'<br>26 RUE GÉNÉRAL DUBAIL<br>56100 LORIENT</div>'
-    +(charges>0?'<table>'+'<tr><td>Loyer nu :</td><td>'+fmt(parseFloat(tenant.loyer_ref||0))+'</td></tr>'+'<tr><td>Charges :</td><td>'+fmt(charges)+'</td></tr>'+'<tr><td><strong>Total :</strong></td><td><strong>'+fmt(parseFloat(tenant.loyer_ref||0)+charges)+'</strong></td></tr>'+'</table>':'<table><tr><td>Loyer :</td><td>'+fmt(total)+'</td></tr></table>')
-    +'<div class="sig-block">'
-    +'<div class="sig-left">Fait à Lorient, le '+new Date().toLocaleDateString('fr-FR')+'</div>'
-    +'<div class="sig-right"><div>GÉRANT J&A SAVADUR</div><div class="name">JOSSE Antoine</div></div>'
-    +'</div>'
-    +'<p class="mention">Cette quittance annule tous reçus antérieurs pour les mêmes objets. Elle ne vaut qu\'après encaissement en cas de paiement par chèque.</p>'
-    +'</body></html>';
-}
-
-function buildFactureHtml(tenant, payment, mois, annee, loyer, charges, total, datePaiement, invoiceNum, fmt){
-  // loyer_ref et charges sont stockés en HT dans la fiche locataire
-  // TTC = HT * 1.2
-  const loyerHT  = parseFloat(tenant.loyer_ref||0);
-  const loyerTVA = Math.round(loyerHT * 0.2 * 100) / 100;
-  const loyerTTC = Math.round((loyerHT + loyerTVA) * 100) / 100;
-  const chargesHT  = parseFloat(tenant.charges||0);
-  const chargesTVA = chargesHT > 0 ? Math.round(chargesHT * 0.2 * 100) / 100 : 0;
-  const chargesTTC = Math.round((chargesHT + chargesTVA) * 100) / 100;
-  const totalHT  = loyerHT + chargesHT;
-  const totalTVA = loyerTVA + chargesTVA;
-  const totalTTC = loyerTTC + chargesTTC;
-
-  const css = 'body{font-family:Arial,sans-serif;max-width:680px;margin:40px auto;padding:30px;color:#222;font-size:14px}'
-    +'.header{display:flex;justify-content:space-between;margin-bottom:24px}'
-    +'.bailleur,.destinataire{font-size:13px;line-height:1.7}'
-    +'.destinataire{text-align:right}'
-    +'.title{text-align:center;font-size:20px;font-weight:bold;margin:20px 0;text-decoration:underline}'
-    +'.subtitle{text-align:center;font-size:15px;font-weight:bold;margin-bottom:20px}'
-    +'table{width:100%;border-collapse:collapse;margin:16px 0;font-size:13px}'
-    +'th{background:#222;color:#fff;padding:8px 10px;text-align:center;font-weight:500}'
-    +'td{padding:8px 10px;border:1px solid #ddd;text-align:center}'
-    +'td:first-child{text-align:left}'
-    +'.total-row td{font-weight:bold;font-size:15px;background:#f0f0f0;border-top:2px solid #222}'
-    +'.mention{font-size:11px;color:#888;margin-top:24px;padding-top:12px;border-top:1px solid #ddd;line-height:1.6}'
-    +'.sig-block{margin-top:40px;text-align:right;font-size:13px}'
-    +'.sig-block .name{font-weight:bold;margin-top:10px}';
-
-  return '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>'+css+'</style></head><body>'
-    +'<div class="header">'
-    +'<div class="bailleur"><strong>J&A SAVADUR</strong><br>29 RUE AMIRAL BOUVET<br>56100, LORIENT<br>savadur56@gmail.com<br>06.30.37.06.88</div>'
-    +'<div class="destinataire"><strong>'+tenant.nom+'</strong><br>'+tenant.logement+'<br>26 rue général Dubail<br>56100 Lorient</div>'
-    +'</div>'
-    +'<div class="title">Facture Loyer</div>'
-    +'<div class="subtitle">Facture '+mois.toUpperCase()+' '+annee+'</div>'
-    +'<table>'
-    +'<thead><tr><th>Description</th><th>Prix HT</th><th>TVA</th><th>Prix TTC</th></tr></thead>'
-    +'<tbody>'
-    +'<tr><td>Loyer</td><td>'+fmt(loyerHT)+'</td><td>'+fmt(loyerTVA)+'</td><td>'+fmt(loyerTTC)+'</td></tr>'
-    +(charges>0?'<tr><td>Provisions sur charges</td><td>'+fmt(chargesHT)+'</td><td>'+fmt(chargesTVA)+'</td><td>'+fmt(chargesTTC)+'</td></tr>':'')
-    +'<tr class="total-row"><td colspan="3">TOTAL</td><td>'+fmt(totalTTC)+'</td></tr>'
-    +'</tbody></table>'
-    +'<p style="font-size:13px;margin-top:16px">En vous souhaitant bonne réception,</p>'
-    +'<div class="sig-block">'
-    +'<div>SCI J&A SAVADUR</div>'
-    +'<div>savadur56@gmail.com</div>'
-    +'<div class="name">JOSSE Antoine<br>Gérant<br>06.30.37.06.88</div>'
-    +'</div>'
-    +'<p class="mention">Facture établie par J&A SAVADUR. TVA 20% appliquée. Conserver ce document pour votre comptabilité.</p>'
-    +'</body></html>';
-}
-
-
-// Generate quittance PDF (print window)
-function genQuittancePDF(tenant, payment, mois, annee){
-  const fmt = n => new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR',maximumFractionDigits:2}).format(n||0);
-  const dateStr = payment.date_loc ? new Date(payment.date_loc).toLocaleDateString('fr-FR') : new Date().toLocaleDateString('fr-FR');
-  const html = `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
-  <title>Quittance ${mois} ${annee} - ${tenant.nom}</title>
-  <style>
-    body{font-family:Arial,sans-serif;max-width:700px;margin:40px auto;color:#222;font-size:14px}
-    h1{font-size:20px;text-align:center;margin-bottom:4px}
-    .subtitle{text-align:center;color:#666;margin-bottom:30px}
-    .bloc{border:1px solid #ddd;padding:14px 18px;margin-bottom:14px;border-radius:4px}
-    .row{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #f0f0f0}
-    .row:last-child{border-bottom:none}
-    .label{color:#555}.value{font-weight:500}
-    .total{font-size:16px;font-weight:bold;color:#1D9E75;border-top:2px solid #1D9E75;padding-top:10px;margin-top:10px}
-    .sig{margin-top:40px;display:flex;justify-content:space-between}
-    .sig div{text-align:center}
-    @media print{body{margin:20px}}
-  </style></head><body>
-  <h1>QUITTANCE DE LOYER</h1>
-  <div class="subtitle">${mois} ${annee}</div>
-
-  <div class="bloc">
-    <div style="font-weight:600;margin-bottom:8px">Bailleur</div>
-    <div>SCI 26 RUE GÉNÉRALE DUBAIL</div>
-    <div style="color:#666;font-size:13px">26 Rue Générale Dubail — Lorient</div>
-  </div>
-
-  <div class="bloc">
-    <div style="font-weight:600;margin-bottom:8px">Locataire</div>
-    <div>${tenant.nom}</div>
-    <div style="color:#666;font-size:13px">${tenant.logement} — 26 Rue Générale Dubail, Lorient</div>
-  </div>
-
-  <div class="bloc">
-    <div style="font-weight:600;margin-bottom:10px">Détail du paiement</div>
-    ${tenant.type_bail==='commercial'?`
-    <div class="row"><span class="label">Loyer HT</span><span class="value">${fmt((payment.loyer||tenant.loyer_ref)/1.2)}</span></div>
-    <div class="row"><span class="label">TVA (20%)</span><span class="value">${fmt((payment.loyer||tenant.loyer_ref)/1.2*0.2)}</span></div>
-    ${tenant.charges>0?`<div class="row"><span class="label">Charges HT</span><span class="value">${fmt(tenant.charges/1.2)}</span></div><div class="row"><span class="label">TVA charges (20%)</span><span class="value">${fmt(tenant.charges/1.2*0.2)}</span></div>`:''}
-    <div class="row total"><span>Total TTC reçu</span><span>${fmt((payment.loyer||tenant.loyer_ref)+(tenant.charges||0))}</span></div>`:`
-    <div class="row"><span class="label">Loyer nu</span><span class="value">${fmt((payment.loyer||tenant.loyer_ref)-(tenant.charges||0))}</span></div>
-    ${tenant.charges>0?`<div class="row"><span class="label">Charges</span><span class="value">${fmt(tenant.charges)}</span></div>`:''}
-    ${payment.caf>0?`<div class="row"><span class="label">Part CAF</span><span class="value">${fmt(payment.caf)}</span></div>`:''}
-    ${payment.locataire_part>0?`<div class="row"><span class="label">Part locataire</span><span class="value">${fmt(payment.locataire_part)}</span></div>`:''}
-    <div class="row total"><span>Total reçu</span><span>${fmt(payment.loyer||tenant.loyer_ref)}</span></div>`}
-  </div>
-
-  <div class="bloc">
-    <div class="row"><span class="label">Date de réception</span><span class="value">${dateStr}</span></div>
-    <div class="row"><span class="label">Période couverte</span><span class="value">1er au dernier jour de ${mois} ${annee}</span></div>
-  </div>
-
-  <p style="font-size:12px;color:#888;margin-top:20px">Cette quittance est délivrée à titre de reçu pour solde de tout compte pour la période mentionnée. Elle ne vaut pas renonciation à toute somme qui serait due.</p>
-
-  <div class="sig">
-    <div><div style="margin-bottom:50px">Date :</div><div>${new Date().toLocaleDateString('fr-FR')}</div></div>
-    <div><div style="margin-bottom:50px">Signature du bailleur :</div><div>SCI 26 RUE GÉNÉRALE DUBAIL</div></div>
-  </div>
-  <script>window.print();<\/script>
-  </body></html>`;
-  const w = window.open('','_blank');
-  w.document.write(html);
-  w.document.close();
-}
-
-// Quittance PDF generation and email via Resend
-async function sendQuittance(log, payment){
-  const MONTHS = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
-  const monthName = MONTHS[(payment.month||1)-1];
-  const year = payment.year;
-  const loyer = payment.montant;
-  const charges = log.charges||0;
-  const total = loyer + charges;
-
-  // Generate quittance HTML
-  const quittanceHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8">
-  <style>body{font-family:Arial,sans-serif;max-width:700px;margin:40px auto;color:#333;font-size:14px}
-  h1{font-size:20px;text-align:center;margin-bottom:4px}
-  .header{text-align:center;border-bottom:2px solid #1D9E75;padding-bottom:16px;margin-bottom:24px}
-  .sci{font-size:13px;color:#666}
-  table{width:100%;border-collapse:collapse;margin:16px 0}
-  td,th{padding:8px 12px;border:1px solid #ddd;font-size:13px}
-  th{background:#f5f5f3;font-weight:500}
-  .total{font-weight:bold;font-size:15px}
-  .mention{font-size:11px;color:#999;margin-top:24px;border-top:1px solid #eee;padding-top:12px}
-  .sign{text-align:right;margin-top:32px}
-  </style></head><body>
-  <div class="header">
-    <h1>QUITTANCE DE LOYER</h1>
-    <div class="sci">SCI — 26 rue Générale Dubail</div>
-    <div class="sci">Mois de ${monthName} ${year}</div>
-  </div>
-  <p><strong>Logement :</strong> ${log.name} — 26 rue Générale Dubail</p>
-  <p><strong>Locataire :</strong> ${log.tenant||'—'}</p>
-  <p><strong>Période :</strong> 1er ${monthName} ${year} au dernier jour du mois</p>
-  ${log.type_bail==='commercial'?`
-  <table>
-    <tr><th>Désignation</th><th>Montant HT</th><th>TVA 20%</th><th>Montant TTC</th></tr>
-    <tr><td>Loyer mensuel</td><td>${(loyer/1.2).toFixed(2)} €</td><td>${(loyer/1.2*0.2).toFixed(2)} €</td><td>${loyer.toFixed(2)} €</td></tr>
-    ${charges>0?`<tr><td>Charges</td><td>${(charges/1.2).toFixed(2)} €</td><td>${(charges/1.2*0.2).toFixed(2)} €</td><td>${charges.toFixed(2)} €</td></tr>`:''}
-    <tr class="total"><td>TOTAL TTC REÇU</td><td>${(total/1.2).toFixed(2)} €</td><td>${(total/1.2*0.2).toFixed(2)} €</td><td><strong>${total.toFixed(2)} €</strong></td></tr>
-  </table>`:`
-  <table>
-    <tr><th>Désignation</th><th>Montant</th></tr>
-    <tr><td>Loyer mensuel</td><td>${loyer.toFixed(2)} €</td></tr>
-    ${charges>0?`<tr><td>Charges</td><td>${charges.toFixed(2)} €</td></tr>`:''}
-    <tr class="total"><td>TOTAL REÇU</td><td>${total.toFixed(2)} €</td></tr>
-  </table>`}
-  <p>Je soussigné(e), gérant(e) de la SCI, reconnaît avoir reçu de <strong>${log.tenant||'—'}</strong> la somme de <strong>${total.toFixed(2)} €</strong> au titre du loyer et des charges du mois de ${monthName} ${year}.</p>
-  <div class="sign">
-    <p>Fait le ${payment.date_paiement||new Date().toISOString().split('T')[0]}</p>
-    <p>Signature du bailleur</p>
-    <br><br>
-    <p>____________________</p>
-  </div>
-  <div class="mention">Cette quittance annule tous les reçus qui auraient pu être établis précédemment pour les mêmes objets. En cas de paiement par chèque, la présente quittance ne vaut qu'après encaissement.</div>
-  </body></html>`;
-
-  // Store Resend API key (ask user first)
-  const key = BREVO_API_KEY;
-
-  try{
-    const resp = await fetch('https://api.brevo.com/v3/smtp/email',{
-      method:'POST',
-      headers:{'api-key':BREVO_API_KEY,'Content-Type':'application/json','Accept':'application/json'},
-      body: JSON.stringify({
-        sender:{name:FROM_NAME, email:FROM_EMAIL},
-        to:[log.tenant_email],
-        subject:`Quittance de loyer — ${monthName} ${year} — ${log.name}`,
-        html: quittanceHtml
-      })
-    });
-    if(resp.ok){
-      alert(`✓ Quittance envoyée à ${log.tenant_email}`);
-    } else {
-      const err = await resp.json();
-      alert(`Erreur envoi : ${err.message||'Vérifiez votre clé Resend'}`);
-    }
-  } catch(e){
-    alert('Erreur réseau. Vérifiez votre connexion.');
-  }
-}
-
-// Download quittance as HTML file (fallback)
-function downloadQuittance(log, payment){
-  const MONTHS=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
-  const monthName=MONTHS[(payment?.month||1)-1];
-  const loyer=payment?.montant||log.loyer_base||0;
-  const charges=log.charges||0;
-  const blob=new Blob([`<html><body><h1>Quittance ${monthName} ${payment?.year||new Date().getFullYear()}</h1><p>${log.name} — ${log.tenant}</p><p>Loyer: ${loyer}€ | Charges: ${charges}€ | Total: ${loyer+charges}€</p></body></html>`],{type:'text/html'});
-  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
-  a.download=`quittance_${log.name.replace(/ /g,'_')}_${monthName}_${payment?.year||''}.html`;
-  a.click();
-}
-
-// Cascade selectors for revenue modal
-function revUpdateZone(){
-  const propId=document.getElementById('m-rev-prop')?.value;
-  const wrap=document.getElementById('m-rev-zone-wrap');
-  const subWrap=document.getElementById('m-rev-sub-wrap');
-  if(!wrap||!subWrap)return;
-  if(!propId){wrap.style.display='none';subWrap.style.display='none';return;}
-  const prop=S.topology.properties.find(p=>p.id===propId);
-  const zones=prop?.zones||[];
-  const sel=document.getElementById('m-rev-zone');
-  sel.innerHTML='<option value="">— Bien entier —</option>'+zones.map(z=>`<option value="${z.id}">${z.name}</option>`).join('');
-  wrap.style.display=zones.length>0?'':'none';
-  subWrap.style.display='none';
-}
-function revUpdateSub(){
-  const propId=document.getElementById('m-rev-prop')?.value;
-  const zoneId=document.getElementById('m-rev-zone')?.value;
-  const wrap=document.getElementById('m-rev-sub-wrap');
-  if(!wrap)return;
-  const prop=S.topology.properties.find(p=>p.id===propId);
-  const zone=prop?.zones?.find(z=>z.id===zoneId);
-  const subs=zone?.subZones||[];
-  const sel=document.getElementById('m-rev-sub');
-  if(sel) sel.innerHTML='<option value="">— Zone entière —</option>'+subs.map(s=>`<option value="${s.id}">${s.name}</option>`).join('');
-  wrap.style.display=subs.length>0?'':'none';
-}
-
-// Cascade selectors for work order
-function woUpdateZone(){
-  const propId = document.getElementById('m-wa-prop')?.value;
-  const zoneWrap = document.getElementById('m-wa-zone-wrap');
-  const subWrap = document.getElementById('m-wa-sub-wrap');
-  const assetSel = document.getElementById('m-wa');
-  if(!zoneWrap||!subWrap||!assetSel) return;
-  subWrap.style.display='none';
-  if(!propId||propId==='__other__'){
-    zoneWrap.style.display='none';
-    // Reset asset filter to all
-    woFilterAssets(null, null);
-    return;
-  }
-  const prop = S.topology.properties.find(p=>p.id===propId);
-  if(!prop){zoneWrap.style.display='none';return;}
-  const zones = prop.zones||[];
-  const zoneSel = document.getElementById('m-wa-zone');
-  zoneSel.innerHTML = '<option value="">— Sélectionner une zone —</option>' +
-    zones.map(z=>`<option value="${z.id}">${z.name}</option>`).join('');
-  zoneWrap.style.display = zones.length>0 ? '' : 'none';
-  // Pre-filter assets to this property
-  woFilterAssets(prop, null);
-}
-
-function woUpdateSubZone(){
-  const propId = document.getElementById('m-wa-prop')?.value;
-  const zoneId = document.getElementById('m-wa-zone')?.value;
-  const subWrap = document.getElementById('m-wa-sub-wrap');
-  if(!subWrap) return;
-  const prop = S.topology.properties.find(p=>p.id===propId);
-  const zone = prop?.zones?.find(z=>z.id===zoneId);
-  if(!zone){subWrap.style.display='none'; woFilterAssets(prop,null); return;}
-  const subs = zone.subZones||[];
-  const subSel = document.getElementById('m-wa-sub');
-  subSel.innerHTML = '<option value="">— Sélectionner une sous-zone —</option>' +
-    subs.map(s=>`<option value="${s.id}">${s.name}</option>`).join('');
-  subWrap.style.display = subs.length>0 ? '' : 'none';
-  woFilterAssets(prop, zone);
-}
-
-function woUpdateAsset(){
-  const propId = document.getElementById('m-wa-prop')?.value;
-  const zoneId = document.getElementById('m-wa-zone')?.value;
-  const subId = document.getElementById('m-wa-sub')?.value;
-  const prop = S.topology.properties.find(p=>p.id===propId);
-  const zone = prop?.zones?.find(z=>z.id===zoneId);
-  const sub = zone?.subZones?.find(s=>s.id===subId);
-  woFilterAssets(prop, zone, sub);
-}
-
-function woFilterAssets(prop, zone, sub){
-  const sel = document.getElementById('m-wa');
-  if(!sel) return;
-  const all = S.assets;
-
-  // Collect relevant assetIds from selected nodes
-  const relevant = new Set();
-  if(sub?.assetId) relevant.add(sub.assetId);
-  if(zone?.assetId) relevant.add(zone.assetId);
-  if(prop?.assetId) relevant.add(prop.assetId);
-  // Also add all assets from subzones/zones of selection
-  if(zone){
-    (zone.subZones||[]).forEach(s=>{if(s.assetId)relevant.add(s.assetId);});
-    if(zone.assetId)relevant.add(zone.assetId);
-  }
-  if(prop){
-    (prop.zones||[]).forEach(z=>{
-      if(z.assetId)relevant.add(z.assetId);
-      (z.subZones||[]).forEach(s=>{if(s.assetId)relevant.add(s.assetId);});
-    });
-    if(prop.assetId)relevant.add(prop.assetId);
-  }
-
-  // Build options — relevant first, then rest
-  const relevantAssets = all.filter(a=>relevant.has(a.id));
-  const otherGroups = {
-    'Équipements': all.filter(a=>a.category==='Équipement'&&!relevant.has(a.id)),
-    'Véhicules': all.filter(a=>a.category==='Véhicule'&&!relevant.has(a.id)),
-    'Outillage': all.filter(a=>a.category==='Outillage'&&!relevant.has(a.id)),
-    'Autres': all.filter(a=>!['Équipement','Véhicule','Outillage','Immobilier'].includes(a.category)&&!relevant.has(a.id)),
+  document.querySelectorAll('[data-cso-adjust]').forEach(el=>el.onclick=()=>{
+    const c=S.consommables.find(x=>x.id===el.dataset.csoAdjust);
+    if(c){S.modal={type:'adjust-cso',cso:c};render();}
+  });
+  document.querySelectorAll('[data-cso-inv-check]').forEach(el=>el.onclick=()=>{
+    if(!S.csoInvState)S.csoInvState={};
+    S.csoInvState[el.dataset.csoInvCheck]=!S.csoInvState[el.dataset.csoInvCheck];render();
+  });
+  document.querySelectorAll('[data-print-cso-label]').forEach(el=>el.onclick=()=>{
+    const emp=el.dataset.printCsoLabel;
+    const items=S.consommables.filter(c=>c.emplacement===emp);
+    printCsoLabel(emp,items,window.location.origin+window.location.pathname);
+  });
+  const csoInvSel=document.getElementById('cso-inv-sel');
+  if(csoInvSel)csoInvSel.onchange=()=>{S.csoInvEmp=csoInvSel.value;S.csoInvState={};render();};
+  const btnResetCsoInv=document.getElementById('btn-reset-cso-inv');
+  if(btnResetCsoInv)btnResetCsoInv.onclick=()=>{S.csoInvState={};render();};
+  const btnExportCsoInv=document.getElementById('btn-export-cso-inv');
+  if(btnExportCsoInv)btnExportCsoInv.onclick=()=>{
+    const items=S.csoInvEmp?S.consommables.filter(c=>c.emplacement===S.csoInvEmp):S.consommables;
+    const inv=S.csoInvState||{};
+    const lines=['INVENTAIRE CONSOMMABLES — '+(S.csoInvEmp||'Tous'),' — '+new Date().toLocaleDateString('fr-FR'),''];
+    items.forEach(c=>{lines.push((inv[c.id]?'[x] ':'[ ] ')+c.nom+' — Stock: '+(c.stock||0)+' '+(c.unite||'u'));});
+    const blob=new Blob([lines.join('\n')],{type:'text/plain'});
+    const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+    a.download='Inventaire_conso_'+new Date().toISOString().slice(0,10)+'.txt';a.click();
   };
-
-  let html = '<option value="">— Sélectionner un équipement —</option>';
-  if(relevantAssets.length>0){
-    html += `<optgroup label="✓ Zones / équipements sélectionnés">${relevantAssets.map(a=>`<option value="${a.id}">${a.name}</option>`).join('')}</optgroup>`;
+  // Checklist item adding
+  const btnAddClItem=document.getElementById('btn-add-cl-item');
+  if(btnAddClItem){
+    if(!window._woChecklist)window._woChecklist=[];
+    const clWrap=document.getElementById('wo-checklist-items');
+    const renderCl=()=>{if(clWrap)clWrap.innerHTML=window._woChecklist.map((item,i)=>
+      `<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;font-size:12px;background:var(--bg2);padding:4px 8px;border-radius:var(--radius)">
+        <span>${item.type==='cso'?'📦':item.type==='tool'?'🔧':'📝'} ${item.nom}${item.quantite>1?' ×'+item.quantite:''}</span>
+        <button type="button" onclick="window._woChecklist.splice(${i},1);document.getElementById('btn-add-cl-item').dispatchEvent(new Event('rerender'))" style="border:none;background:none;color:var(--red);cursor:pointer;margin-left:auto">✕</button>
+      </div>`).join('');};
+    btnAddClItem.addEventListener('rerender',renderCl);
+    btnAddClItem.onclick=()=>{
+      const toolSel=document.getElementById('wo-cl-tool');
+      const csoSel=document.getElementById('wo-cl-cso');
+      const custom=document.getElementById('wo-cl-custom');
+      if(toolSel?.value){const [,id,nom]=toolSel.value.split('|');window._woChecklist.push({type:'tool',id,nom,done:false,quantite:1});toolSel.value='';}
+      else if(csoSel?.value){const parts=csoSel.value.split('|');const qte=parseInt(prompt('Quantité ?','1'))||1;window._woChecklist.push({type:'cso',id:parts[1],nom:parts[2],unite:parts[3],done:false,quantite:qte});csoSel.value='';}
+      else if(custom?.value){window._woChecklist.push({type:'other',nom:custom.value,done:false,quantite:1});custom.value='';}
+      renderCl();
+    };
+    renderCl();
   }
-  Object.entries(otherGroups).filter(([,v])=>v.length>0).forEach(([label,items])=>{
-    html += `<optgroup label="${label}">${items.map(a=>`<option value="${a.id}">${a.name}</option>`).join('')}</optgroup>`;
-  });
-  sel.innerHTML = html;
 
-  // Auto-select if only one relevant asset
-  if(relevantAssets.length===1) sel.value = relevantAssets[0].id;
+  // ============================================================
+  // MAINTENANCE / GAMMES
+  // ============================================================
+  document.querySelectorAll('[data-edit-mt]').forEach(el=>el.onclick=()=>{
+    const mt=S.maintenanceTemplates.find(x=>x.id===el.dataset.editMt);
+    if(mt){S.modal={type:'edit-mt',mt};render();}
+  });
+  document.querySelectorAll('[data-del-mt]').forEach(el=>el.onclick=async()=>{
+    if(!confirm('Supprimer cette gamme ?'))return;
+    await sb.from('maintenance_templates').delete().eq('id',el.dataset.delMt);
+    S.maintenanceTemplates=S.maintenanceTemplates.filter(x=>x.id!==el.dataset.delMt);render();
+  });
+  document.querySelectorAll('[data-done-mt]').forEach(el=>el.onclick=async()=>{
+    const mt=S.maintenanceTemplates.find(x=>x.id===el.dataset.doneMt);if(!mt)return;
+    const now=new Date().toISOString().slice(0,10);
+    mt.last_done=now;
+    if(mt.type==='periodic'&&mt.period_days){
+      const nd=new Date();nd.setDate(nd.getDate()+mt.period_days);
+      mt.next_due=nd.toISOString().slice(0,10);
+    }
+    await sb.from('maintenance_templates').update({last_done:mt.last_done,next_due:mt.next_due}).eq('id',mt.id);
+    if(mt.auto_bt){
+      const {data}=await sb.from('work_orders').insert({title:mt.name,description:mt.description,asset_id:mt.asset_id,category:mt.bt_category||'Entretien',date:now,status:'open',cost:0,by_user:'',docs:[],journal:[],checklist:[]}).select().single();
+      if(data)S.workOrders.push(data);
+      alert('✓ Gamme réalisée — BT créé automatiquement !');
+    } else {alert('✓ Gamme marquée réalisée !');}
+    render();
+  });
+
+  // ============================================================
+  // FAMILLE
+  // ============================================================
+  document.querySelectorAll('[data-ftab]').forEach(el=>el.onclick=()=>{S.fTab=el.dataset.ftab;render();});
+  const btnAddMembre=document.getElementById('btn-add-membre')||document.getElementById('btn-add-membre2');
+  if(btnAddMembre)btnAddMembre.onclick=()=>{S.modal={type:'add-membre'};render();};
+  const btnAddMembre2=document.getElementById('btn-add-membre2');
+  if(btnAddMembre2)btnAddMembre2.onclick=()=>{S.modal={type:'add-membre'};render();};
+  document.querySelectorAll('[data-edit-membre]').forEach(el=>el.onclick=()=>{
+    const mb=S.famille.find(x=>x.id===el.dataset.editMembre);
+    if(mb){S.modal={type:'edit-membre',membre:mb};render();}
+  });
+  document.querySelectorAll('[data-del-membre]').forEach(el=>el.onclick=async()=>{
+    if(!confirm('Supprimer ce membre ?'))return;
+    await sb.from('famille').delete().eq('id',el.dataset.delMembre);
+    S.famille=S.famille.filter(x=>x.id!==el.dataset.delMembre);render();
+  });
+  document.querySelectorAll('[data-membre-events]').forEach(el=>el.onclick=()=>{
+    S.modal={type:'view-membre-events',membreId:el.dataset.membreEvents};render();
+  });
+  document.querySelectorAll('[data-membre-docs]').forEach(el=>el.onclick=()=>{
+    S.modal={type:'view-membre-docs',membreId:el.dataset.membreDocs};render();
+  });
+  const btnAddEventHere=document.getElementById('btn-add-event-here');
+  if(btnAddEventHere)btnAddEventHere.onclick=()=>{S.modal={type:'add-membre-event',membreId:S.modal.membreId};render();};
+  const btnAddDocHere=document.getElementById('btn-add-doc-here');
+  if(btnAddDocHere)btnAddDocHere.onclick=()=>{S.modal={type:'add-membre-doc',membreId:S.modal.membreId};render();};
+  document.querySelectorAll('[data-del-event]').forEach(el=>el.onclick=async()=>{
+    const mb=S.famille.find(x=>x.id===el.dataset.membreId);if(!mb)return;
+    mb.events=mb.events.filter(e=>e.id!==el.dataset.delEvent);
+    await sb.from('famille').update({events:mb.events}).eq('id',mb.id);render();
+  });
+  document.querySelectorAll('[data-del-fdoc]').forEach(el=>el.onclick=async()=>{
+    const mb=S.famille.find(x=>x.id===el.dataset.membreId);if(!mb)return;
+    mb.docs=mb.docs.filter(d=>d.id!==el.dataset.delFdoc);
+    await sb.from('famille').update({docs:mb.docs}).eq('id',mb.id);render();
+  });
+
+  // ============================================================
+  // OUTILS — prêt unique
+  // ============================================================
+  document.querySelectorAll('[data-lend-tool]').forEach(el=>el.onclick=()=>{
+    const t=S.tools.find(x=>x.id===el.dataset.lendTool);
+    if(!t)return;
+    const alreadyLoaned=S.loans.find(l=>l.tool_id===t.id&&!l.returned);
+    if(alreadyLoaned){alert('Cet outil est déjà prêté à '+alreadyLoaned.borrower+'. Enregistrez le retour avant de faire un nouveau prêt.');return;}
+    S.modal={type:'lend-tool',toolId:t.id};render();
+  });
+  document.querySelectorAll('[data-return-tool]').forEach(el=>el.onclick=async()=>{
+    const t=S.tools.find(x=>x.id===el.dataset.returnTool);if(!t)return;
+    const loan=S.loans.find(l=>l.tool_id===t.id&&!l.returned);
+    if(loan){loan.returned=true;await sb.from('loans').update({returned:true}).eq('id',loan.id);}
+    t.status='available';await sb.from('tools').update({status:'available'}).eq('id',t.id);render();
+  });
+
+  // ============================================================
+  // RANGEMENTS
+  // ============================================================
+  const btnAddRng=document.getElementById('btn-add-rng');
+  if(btnAddRng)btnAddRng.onclick=()=>{S.modal={type:'add-rng'};render();};
+  const btnAddRng2=document.getElementById('btn-add-rng2');
+  if(btnAddRng2)btnAddRng2.onclick=()=>{S.modal={type:'add-rng'};render();};
+  const btnAddLoc=document.getElementById('btn-add-location');
+  if(btnAddLoc)btnAddLoc.onclick=()=>{S.modal={type:'add-rng'};render();};
+  document.querySelectorAll('[data-edit-rng]').forEach(el=>el.onclick=()=>{
+    const r=S.rangements.find(x=>x.id===el.dataset.editRng);
+    if(r){S.modal={type:'edit-rng',rng:r};render();}
+  });
+  document.querySelectorAll('[data-del-rng]').forEach(el=>el.onclick=async()=>{
+    if(!confirm('Supprimer ce rangement ?'))return;
+    await sb.from('rangements').delete().eq('id',el.dataset.delRng);
+    S.rangements=S.rangements.filter(x=>x.id!==el.dataset.delRng);render();
+  });
+
+  // ============================================================
+  // ÉTIQUETTES OUTILS
+  // ============================================================
+  document.querySelectorAll('[data-etab]').forEach(el=>el.onclick=()=>{S.eTab=el.dataset.etab;render();});
+  document.querySelectorAll('[data-efilter]').forEach(el=>el.onclick=()=>{S.eFilter=el.dataset.efilter;render();});
+  document.querySelectorAll('[data-print-label]').forEach(el=>el.onclick=e=>{
+    e.stopPropagation();
+    const t=S.tools.find(x=>x.id===el.dataset.printLabel);
+    if(t)printLabel(t,window.location.origin+window.location.pathname);
+  });
+  document.querySelectorAll('[data-print-loc]').forEach(el=>el.onclick=e=>{
+    e.stopPropagation();
+    const loc=el.dataset.printLoc;
+    const tools=S.tools.filter(t=>t.location===loc);
+    printLocationLabel(loc,tools,window.location.origin+window.location.pathname);
+  });
+  document.querySelectorAll('[data-inv-check]').forEach(el=>el.onclick=()=>{
+    if(!S.inventState)S.inventState={};
+    S.inventState[el.dataset.invCheck]=!S.inventState[el.dataset.invCheck];render();
+  });
+  const invLocSel=document.getElementById('inv-loc-sel');
+  if(invLocSel)invLocSel.onchange=()=>{S.selInventLoc=invLocSel.value;S.inventState={};render();};
+  const btnResetInv=document.getElementById('btn-reset-inv');
+  if(btnResetInv)btnResetInv.onclick=()=>{S.inventState={};render();};
+  const btnExportInv=document.getElementById('btn-export-inv');
+  if(btnExportInv)btnExportInv.onclick=()=>{
+    const loc=S.selInventLoc||'Tous';
+    const tools=S.selInventLoc?S.tools.filter(t=>t.location===S.selInventLoc):S.tools;
+    const inv=S.inventState||{};
+    const lines=['INVENTAIRE — '+loc+' — '+new Date().toLocaleDateString('fr-FR'),''];
+    tools.forEach(t=>{const loan=S.loans.find(l=>l.tool_id===t.id&&!l.returned);lines.push((inv[t.id]?'[x] ':'[ ] ')+t.name+(loan?' ⚠ PRÊTÉ à '+loan.borrower:''));});
+    const blob=new Blob([lines.join('\n')],{type:'text/plain'});
+    const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+    a.download='Inventaire_'+loc.replace(/\s/g,'_')+'_'+new Date().toISOString().slice(0,10)+'.txt';a.click();
+  };
+  const btnScanQr=document.getElementById('btn-scan-qr');
+  if(btnScanQr)btnScanQr.onclick=()=>{alert('📷 Utilisez l\'appareil photo de votre smartphone pour scanner le QR code — le lien s\'ouvrira dans GMAO Pro.');};
+  setTimeout(()=>{
+    if(typeof QRCode==='undefined')return;
+    const siteUrl=window.location.origin+window.location.pathname;
+    S.tools.forEach(t=>{const canvas=document.getElementById('qr-tool-'+t.id);if(canvas&&!canvas._qr){canvas._qr=true;QRCode.toCanvas(canvas,siteUrl+'?tool='+t.id,{width:100,margin:1},()=>{});}});
+    [...new Set(S.tools.map(t=>t.location).filter(Boolean))].forEach(loc=>{const id='qr-loc-'+btoa(loc).replace(/[^a-z0-9]/gi,'');const canvas=document.getElementById(id);if(canvas&&!canvas._qr){canvas._qr=true;QRCode.toCanvas(canvas,siteUrl+'?location='+encodeURIComponent(loc),{width:100,margin:1},()=>{});}});
+    [...new Set((S.consommables||[]).map(c=>c.emplacement).filter(Boolean))].forEach(emp=>{const id='qr-cso-'+btoa(emp).replace(/[^a-z0-9]/gi,'').slice(0,15);const canvas=document.getElementById(id);if(canvas&&!canvas._qr){canvas._qr=true;QRCode.toCanvas(canvas,siteUrl+'?cso_emp='+encodeURIComponent(emp),{width:90,margin:1},()=>{});}});
+  },300);
 }
 
-// Init
 // Hamburger menu — handler permanent (survit aux re-renders)
 document.addEventListener('click', function(e){
   const btn = e.target.closest('#btn-hamburger');
