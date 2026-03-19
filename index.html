@@ -3734,6 +3734,8 @@ function bindAll(){
   if(btnAddRng)btnAddRng.onclick=()=>{S.modal={type:'add-rng'};render();};
   const btnAddRng2=document.getElementById('btn-add-rng2');
   if(btnAddRng2)btnAddRng2.onclick=()=>{S.modal={type:'add-rng'};render();};
+  const btnAddLoc=document.getElementById('btn-add-location');
+  if(btnAddLoc)btnAddLoc.onclick=()=>{S.modal={type:'add-rng'};render();};
   document.querySelectorAll('[data-edit-rng]').forEach(el=>el.onclick=()=>{
     const r=S.rangements.find(x=>x.id===el.dataset.editRng);
     if(r){S.modal={type:'edit-rng',rng:r};render();}
@@ -4664,6 +4666,52 @@ document.addEventListener('click', function(e){
     if(overlay) overlay.classList.remove('open');
   }
 });
+
+async function checkAndSendAlerts() {
+  if (!isAdmin()) return;
+  const today = new Date();
+  const alerted = JSON.parse(localStorage.getItem('gmao_alerted') || '{}');
+  const toAlert = [];
+
+  S.maintenanceTemplates.forEach(mt => {
+    const d = mt.type === 'periodic' ? mt.next_due : mt.due_date;
+    if (!d) return;
+    const due = new Date(d);
+    const days = Math.ceil((due - today) / 86400000);
+    const key = mt.id + '_' + d;
+    if (days >= 0 && days <= 30 && !alerted[key]) {
+      toAlert.push({mt, days, key});
+    }
+  });
+
+  if (toAlert.length === 0) return;
+
+  const listHTML = toAlert.map(({mt, days}) => {
+    const asset = S.assets.find(a => a.id === mt.asset_id);
+    return `<tr><td style="padding:8px 12px;font-weight:500">${mt.name}</td><td style="padding:8px 12px;color:#666">${asset?.name||'—'}</td><td style="padding:8px 12px"><span style="background:${days<=7?'#FCEBEB':days<=15?'#FAEEDA':'#E6F1FB'};color:${days<=7?'#A32D2D':days<=15?'#854F0B':'#185FA5'};padding:2px 8px;border-radius:12px;font-size:12px">${days}j</span></td></tr>`;
+  }).join('');
+
+  const html = `<div style="font-family:sans-serif;max-width:600px;margin:0 auto"><div style="background:#1D9E75;padding:20px 24px;border-radius:8px 8px 0 0"><h2 style="color:#fff;margin:0;font-size:18px">⬡ GMAO Pro — Alertes Échéances</h2></div><div style="background:#fff;padding:24px;border:1px solid #e5e5e0;border-top:none;border-radius:0 0 8px 8px"><p style="color:#444;margin:0 0 16px">${toAlert.length} gamme(s) arrivent à échéance dans les 30 prochains jours :</p><table style="width:100%;border-collapse:collapse;font-size:14px"><thead><tr style="background:#f5f5f3"><th style="padding:8px 12px;text-align:left;color:#666;font-weight:500">Gamme</th><th style="padding:8px 12px;text-align:left;color:#666;font-weight:500">Équipement</th><th style="padding:8px 12px;text-align:left;color:#666;font-weight:500">Délai</th></tr></thead><tbody>${listHTML}</tbody></table></div></div>`;
+
+  try {
+    const resp = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: {'api-key': BREVO_API_KEY, 'Content-Type': 'application/json', 'Accept': 'application/json'},
+      body: JSON.stringify({
+        sender: {name: FROM_NAME, email: FROM_EMAIL},
+        to: [{email: ALERT_EMAIL}],
+        subject: `⚠ GMAO — ${toAlert.length} échéance(s) dans 30 jours`,
+        htmlContent: html
+      })
+    });
+    if (resp.ok) {
+      const newAlerted = {...alerted};
+      toAlert.forEach(({key}) => newAlerted[key] = new Date().toISOString());
+      localStorage.setItem('gmao_alerted', JSON.stringify(newAlerted));
+    }
+  } catch(e) { console.error('Alert error:', e); }
+}
+
 
 loadAll().then(()=>{render();setTimeout(()=>checkAndSendAlerts(),3000);});
 </script>
