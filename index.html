@@ -261,7 +261,8 @@ function navItems(){
     {group:'Finances', items:[
       {id:'finances', label:'Coûts & Revenus', icon:'€'},
     ]},
-    {group:'Admin', items: isAdmin()?[{id:'users', label:'Utilisateurs', icon:'◎'}]:[]}
+    {group:'Admin', items: isAdmin()?[{id:'users', label:'Utilisateurs', icon:'◎'}]:[]},
+    {group:'Famille', items: [{id:'famille', label:'Suivi famille', icon:'👨‍👩‍👧‍👦'}]}
   ];
 }
 
@@ -283,6 +284,7 @@ function renderApp(){
     topology: renderTopology(),
     maintenance: renderMaintenance(),
     users: isAdmin() ? renderUsers() : '<div style="padding:20px;color:var(--text2)">Accès restreint.</div>',
+    famille: renderFamille(),
     asset_detail: S.selectedAsset ? renderAssetDetail(S.selectedAsset) : '',
   };
   const topBtns = {
@@ -298,7 +300,7 @@ function renderApp(){
     users: isAdmin()?`<button class="btn btn-p" id="btn-add-user">+ Utilisateur</button>`:'',
     asset_detail: `<button class="btn" id="btn-back">← Retour</button>${canEdit()?`<button class="btn btn-p" id="btn-add-wo-asset" style="margin-left:6px">+ Bon de travaux</button>`:''}`
   };
-  const titles = {dashboard:'Tableau de bord',assets:'Équipements',tasks:'Échéances',workorders:'Bons de travaux',tools:'Inventaire outils',rangements:'Gestion des rangements',etiquettes:'Étiquettes & QR Code',loans:"Prêts d'outils",vehicles:'Mes véhicules',locatif:'Gestion locative',compteurs:'Compteurs & Relevés',finances:'Coûts & Revenus',topology:'Topologie des biens',maintenance:"Gammes d'entretien",users:'Utilisateurs',famille:'Suivi administratif famille',asset_detail:S.selectedAsset?.name||'Détail'};
+  const titles = {dashboard:'Tableau de bord',assets:'Équipements',tasks:'Échéances',workorders:'Bons de travaux',tools:'Inventaire outils',rangements:'Gestion des rangements',etiquettes:'Étiquettes & QR Code',loans:"Prêts d'outils",vehicles:'Mes véhicules',locatif:'Gestion locative',compteurs:'Compteurs & Relevés',finances:'Coûts & Revenus',topology:'Topologie des biens',maintenance:"Gammes d'entretien",users:'Utilisateurs',famille:'Suivi famille',famille:'Suivi administratif famille',asset_detail:S.selectedAsset?.name||'Détail'};
 
   return `<div class="app">
     <div class="sidebar">
