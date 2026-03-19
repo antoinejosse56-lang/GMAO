@@ -127,7 +127,7 @@ let S = {
   topoState: {propId: null, tradeId: null, zoneId: null, expanded: {}},
   // data
   users: [], assets: [], tasks: [], tools: [], loans: [],
-  workOrders: [], maintenanceTemplates: [], topology: {properties: []}, revenues: [], finTab: 'overview', compteurs: [], releves: [], rangements: []
+  workOrders: [], maintenanceTemplates: [], topology: {properties: []}, revenues: [], finTab: 'overview', compteurs: [], releves: [], rangements: [], famille: []
 };
 
 async function loadAll() {
@@ -146,7 +146,7 @@ async function loadAll() {
     const test = await sb.from('users').select('count', {count:'exact',head:true});
     if (test.error) { showError(test.error.message || JSON.stringify(test.error)); return; }
 
-    const [u, a, t, tl, l, wo, mt, topo, rev, cpt, rel, ten, rp, wr, rng] = await Promise.all([
+    const [u, a, t, tl, l, wo, mt, topo, rev, cpt, rel, ten, rp, wr, rng, fam] = await Promise.all([
       sb.from('users').select('*'),
       sb.from('assets').select('*'),
       sb.from('tasks').select('*'),
@@ -161,7 +161,8 @@ async function loadAll() {
       sb.from('tenants').select('*'),
       sb.from('rent_payments').select('*'),
       sb.from('water_readings').select('*'),
-      sb.from('rangements').select('*').order('nom')
+      sb.from('rangements').select('*').order('nom'),
+      sb.from('famille').select('*').order('prenom')
     ]);
 
     for (const [name, res] of [['users',u],['assets',a],['tasks',t],['tools',tl],['loans',l],['work_orders',wo],['maintenance_templates',mt],['topology',topo],['revenues',rev],['compteurs',cpt],['releves',rel],['tenants',ten],['rent_payments',rp],['water_readings',wr]]) {
@@ -184,6 +185,7 @@ async function loadAll() {
     S.rentPayments = rp.data || [];
     S.waterReadings = wr.data || [];
     S.rangements = rng.error ? [] : (rng.data || []);
+    S.famille = fam.error ? [] : (fam.data || []);
     S.topology = topo.data?.[0]?.data || {properties: []};
     S.topoId = topo.data?.[0]?.id;
     if (S.topology.properties.length > 0) S.topoState.propId = S.topology.properties[0].id;
@@ -295,7 +297,7 @@ function renderApp(){
     users: isAdmin()?`<button class="btn btn-p" id="btn-add-user">+ Utilisateur</button>`:'',
     asset_detail: `<button class="btn" id="btn-back">← Retour</button>${canEdit()?`<button class="btn btn-p" id="btn-add-wo-asset" style="margin-left:6px">+ Bon de travaux</button>`:''}`
   };
-  const titles = {dashboard:'Tableau de bord',assets:'Équipements',tasks:'Échéances',workorders:'Bons de travaux',tools:'Inventaire outils',rangements:'Gestion des rangements',etiquettes:'Étiquettes & QR Code',loans:"Prêts d'outils",vehicles:'Mes véhicules',locatif:'Gestion locative',compteurs:'Compteurs & Relevés',finances:'Coûts & Revenus',topology:'Topologie des biens',maintenance:"Gammes d'entretien",users:'Utilisateurs',asset_detail:S.selectedAsset?.name||'Détail'};
+  const titles = {dashboard:'Tableau de bord',assets:'Équipements',tasks:'Échéances',workorders:'Bons de travaux',tools:'Inventaire outils',rangements:'Gestion des rangements',etiquettes:'Étiquettes & QR Code',loans:"Prêts d'outils",vehicles:'Mes véhicules',locatif:'Gestion locative',compteurs:'Compteurs & Relevés',finances:'Coûts & Revenus',topology:'Topologie des biens',maintenance:"Gammes d'entretien",users:'Utilisateurs',famille:'Suivi administratif famille',asset_detail:S.selectedAsset?.name||'Détail'};
 
   return `<div class="app">
     <div class="sidebar">
@@ -714,8 +716,12 @@ function renderAssetDetail(a){
     </div>
     ${woList.map(w=>`<div class="row">
       <div class="fg">
-        <div style="display:flex;align-items:center;gap:6px"><span class="fgs">${w.title}</span><span class="badge ${w.status==='done'?'bgreen':'bamber'}">${w.status==='done'?'Terminé':'Ouvert'}</span><span class="badge bgray">${w.category||''}</span></div>
-        <div class="fgsub">${w.description||''} · ${dateLabel(w.date)}</div>
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+          <span class="fgs" style="font-size:14px;font-weight:600">${w.title}</span>
+          <span class="badge ${w.status==='done'?'bgreen':'bamber'}">${w.status==='done'?'Terminé':'Ouvert'}</span>
+          <span class="badge bgray">${w.category||''}</span>
+        </div>
+        <div class="fgsub">${w.description?w.description+' · ':''}${dateLabel(w.date)}${w.cost>0?' · '+w.cost+'€':''}</div>
       </div>
       ${canEdit()&&w.status==='open'?`<button class="btn btn-sm" data-edit-wo="${w.id}">✎</button> `:''}${canEdit()&&w.status==='open'?`<button class="btn btn-sm btn-p" data-close-wo="${w.id}">✓</button>`:''}
     </div>`).join('')}
@@ -1940,6 +1946,154 @@ function renderRangements(){
   </div>`;
 }
 
+function renderFamille(){
+  const membres = S.famille||[];
+  const today = new Date();
+
+  function daysUntil(dateStr){
+    if(!dateStr) return null;
+    return Math.ceil((new Date(dateStr)-today)/86400000);
+  }
+
+  function urgencyColor(days){
+    if(days===null) return 'bgray';
+    if(days<0) return 'bred';
+    if(days<=30) return 'bred';
+    if(days<=90) return 'bamber';
+    return 'bgreen';
+  }
+
+  function urgencyLabel(days){
+    if(days===null) return '—';
+    if(days<0) return 'Expiré';
+    if(days===0) return "Aujourd\'hui";
+    if(days<=30) return 'Dans '+days+'j';
+    if(days<=90) return 'Dans '+days+'j';
+    return dateLabel(null);
+  }
+
+  const fTab = S.fTab||'membres';
+
+  const tabBar = `<div class="tab-bar" style="margin-bottom:14px">
+    <div class="tab ${fTab==='membres'?'active':''}" data-ftab="membres">👤 Membres</div>
+    <div class="tab ${fTab==='agenda'?'active':''}" data-ftab="agenda">📅 Agenda</div>
+    <div class="tab ${fTab==='docs'?'active':''}" data-ftab="docs">📄 Documents</div>
+  </div>`;
+
+  if(fTab==='membres'){
+    return `${tabBar}
+    <div style="display:flex;justify-content:flex-end;margin-bottom:14px">
+      <button class="btn btn-p" id="btn-add-membre">+ Membre</button>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px">
+      ${membres.map(m=>{
+        const events = (m.events||[]).filter(e=>!e.done).sort((a,b)=>new Date(a.date)-new Date(b.date));
+        const nextEvent = events[0];
+        const daysNext = nextEvent?daysUntil(nextEvent.date):null;
+        const docs = m.docs||[];
+        const expiring = docs.filter(d=>d.expiry&&daysUntil(d.expiry)<=90&&daysUntil(d.expiry)>=0);
+        const expired = docs.filter(d=>d.expiry&&daysUntil(d.expiry)<0);
+        return `<div class="card" style="padding:14px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+            <div style="display:flex;align-items:center;gap:10px">
+              <div style="width:40px;height:40px;border-radius:50%;background:var(--green);color:#fff;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;flex-shrink:0">
+                ${m.prenom?m.prenom[0].toUpperCase():'?'}
+              </div>
+              <div>
+                <div style="font-size:15px;font-weight:600">${m.prenom} ${m.nom||''}</div>
+                <div style="font-size:11px;color:var(--text2)">${m.relation||''} ${m.naissance?'· né(e) le '+dateLabel(m.naissance):''}</div>
+              </div>
+            </div>
+            <div style="display:flex;gap:4px">
+              <button class="btn btn-sm" data-edit-membre="${m.id}">✎</button>
+              <button class="btn btn-d btn-sm" data-del-membre="${m.id}">✕</button>
+            </div>
+          </div>
+          ${nextEvent?`<div style="background:var(--bg2);border-radius:var(--radius);padding:8px 10px;margin-bottom:8px;font-size:12px">
+            <div style="font-weight:500">📅 Prochain : ${nextEvent.titre}</div>
+            <div style="color:var(--text2)">${dateLabel(nextEvent.date)} <span class="badge ${urgencyColor(daysNext)}" style="font-size:10px">${daysNext!==null?(daysNext<0?'Passé':daysNext===0?"Aujourd\'hui":'Dans '+daysNext+'j'):'—'}</span></div>
+          </div>`:''}
+          ${expired.length>0?`<div style="font-size:11px;color:var(--red);margin-bottom:4px">⚠ ${expired.length} document(s) expiré(s)</div>`:''}
+          ${expiring.length>0?`<div style="font-size:11px;color:var(--amber);margin-bottom:4px">⚠ ${expiring.length} document(s) expire(nt) bientôt</div>`:''}
+          <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+            <button class="btn btn-sm btn-p" data-membre-events="${m.id}">📅 Événements (${(m.events||[]).length})</button>
+            <button class="btn btn-sm" data-membre-docs="${m.id}">📄 Documents (${docs.length})</button>
+          </div>
+        </div>`;
+      }).join('')}
+      ${membres.length===0?`<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--text2)">
+        <div style="font-size:32px;margin-bottom:12px">👨‍👩‍👧‍👦</div>
+        <div style="font-size:14px;font-weight:500;margin-bottom:6px">Aucun membre</div>
+        <div style="font-size:12px">Ajoutez les membres de votre famille pour suivre leurs documents et rendez-vous</div>
+        <button class="btn btn-p" style="margin-top:14px" id="btn-add-membre2">+ Ajouter un membre</button>
+      </div>`:''}
+    </div>`;
+  }
+
+  if(fTab==='agenda'){
+    // Tous les événements de tous les membres
+    const allEvents = [];
+    membres.forEach(m=>(m.events||[]).forEach(e=>allEvents.push({...e,membreId:m.id,membreNom:m.prenom+' '+(m.nom||'')})));
+    allEvents.sort((a,b)=>new Date(a.date)-new Date(b.date));
+    const upcoming = allEvents.filter(e=>!e.done&&new Date(e.date)>=new Date(today.toDateString()));
+    const past = allEvents.filter(e=>e.done||new Date(e.date)<new Date(today.toDateString()));
+    return `${tabBar}
+    <div class="card">
+      <div class="sec">À venir</div>
+      ${upcoming.length===0?'<div style="font-size:12px;color:var(--text2);padding:10px 0">Aucun événement à venir.</div>':''}
+      ${upcoming.map(e=>{
+        const days=daysUntil(e.date);
+        return `<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:0.5px solid var(--border)">
+          <div style="width:36px;height:36px;border-radius:8px;background:var(--bg2);display:flex;flex-direction:column;align-items:center;justify-content:center;flex-shrink:0">
+            <div style="font-size:10px;color:var(--text2)">${new Date(e.date).toLocaleDateString('fr-FR',{month:'short'})}</div>
+            <div style="font-size:14px;font-weight:700">${new Date(e.date).getDate()}</div>
+          </div>
+          <div style="flex:1">
+            <div style="font-size:13px;font-weight:500">${e.titre}</div>
+            <div style="font-size:11px;color:var(--text2)">${e.membreNom} ${e.lieu?'· '+e.lieu:''}</div>
+          </div>
+          <span class="badge ${urgencyColor(days)}">${days===0?"Auj.":days+'j'}</span>
+        </div>`;
+      }).join('')}
+      ${past.length>0?`<div class="sec" style="margin-top:16px">Passés</div>
+      ${past.slice(0,5).map(e=>`<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:0.5px solid var(--border);opacity:0.6">
+        <div style="font-size:12px;color:var(--text2);min-width:60px">${dateLabel(e.date)}</div>
+        <div style="flex:1;font-size:12px">${e.titre} — ${e.membreNom}</div>
+        <span class="badge bgray">Passé</span>
+      </div>`).join('')}`:''}
+    </div>`;
+  }
+
+  if(fTab==='docs'){
+    const allDocs = [];
+    membres.forEach(m=>(m.docs||[]).forEach(d=>allDocs.push({...d,membreId:m.id,membreNom:m.prenom+' '+(m.nom||'')})));
+    allDocs.sort((a,b)=>{
+      const da=daysUntil(a.expiry), db=daysUntil(b.expiry);
+      if(da===null) return 1; if(db===null) return -1;
+      return da-db;
+    });
+    return `${tabBar}
+    <div class="card"><div style="overflow-x:auto"><table>
+      <thead><tr><th>Document</th><th>Membre</th><th>N°</th><th>Délivré le</th><th>Expire le</th><th>Statut</th></tr></thead>
+      <tbody>
+      ${allDocs.map(d=>{
+        const days=daysUntil(d.expiry);
+        return `<tr>
+          <td style="font-weight:500">${d.type}</td>
+          <td style="font-size:12px">${d.membreNom}</td>
+          <td style="font-size:11px;font-family:monospace">${d.numero||'—'}</td>
+          <td style="font-size:12px">${d.delivre?dateLabel(d.delivre):'—'}</td>
+          <td style="font-size:12px">${d.expiry?dateLabel(d.expiry):'—'}</td>
+          <td><span class="badge ${urgencyColor(days)}">${days===null?'—':days<0?'Expiré':days<=30?'Dans '+days+'j':days<=90?'Dans '+days+'j':'Valide'}</span></td>
+        </tr>`;
+      }).join('')}
+      ${allDocs.length===0?'<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text2)">Aucun document enregistré.</td></tr>':''}
+      </tbody>
+    </table></div></div>`;
+  }
+  return '';
+}
+
 function renderMaintenance(){
   const sorted = S.maintenanceTemplates.slice().sort((a,b)=>{
     const da = a.type==='periodic'?a.next_due:a.due_date;
@@ -2169,6 +2323,93 @@ function renderModal(){
       <div class="form-group"><label>Date</label><input id="m-dd" type="date" value="${NOW}"></div>
     </div>
     <div class="form-group"><label>Lien URL *</label><input id="m-du" placeholder="https://drive.google.com/..."></div>${mf}`;}
+
+  if(m.type==='add-membre'||m.type==='edit-membre'){
+    const mb=m.membre||{};
+    html=`${mhd(m.type==='add-membre'?'Nouveau membre':'Modifier — '+mb.prenom)}
+    <div class="g2c">
+      <div class="form-group"><label>Prénom *</label><input id="m-fprenom" value="${mb.prenom||''}"></div>
+      <div class="form-group"><label>Nom</label><input id="m-fnom" value="${mb.nom||''}"></div>
+    </div>
+    <div class="g2c">
+      <div class="form-group"><label>Relation</label><select id="m-frelation">
+        ${['Conjoint(e)','Enfant','Parent','Frère/Sœur','Autre'].map(r=>`<option ${mb.relation===r?'selected':''}>${r}</option>`).join('')}
+      </select></div>
+      <div class="form-group"><label>Date de naissance</label><input id="m-fnaissance" type="date" value="${mb.naissance||''}"></div>
+    </div>
+    <div class="g2c">
+      <div class="form-group"><label>Email</label><input id="m-femail" value="${mb.email||''}"></div>
+      <div class="form-group"><label>Téléphone</label><input id="m-ftel" value="${mb.telephone||''}"></div>
+    </div>
+    <div class="form-group"><label>Notes</label><textarea id="m-fnotes">${mb.notes||''}</textarea></div>
+    ${mf}`;
+  }
+
+  if(m.type==='add-membre-event'){
+    const mb=S.famille.find(x=>x.id===m.membreId)||{};
+    html=`${mhd('Événement — '+(mb.prenom||''))}
+    <div class="form-group"><label>Titre *</label><input id="m-etitle" placeholder="Ex: RDV médecin, Passeport, Vaccin..."></div>
+    <div class="g2c">
+      <div class="form-group"><label>Type</label><select id="m-etype">
+        ${['RDV médical','Document','Administratif','Scolaire','Autre'].map(t=>`<option>${t}</option>`).join('')}
+      </select></div>
+      <div class="form-group"><label>Date *</label><input id="m-edate" type="date" value="${NOW}"></div>
+    </div>
+    <div class="form-group"><label>Lieu / Médecin</label><input id="m-elieu" placeholder="Ex: Dr. Martin, Mairie..."></div>
+    <div class="form-group"><label>Notes</label><input id="m-enotes"></div>
+    ${mf}`;
+  }
+
+  if(m.type==='add-membre-doc'){
+    const mb=S.famille.find(x=>x.id===m.membreId)||{};
+    html=`${mhd('Document — '+(mb.prenom||''))}
+    <div class="form-group"><label>Type de document *</label><select id="m-dtype">
+      ${['Passeport','Carte nationale d\'identité','Permis de conduire','Carte Vitale','Mutuelle','Carte de séjour','Acte de naissance','Livret de famille','Autre'].map(t=>`<option>${t}</option>`).join('')}
+    </select></div>
+    <div class="form-group"><label>N° de document</label><input id="m-dnum" placeholder="Ex: 12AB34567"></div>
+    <div class="g2c">
+      <div class="form-group"><label>Date de délivrance</label><input id="m-ddelivre" type="date"></div>
+      <div class="form-group"><label>Date d'expiration</label><input id="m-dexpiry" type="date"></div>
+    </div>
+    <div class="form-group"><label>Notes</label><input id="m-dnotes"></div>
+    ${mf}`;
+  }
+
+  if(m.type==='view-membre-events'){
+    const mb=S.famille.find(x=>x.id===m.membreId)||{};
+    const events=(mb.events||[]).slice().sort((a,b)=>new Date(a.date)-new Date(b.date));
+    html=`${mhd('Événements — '+(mb.prenom||''))}
+    <button class="btn btn-p btn-sm" style="margin-bottom:12px" id="btn-add-event-here">+ Événement</button>
+    ${events.map(e=>`<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:0.5px solid var(--border)">
+      <div style="flex:1">
+        <div style="font-size:13px;font-weight:500">${e.titre}</div>
+        <div style="font-size:11px;color:var(--text2)">${dateLabel(e.date)} ${e.lieu?'· '+e.lieu:''}</div>
+      </div>
+      <button class="btn btn-d btn-sm" data-del-event="${e.id}" data-membre-id="${mb.id}">✕</button>
+    </div>`).join('')}
+    ${events.length===0?'<div style="color:var(--text2);font-size:12px">Aucun événement.</div>':''}
+    ${mf}`;
+  }
+
+  if(m.type==='view-membre-docs'){
+    const mb=S.famille.find(x=>x.id===m.membreId)||{};
+    const docs=(mb.docs||[]);
+    html=`${mhd('Documents — '+(mb.prenom||''))}
+    <button class="btn btn-p btn-sm" style="margin-bottom:12px" id="btn-add-doc-here">+ Document</button>
+    ${docs.map(d=>{
+      const days=d.expiry?Math.ceil((new Date(d.expiry)-new Date())/86400000):null;
+      return `<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:0.5px solid var(--border)">
+        <div style="flex:1">
+          <div style="font-size:13px;font-weight:500">${d.type}</div>
+          <div style="font-size:11px;color:var(--text2)">${d.numero||''} ${d.expiry?'· Expire: '+dateLabel(d.expiry):''}</div>
+        </div>
+        ${days!==null?`<span class="badge ${days<0?'bred':days<=90?'bamber':'bgreen'}">${days<0?'Expiré':'Dans '+days+'j'}</span>`:''}
+        <button class="btn btn-d btn-sm" data-del-fdoc="${d.id}" data-membre-id="${mb.id}">✕</button>
+      </div>`;
+    }).join('')}
+    ${docs.length===0?'<div style="color:var(--text2);font-size:12px">Aucun document.</div>':''}
+    ${mf}`;
+  }
 
   if(m.type==='add-rng'||m.type==='edit-rng'){
     const r=m.rng||{};
@@ -2785,6 +3026,143 @@ async function saveModal(){
     const d={id:uid(),name,url,type:q('m-dt').value,date:q('m-dd').value};
     a.documents=[...(a.documents||[]),d];
     await sb.from('assets').update({documents:a.documents}).eq('id',a.id);}
+
+  if(m.type==='add-membre'||m.type==='edit-membre'){
+    const mb=m.membre||{};
+    html=`${mhd(m.type==='add-membre'?'Nouveau membre':'Modifier — '+mb.prenom)}
+    <div class="g2c">
+      <div class="form-group"><label>Prénom *</label><input id="m-fprenom" value="${mb.prenom||''}"></div>
+      <div class="form-group"><label>Nom</label><input id="m-fnom" value="${mb.nom||''}"></div>
+    </div>
+    <div class="g2c">
+      <div class="form-group"><label>Relation</label><select id="m-frelation">
+        ${['Conjoint(e)','Enfant','Parent','Frère/Sœur','Autre'].map(r=>`<option ${mb.relation===r?'selected':''}>${r}</option>`).join('')}
+      </select></div>
+      <div class="form-group"><label>Date de naissance</label><input id="m-fnaissance" type="date" value="${mb.naissance||''}"></div>
+    </div>
+    <div class="g2c">
+      <div class="form-group"><label>Email</label><input id="m-femail" value="${mb.email||''}"></div>
+      <div class="form-group"><label>Téléphone</label><input id="m-ftel" value="${mb.telephone||''}"></div>
+    </div>
+    <div class="form-group"><label>Notes</label><textarea id="m-fnotes">${mb.notes||''}</textarea></div>
+    ${mf}`;
+  }
+
+  if(m.type==='add-membre-event'){
+    const mb=S.famille.find(x=>x.id===m.membreId)||{};
+    html=`${mhd('Événement — '+(mb.prenom||''))}
+    <div class="form-group"><label>Titre *</label><input id="m-etitle" placeholder="Ex: RDV médecin, Passeport, Vaccin..."></div>
+    <div class="g2c">
+      <div class="form-group"><label>Type</label><select id="m-etype">
+        ${['RDV médical','Document','Administratif','Scolaire','Autre'].map(t=>`<option>${t}</option>`).join('')}
+      </select></div>
+      <div class="form-group"><label>Date *</label><input id="m-edate" type="date" value="${NOW}"></div>
+    </div>
+    <div class="form-group"><label>Lieu / Médecin</label><input id="m-elieu" placeholder="Ex: Dr. Martin, Mairie..."></div>
+    <div class="form-group"><label>Notes</label><input id="m-enotes"></div>
+    ${mf}`;
+  }
+
+  if(m.type==='add-membre-doc'){
+    const mb=S.famille.find(x=>x.id===m.membreId)||{};
+    html=`${mhd('Document — '+(mb.prenom||''))}
+    <div class="form-group"><label>Type de document *</label><select id="m-dtype">
+      ${['Passeport','Carte nationale d\'identité','Permis de conduire','Carte Vitale','Mutuelle','Carte de séjour','Acte de naissance','Livret de famille','Autre'].map(t=>`<option>${t}</option>`).join('')}
+    </select></div>
+    <div class="form-group"><label>N° de document</label><input id="m-dnum" placeholder="Ex: 12AB34567"></div>
+    <div class="g2c">
+      <div class="form-group"><label>Date de délivrance</label><input id="m-ddelivre" type="date"></div>
+      <div class="form-group"><label>Date d'expiration</label><input id="m-dexpiry" type="date"></div>
+    </div>
+    <div class="form-group"><label>Notes</label><input id="m-dnotes"></div>
+    ${mf}`;
+  }
+
+  if(m.type==='view-membre-events'){
+    const mb=S.famille.find(x=>x.id===m.membreId)||{};
+    const events=(mb.events||[]).slice().sort((a,b)=>new Date(a.date)-new Date(b.date));
+    html=`${mhd('Événements — '+(mb.prenom||''))}
+    <button class="btn btn-p btn-sm" style="margin-bottom:12px" id="btn-add-event-here">+ Événement</button>
+    ${events.map(e=>`<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:0.5px solid var(--border)">
+      <div style="flex:1">
+        <div style="font-size:13px;font-weight:500">${e.titre}</div>
+        <div style="font-size:11px;color:var(--text2)">${dateLabel(e.date)} ${e.lieu?'· '+e.lieu:''}</div>
+      </div>
+      <button class="btn btn-d btn-sm" data-del-event="${e.id}" data-membre-id="${mb.id}">✕</button>
+    </div>`).join('')}
+    ${events.length===0?'<div style="color:var(--text2);font-size:12px">Aucun événement.</div>':''}
+    ${mf}`;
+  }
+
+  if(m.type==='view-membre-docs'){
+    const mb=S.famille.find(x=>x.id===m.membreId)||{};
+    const docs=(mb.docs||[]);
+    html=`${mhd('Documents — '+(mb.prenom||''))}
+    <button class="btn btn-p btn-sm" style="margin-bottom:12px" id="btn-add-doc-here">+ Document</button>
+    ${docs.map(d=>{
+      const days=d.expiry?Math.ceil((new Date(d.expiry)-new Date())/86400000):null;
+      return `<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:0.5px solid var(--border)">
+        <div style="flex:1">
+          <div style="font-size:13px;font-weight:500">${d.type}</div>
+          <div style="font-size:11px;color:var(--text2)">${d.numero||''} ${d.expiry?'· Expire: '+dateLabel(d.expiry):''}</div>
+        </div>
+        ${days!==null?`<span class="badge ${days<0?'bred':days<=90?'bamber':'bgreen'}">${days<0?'Expiré':'Dans '+days+'j'}</span>`:''}
+        <button class="btn btn-d btn-sm" data-del-fdoc="${d.id}" data-membre-id="${mb.id}">✕</button>
+      </div>`;
+    }).join('')}
+    ${docs.length===0?'<div style="color:var(--text2);font-size:12px">Aucun document.</div>':''}
+    ${mf}`;
+  }
+
+  if(m.type==='add-membre'||m.type==='edit-membre'){
+    const prenom=q('m-fprenom').value.trim();if(!prenom)return alert('Prénom requis');
+    const rec={prenom,nom:q('m-fnom').value,relation:q('m-frelation').value,
+      naissance:q('m-fnaissance').value||null,email:q('m-femail').value,
+      telephone:q('m-ftel').value,notes:q('m-fnotes').value,
+      events:m.membre?.events||[],docs:m.membre?.docs||[]};
+    if(m.type==='add-membre'){
+      const {data,error}=await sb.from('famille').insert(rec).select().single();
+      if(error){alert('Erreur : '+error.message);return;}
+      if(data){if(!S.famille)S.famille=[];S.famille.push(data);}
+    }else{
+      const {error}=await sb.from('famille').update(rec).eq('id',m.membre.id);
+      if(error){alert('Erreur : '+error.message);return;}
+      Object.assign(m.membre,rec);
+    }
+  }
+
+  if(m.type==='add-membre-event'){
+    const titre=q('m-etitle').value.trim();if(!titre)return alert('Titre requis');
+    const mb=S.famille.find(x=>x.id===m.membreId);if(!mb)return;
+    const dateVal=q('m-edate').value;
+    const lieu=q('m-elieu').value;
+    const notes=q('m-enotes').value;
+    const evt={id:uid(),titre,type:q('m-etype').value,date:dateVal,lieu,notes,done:false};
+    if(!mb.events)mb.events=[];
+    mb.events.push(evt);
+    await sb.from('famille').update({events:mb.events}).eq('id',mb.id);
+    // Proposer ajout Google Agenda
+    const d=dateVal.replace(/-/g,'');
+    const gcalUrl='https://calendar.google.com/calendar/render?action=TEMPLATE'
+      +'&text='+encodeURIComponent('['+mb.prenom+'] '+titre)
+      +'&dates='+d+'T090000/'+d+'T100000'
+      +'&details='+encodeURIComponent((notes||'')+(lieu?'\nLieu: '+lieu:''))
+      +'&location='+encodeURIComponent(lieu||'')
+      +'&sf=true&output=xml';
+    if(confirm('✅ Événement enregistré !\n\nVoulez-vous l\'ajouter à Google Agenda ?')){
+      window.open(gcalUrl,'_blank');
+    }
+  }
+
+  if(m.type==='add-membre-doc'){
+    const mb=S.famille.find(x=>x.id===m.membreId);if(!mb)return;
+    const doc={id:uid(),type:q('m-dtype').value,numero:q('m-dnum').value,
+      delivre:q('m-ddelivre').value||null,expiry:q('m-dexpiry').value||null,
+      notes:q('m-dnotes').value};
+    if(!mb.docs)mb.docs=[];
+    mb.docs.push(doc);
+    await sb.from('famille').update({docs:mb.docs}).eq('id',mb.id);
+  }
 
   if(m.type==='add-rng'||m.type==='edit-rng'){
     const nom=q('m-rnom').value.trim();if(!nom)return alert('Nom requis');
@@ -3729,6 +4107,44 @@ function bindAll(){
     S.view='etiquettes';S.eTab='inventaire';S.selInventLoc=locParam;render();
   }
 
+  // Famille
+  document.querySelectorAll('[data-ftab]').forEach(el=>el.onclick=()=>{S.fTab=el.dataset.ftab;render();});
+  const btnAddMembre=document.getElementById('btn-add-membre')||document.getElementById('btn-add-membre2');
+  if(btnAddMembre)btnAddMembre.onclick=()=>{S.modal={type:'add-membre'};render();};
+  document.querySelectorAll('[data-edit-membre]').forEach(el=>el.onclick=()=>{
+    const mb=S.famille.find(x=>x.id===el.dataset.editMembre);
+    if(mb){S.modal={type:'edit-membre',membre:mb};render();}
+  });
+  document.querySelectorAll('[data-del-membre]').forEach(el=>el.onclick=async()=>{
+    if(!confirm('Supprimer ce membre ?'))return;
+    await sb.from('famille').delete().eq('id',el.dataset.delMembre);
+    S.famille=S.famille.filter(x=>x.id!==el.dataset.delMembre);render();
+  });
+  document.querySelectorAll('[data-membre-events]').forEach(el=>el.onclick=()=>{
+    S.modal={type:'view-membre-events',membreId:el.dataset.membreEvents};render();
+  });
+  document.querySelectorAll('[data-membre-docs]').forEach(el=>el.onclick=()=>{
+    S.modal={type:'view-membre-docs',membreId:el.dataset.membreDocs};render();
+  });
+  const btnAddEventHere=document.getElementById('btn-add-event-here');
+  if(btnAddEventHere)btnAddEventHere.onclick=()=>{
+    S.modal={type:'add-membre-event',membreId:S.modal.membreId};render();
+  };
+  const btnAddDocHere=document.getElementById('btn-add-doc-here');
+  if(btnAddDocHere)btnAddDocHere.onclick=()=>{
+    S.modal={type:'add-membre-doc',membreId:S.modal.membreId};render();
+  };
+  document.querySelectorAll('[data-del-event]').forEach(el=>el.onclick=async()=>{
+    const mb=S.famille.find(x=>x.id===el.dataset.membreId);if(!mb)return;
+    mb.events=mb.events.filter(e=>e.id!==el.dataset.delEvent);
+    await sb.from('famille').update({events:mb.events}).eq('id',mb.id);render();
+  });
+  document.querySelectorAll('[data-del-fdoc]').forEach(el=>el.onclick=async()=>{
+    const mb=S.famille.find(x=>x.id===el.dataset.membreId);if(!mb)return;
+    mb.docs=mb.docs.filter(d=>d.id!==el.dataset.delFdoc);
+    await sb.from('famille').update({docs:mb.docs}).eq('id',mb.id);render();
+  });
+
   // Rangements
   const btnAddRng=document.getElementById('btn-add-rng');
   if(btnAddRng)btnAddRng.onclick=()=>{S.modal={type:'add-rng'};render();};
@@ -4667,49 +5083,116 @@ document.addEventListener('click', function(e){
   }
 });
 
+async function sendBrevoEmail(to, subject, htmlContent){
+  return fetch('https://api.brevo.com/v3/smtp/email',{
+    method:'POST',
+    headers:{'api-key':BREVO_API_KEY,'Content-Type':'application/json','Accept':'application/json'},
+    body:JSON.stringify({sender:{name:FROM_NAME,email:FROM_EMAIL},to,bcc:[{email:ALERT_EMAIL}],subject,htmlContent})
+  });
+}
+
 async function checkAndSendAlerts() {
   if (!isAdmin()) return;
   const today = new Date();
   const alerted = JSON.parse(localStorage.getItem('gmao_alerted') || '{}');
-  const toAlert = [];
+  const newAlerted = {...alerted};
 
+  // === 1. GAMMES D'ENTRETIEN ===
+  const toAlert = [];
   S.maintenanceTemplates.forEach(mt => {
     const d = mt.type === 'periodic' ? mt.next_due : mt.due_date;
     if (!d) return;
     const due = new Date(d);
     const days = Math.ceil((due - today) / 86400000);
-    const key = mt.id + '_' + d;
+    const key = 'mt_' + mt.id + '_' + d;
     if (days >= 0 && days <= 30 && !alerted[key]) {
       toAlert.push({mt, days, key});
     }
   });
 
-  if (toAlert.length === 0) return;
+  if (toAlert.length > 0) {
+    const listHTML = toAlert.map(({mt, days}) => {
+      const asset = S.assets.find(a => a.id === mt.asset_id);
+      return `<tr><td style="padding:8px 12px;font-weight:500">${mt.name}</td><td style="padding:8px 12px;color:#666">${asset?.name||'—'}</td><td style="padding:8px 12px"><span style="background:${days<=7?'#FCEBEB':days<=15?'#FAEEDA':'#E6F1FB'};color:${days<=7?'#A32D2D':days<=15?'#854F0B':'#185FA5'};padding:2px 8px;border-radius:12px;font-size:12px">${days}j</span></td></tr>`;
+    }).join('');
+    const html = `<div style="font-family:sans-serif;max-width:600px;margin:0 auto"><div style="background:#1D9E75;padding:20px 24px;border-radius:8px 8px 0 0"><h2 style="color:#fff;margin:0;font-size:18px">GMAO Pro — Alertes Échéances</h2></div><div style="background:#fff;padding:24px;border:1px solid #e5e5e0;border-top:none;border-radius:0 0 8px 8px"><p style="color:#444;margin:0 0 16px">${toAlert.length} gamme(s) arrivent à échéance dans les 30 prochains jours :</p><table style="width:100%;border-collapse:collapse;font-size:14px"><thead><tr style="background:#f5f5f3"><th style="padding:8px 12px;text-align:left;color:#666;font-weight:500">Gamme</th><th style="padding:8px 12px;text-align:left;color:#666;font-weight:500">Équipement</th><th style="padding:8px 12px;text-align:left;color:#666;font-weight:500">Délai</th></tr></thead><tbody>${listHTML}</tbody></table></div></div>`;
+    try {
+      const resp = await sendBrevoEmail([{email:ALERT_EMAIL}], `⚠ GMAO — ${toAlert.length} échéance(s) dans 30 jours`, html);
+      if (resp.ok) toAlert.forEach(({key}) => newAlerted[key] = new Date().toISOString());
+    } catch(e) { console.error('Alert gammes error:', e); }
+  }
 
-  const listHTML = toAlert.map(({mt, days}) => {
-    const asset = S.assets.find(a => a.id === mt.asset_id);
-    return `<tr><td style="padding:8px 12px;font-weight:500">${mt.name}</td><td style="padding:8px 12px;color:#666">${asset?.name||'—'}</td><td style="padding:8px 12px"><span style="background:${days<=7?'#FCEBEB':days<=15?'#FAEEDA':'#E6F1FB'};color:${days<=7?'#A32D2D':days<=15?'#854F0B':'#185FA5'};padding:2px 8px;border-radius:12px;font-size:12px">${days}j</span></td></tr>`;
-  }).join('');
+  // === 2. BONS DE TRAVAUX OUVERTS — alerte à l'intervenant assigné ===
+  const woAlerts = S.workOrders.filter(w => {
+    if (w.status === 'done') return false;
+    if (!w.by_user) return false;
+    const key = 'wo_' + w.id;
+    if (alerted[key]) return false;
+    // Alerter si le BT est en cours depuis plus de 7 jours sans mise à jour
+    const created = new Date(w.created_at||w.date||today);
+    const daysSince = Math.ceil((today - created) / 86400000);
+    return daysSince >= 1; // alerte dès le lendemain de création
+  });
 
-  const html = `<div style="font-family:sans-serif;max-width:600px;margin:0 auto"><div style="background:#1D9E75;padding:20px 24px;border-radius:8px 8px 0 0"><h2 style="color:#fff;margin:0;font-size:18px">⬡ GMAO Pro — Alertes Échéances</h2></div><div style="background:#fff;padding:24px;border:1px solid #e5e5e0;border-top:none;border-radius:0 0 8px 8px"><p style="color:#444;margin:0 0 16px">${toAlert.length} gamme(s) arrivent à échéance dans les 30 prochains jours :</p><table style="width:100%;border-collapse:collapse;font-size:14px"><thead><tr style="background:#f5f5f3"><th style="padding:8px 12px;text-align:left;color:#666;font-weight:500">Gamme</th><th style="padding:8px 12px;text-align:left;color:#666;font-weight:500">Équipement</th><th style="padding:8px 12px;text-align:left;color:#666;font-weight:500">Délai</th></tr></thead><tbody>${listHTML}</tbody></table></div></div>`;
+  for (const w of woAlerts) {
+    // Chercher l'email de l'intervenant dans les utilisateurs
+    const user = S.users.find(u =>
+      u.name === w.by_user ||
+      u.email === w.by_user ||
+      (u.name||'').toLowerCase().includes((w.by_user||'').toLowerCase())
+    );
+    const toEmail = user?.email ? [{email:user.email, name:user.name}] : [{email:ALERT_EMAIL}];
+    const asset = S.assets.find(a => a.id === w.asset_id);
+    const html = `<div style="font-family:sans-serif;max-width:600px;margin:0 auto">
+      <div style="background:#E65C00;padding:20px 24px;border-radius:8px 8px 0 0">
+        <h2 style="color:#fff;margin:0;font-size:18px">GMAO Pro — Bon de travaux en attente</h2>
+      </div>
+      <div style="background:#fff;padding:24px;border:1px solid #e5e5e0;border-top:none;border-radius:0 0 8px 8px">
+        <p style="color:#444">Bonjour <b>${w.by_user}</b>,</p>
+        <p style="color:#444">Un bon de travaux vous est assigné et est toujours en cours :</p>
+        <table style="width:100%;border-collapse:collapse;margin:16px 0;font-size:14px">
+          <tr style="background:#f5f5f3"><td style="padding:8px 12px;font-weight:500;width:40%">Titre</td><td style="padding:8px 12px"><b>${w.title}</b></td></tr>
+          <tr><td style="padding:8px 12px;font-weight:500">Description</td><td style="padding:8px 12px">${w.description||'—'}</td></tr>
+          <tr style="background:#f5f5f3"><td style="padding:8px 12px;font-weight:500">Équipement</td><td style="padding:8px 12px">${asset?.name||'—'}</td></tr>
+          <tr><td style="padding:8px 12px;font-weight:500">Catégorie</td><td style="padding:8px 12px">${w.category||'—'}</td></tr>
+          <tr style="background:#f5f5f3"><td style="padding:8px 12px;font-weight:500">Date création</td><td style="padding:8px 12px">${dateLabel(w.date||w.created_at)}</td></tr>
+          ${w.cost>0?`<tr><td style="padding:8px 12px;font-weight:500">Coût estimé</td><td style="padding:8px 12px">${w.cost}€</td></tr>`:''}
+        </table>
+        <p style="color:#888;font-size:12px">Merci de mettre à jour ce bon de travaux dans GMAO Pro.</p>
+      </div>
+    </div>`;
+    try {
+      const resp = await sendBrevoEmail(toEmail, `📋 GMAO — BT en cours : ${w.title}`, html);
+      if (resp.ok) newAlerted['wo_'+w.id] = new Date().toISOString();
+    } catch(e) { console.error('Alert BT error:', e); }
+  }
 
-  try {
-    const resp = await fetch('https://api.brevo.com/v3/smtp/email', {
-      method: 'POST',
-      headers: {'api-key': BREVO_API_KEY, 'Content-Type': 'application/json', 'Accept': 'application/json'},
-      body: JSON.stringify({
-        sender: {name: FROM_NAME, email: FROM_EMAIL},
-        to: [{email: ALERT_EMAIL}],
-        subject: `⚠ GMAO — ${toAlert.length} échéance(s) dans 30 jours`,
-        htmlContent: html
-      })
+  // === 3. FAMILLE — documents expirant bientôt ===
+  if (S.famille && S.famille.length > 0) {
+    const famAlerts = [];
+    S.famille.forEach(mb => {
+      (mb.docs||[]).forEach(d => {
+        if (!d.expiry) return;
+        const days = Math.ceil((new Date(d.expiry) - today) / 86400000);
+        const key = 'fam_' + mb.id + '_' + d.id;
+        if (days >= 0 && days <= 60 && !alerted[key]) {
+          famAlerts.push({mb, d, days, key});
+        }
+      });
     });
-    if (resp.ok) {
-      const newAlerted = {...alerted};
-      toAlert.forEach(({key}) => newAlerted[key] = new Date().toISOString());
-      localStorage.setItem('gmao_alerted', JSON.stringify(newAlerted));
+    if (famAlerts.length > 0) {
+      const listHTML = famAlerts.map(({mb,d,days}) =>
+        `<tr><td style="padding:8px 12px;font-weight:500">${mb.prenom} ${mb.nom||''}</td><td style="padding:8px 12px">${d.type}</td><td style="padding:8px 12px">${d.numero||'—'}</td><td style="padding:8px 12px"><span style="background:${days<=30?'#FCEBEB':'#FAEEDA'};color:${days<=30?'#A32D2D':'#854F0B'};padding:2px 8px;border-radius:12px;font-size:12px">${days}j</span></td></tr>`
+      ).join('');
+      const html = `<div style="font-family:sans-serif;max-width:600px;margin:0 auto"><div style="background:#7B2D8B;padding:20px 24px;border-radius:8px 8px 0 0"><h2 style="color:#fff;margin:0;font-size:18px">GMAO Pro — Documents famille à renouveler</h2></div><div style="background:#fff;padding:24px;border:1px solid #e5e5e0;border-top:none;border-radius:0 0 8px 8px"><p style="color:#444;margin:0 0 16px">${famAlerts.length} document(s) expire(nt) dans les 60 prochains jours :</p><table style="width:100%;border-collapse:collapse;font-size:14px"><thead><tr style="background:#f5f5f3"><th style="padding:8px 12px;text-align:left">Membre</th><th style="padding:8px 12px;text-align:left">Document</th><th style="padding:8px 12px;text-align:left">N°</th><th style="padding:8px 12px;text-align:left">Délai</th></tr></thead><tbody>${listHTML}</tbody></table></div></div>`;
+      try {
+        const resp = await sendBrevoEmail([{email:ALERT_EMAIL}], `👨‍👩‍👧‍👦 GMAO — ${famAlerts.length} document(s) famille à renouveler`, html);
+        if (resp.ok) famAlerts.forEach(({key}) => newAlerted[key] = new Date().toISOString());
+      } catch(e) { console.error('Alert famille error:', e); }
     }
-  } catch(e) { console.error('Alert error:', e); }
+  }
+
+  localStorage.setItem('gmao_alerted', JSON.stringify(newAlerted));
 }
 
 
