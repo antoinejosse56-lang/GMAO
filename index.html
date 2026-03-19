@@ -3030,26 +3030,7 @@ async function saveModal(){
     a.documents=[...(a.documents||[]),d];
     await sb.from('assets').update({documents:a.documents}).eq('id',a.id);}
 
-  if(m.type==='add-membre'||m.type==='edit-membre'){
-    const mb=m.membre||{};
-    html=`${mhd(m.type==='add-membre'?'Nouveau membre':'Modifier — '+mb.prenom)}
-    <div class="g2c">
-      <div class="form-group"><label>Prénom *</label><input id="m-fprenom" value="${mb.prenom||''}"></div>
-      <div class="form-group"><label>Nom</label><input id="m-fnom" value="${mb.nom||''}"></div>
-    </div>
-    <div class="g2c">
-      <div class="form-group"><label>Relation</label><select id="m-frelation">
-        ${['Conjoint(e)','Enfant','Parent','Frère/Sœur','Autre'].map(r=>`<option ${mb.relation===r?'selected':''}>${r}</option>`).join('')}
-      </select></div>
-      <div class="form-group"><label>Date de naissance</label><input id="m-fnaissance" type="date" value="${mb.naissance||''}"></div>
-    </div>
-    <div class="g2c">
-      <div class="form-group"><label>Email</label><input id="m-femail" value="${mb.email||''}"></div>
-      <div class="form-group"><label>Téléphone</label><input id="m-ftel" value="${mb.telephone||''}"></div>
-    </div>
-    <div class="form-group"><label>Notes</label><textarea id="m-fnotes">${mb.notes||''}</textarea></div>
-    ${mf}`;
-  }
+
 
   if(m.type==='add-membre-event'){
     const mb=S.famille.find(x=>x.id===m.membreId)||{};
@@ -4496,7 +4477,16 @@ function _openPicker(callback){
 // ============================================================
 // EMAIL CONFIG — Brevo (ex-Sendinblue)
 // ============================================================
-const BREVO_API_KEY = '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'; // à remplacer après configuration Brevo
+// Clé Brevo stockée en localStorage (jamais dans le code)
+function getBrevoKey(){
+  let k = localStorage.getItem('brevo_api_key');
+  if(!k){
+    k = prompt('Clé API Brevo requise (saisie une seule fois) :');
+    if(k) localStorage.setItem('brevo_api_key', k.trim());
+  }
+  return k||'';
+}
+const BREVO_API_KEY = getBrevoKey(); // à remplacer après configuration Brevo
 const ALERT_EMAIL   = 'antoinejoss56@gmail.com';
 const FROM_EMAIL    = 'savadur56@gmail.com';
 const FROM_NAME     = 'J&A SAVADUR';
