@@ -128,7 +128,7 @@ let S = {
   topoState: {propId: null, tradeId: null, zoneId: null, expanded: {}},
   // data
   users: [], assets: [], tasks: [], tools: [], loans: [],
-  workOrders: [], maintenanceTemplates: [], topology: {properties: []}, revenues: [], finTab: 'overview', compteurs: [], releves: [], rangements: [], famille: []
+  workOrders: [], maintenanceTemplates: [], topology: {properties: []}, revenues: [], finTab: 'overview', compteurs: [], releves: [], rangements: [], famille: [], consommables: []
 };
 
 async function loadAll() {
@@ -147,7 +147,7 @@ async function loadAll() {
     const test = await sb.from('users').select('count', {count:'exact',head:true});
     if (test.error) { showError(test.error.message || JSON.stringify(test.error)); return; }
 
-    const [u, a, t, tl, l, wo, mt, topo, rev, cpt, rel, ten, rp, wr, rng, fam] = await Promise.all([
+    const [u, a, t, tl, l, wo, mt, topo, rev, cpt, rel, ten, rp, wr, rng, fam, conso] = await Promise.all([
       sb.from('users').select('*'),
       sb.from('assets').select('*'),
       sb.from('tasks').select('*'),
@@ -163,7 +163,8 @@ async function loadAll() {
       sb.from('rent_payments').select('*'),
       sb.from('water_readings').select('*'),
       sb.from('rangements').select('*').order('nom'),
-      sb.from('famille').select('*').order('prenom')
+      sb.from('famille').select('*').order('prenom'),
+      sb.from('consommables').select('*').order('nom')
     ]);
 
     for (const [name, res] of [['users',u],['assets',a],['tasks',t],['tools',tl],['loans',l],['work_orders',wo],['maintenance_templates',mt],['topology',topo],['revenues',rev],['compteurs',cpt],['releves',rel],['tenants',ten],['rent_payments',rp],['water_readings',wr]]) {
@@ -187,6 +188,7 @@ async function loadAll() {
     S.waterReadings = wr.data || [];
     S.rangements = rng.error ? [] : (rng.data || []);
     S.famille = fam.error ? [] : (fam.data || []);
+    S.consommables = conso.error ? [] : (conso.data || []);
     S.topology = topo.data?.[0]?.data || {properties: []};
     S.topoId = topo.data?.[0]?.id;
     if (S.topology.properties.length > 0) S.topoState.propId = S.topology.properties[0].id;
@@ -244,6 +246,7 @@ function navItems(){
     ]},
     {group:'Outils', items:[
       {id:'tools', label:'Inventaire outils', icon:'◈'},
+      {id:'consommables', label:'Consommables', icon:'📦'},
       {id:'etiquettes', label:'Étiquettes & QR', icon:'◩'},
       {id:'loans', label:'Prêts en cours', icon:'◉', badge: loanedN},
     ]},
@@ -274,6 +277,7 @@ function renderApp(){
     tasks: renderTasks(),
     workorders: renderWorkOrders(),
     tools: renderTools(),
+    consommables: renderConsommables(),
     etiquettes: renderEtiquettes(),
     loans: renderLoans(),
     rangements: renderRangements(),
@@ -300,7 +304,7 @@ function renderApp(){
     users: isAdmin()?`<button class="btn btn-p" id="btn-add-user">+ Utilisateur</button>`:'',
     asset_detail: `<button class="btn" id="btn-back">← Retour</button>${canEdit()?`<button class="btn btn-p" id="btn-add-wo-asset" style="margin-left:6px">+ Bon de travaux</button>`:''}`
   };
-  const titles = {dashboard:'Tableau de bord',assets:'Équipements',tasks:'Échéances',workorders:'Bons de travaux',tools:'Inventaire outils',rangements:'Gestion des rangements',etiquettes:'Étiquettes & QR Code',loans:"Prêts d'outils",vehicles:'Mes véhicules',locatif:'Gestion locative',compteurs:'Compteurs & Relevés',finances:'Coûts & Revenus',topology:'Topologie des biens',maintenance:"Gammes d'entretien",users:'Utilisateurs',famille:'Suivi famille',famille:'Suivi administratif famille',asset_detail:S.selectedAsset?.name||'Détail'};
+  const titles = {dashboard:'Tableau de bord',assets:'Équipements',tasks:'Échéances',workorders:'Bons de travaux',tools:'Inventaire outils',consommables:'Inventaire consommables',rangements:'Gestion des rangements',etiquettes:'Étiquettes & QR Code',loans:"Prêts d'outils",vehicles:'Mes véhicules',locatif:'Gestion locative',compteurs:'Compteurs & Relevés',finances:'Coûts & Revenus',topology:'Topologie des biens',maintenance:"Gammes d'entretien",users:'Utilisateurs',famille:'Suivi famille',settings:'Paramètres',asset_detail:S.selectedAsset?.name||'Détail'};
 
   return `<div class="app">
     <div class="sidebar">
@@ -879,9 +883,23 @@ function renderWorkOrders(){
         ${w.by_user?`<span style="font-size:11px;color:var(--text3)">Par : ${w.by_user}</span>`:''}
         ${canEdit()?`<button class="btn btn-sm" data-add-wo-doc="${w.id}" style="margin-left:auto">📎 Joindre</button>`:''}
         ${canEdit()&&w.status==='open'?`<button class="btn btn-sm" data-edit-wo="${w.id}">✎ Modifier</button>`:''}
+        ${canEdit()&&(w.checklist||[]).length>0?`<button class="btn btn-sm" data-checklist-wo="${w.id}">📋 Check-list</button>`:''}
         ${canEdit()&&w.status==='open'?`<button class="btn btn-sm btn-p" data-close-wo="${w.id}">✓ Terminer</button>`:''}
         ${isAdmin()?`<button class="btn btn-d btn-sm" data-del-wo="${w.id}">✕</button>`:''}
       </div>
+      ${(w.checklist||[]).length>0?`<div style="margin-top:8px;border-top:0.5px solid var(--border);padding-top:8px">
+        <div style="font-size:11px;font-weight:500;color:var(--text2);margin-bottom:4px">📋 Matériel (${w.checklist.filter(i=>i.done).length}/${w.checklist.length})</div>
+        <div style="display:flex;flex-wrap:wrap;gap:4px">
+          ${w.checklist.slice(0,4).map(i=>`<span class="badge ${i.done?'bgreen':'bgray'}" style="font-size:10px">${i.type==='cso'?'📦':'🔧'} ${i.nom}</span>`).join('')}
+          ${w.checklist.length>4?`<span class="badge bgray" style="font-size:10px">+${w.checklist.length-4}</span>`:''}
+        </div>
+      </div>`:''}
+      ${(w.checklist||[]).length>0?`<div style="margin-top:8px;border-top:0.5px solid var(--border);padding-top:8px">
+        <div style="font-size:11px;font-weight:500;color:var(--text2);margin-bottom:5px">🛠 Matériel (${(w.checklist||[]).filter(i=>i.fait).length}/${(w.checklist||[]).length})</div>
+        <div style="display:flex;flex-wrap:wrap;gap:4px">
+          ${(w.checklist||[]).map(item=>`<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:${item.fait?'var(--green)':'var(--bg2)'};color:${item.fait?'#fff':'var(--text2)'};text-decoration:${item.fait?'line-through':''};cursor:pointer" data-toggle-cl="${w.id}" data-cl-nom="${item.nom}">${item.qte||1}× ${item.nom}</span>`).join('')}
+        </div>
+      </div>`:''}
       ${(w.journal||[]).length>0?`<div style="margin-top:10px;border-top:0.5px solid var(--border);padding-top:8px">
         <div style="font-size:11px;font-weight:500;color:var(--text2);margin-bottom:6px">📋 Journal (${w.journal.length} entrée${w.journal.length>1?'s':''})</div>
         ${w.journal.slice().reverse().slice(0,3).map(e=>`
@@ -1909,6 +1927,169 @@ function printLocationLabel(loc, tools, siteUrl){
 }
 
 
+function renderConsommables(){
+  const conso = S.consommables||[];
+  const cTab = S.csoTab||'stock';
+  const siteUrl = window.location.origin+window.location.pathname;
+
+  const cats = ['all',...new Set(conso.map(c=>c.categorie).filter(Boolean))];
+  const selCat = S.csoFilter||'all';
+  const filtered = selCat==='all'?conso:conso.filter(c=>c.categorie===selCat);
+
+  const tabBar = `<div class="tab-bar" style="margin-bottom:14px">
+    <div class="tab ${cTab==='stock'?'active':''}" data-csotab="stock">📦 Stock</div>
+    <div class="tab ${cTab==='etiquettes'?'active':''}" data-csotab="etiquettes">🏷 Étiquettes</div>
+    <div class="tab ${cTab==='inventaire'?'active':''}" data-csotab="inventaire">📋 Inventaire</div>
+  </div>`;
+
+  // === STOCK ===
+  if(cTab==='stock'){
+    const valeurTotale = conso.reduce((s,c)=>s+(c.stock||0)*(c.prix_achat||0),0);
+    const fmt = n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(n||0);
+    return `${tabBar}
+    <div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;align-items:center">
+      ${cats.map(c=>`<span class="pill ${selCat===c?'active':''}" data-csofilter="${c}">${c==='all'?'Tous':c}</span>`).join('')}
+      <span style="margin-left:auto;font-size:12px;color:var(--text2)">Valeur stock : <b>${fmt(valeurTotale)}</b></span>
+      ${isAdmin()?`<button class="btn btn-p btn-sm" id="btn-add-conso">+ Consommable</button>`:''}
+    </div>
+    <div class="card"><div style="overflow-x:auto"><table>
+      <thead><tr><th>Désignation</th><th>Catégorie</th><th>Emplacement</th><th>Stock</th><th>Alerte</th><th>Prix achat</th><th>Valeur</th><th></th></tr></thead>
+      <tbody>
+      ${filtered.map(c=>{
+        const fmt2 = n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(n||0);
+        const alerte = c.stock_min&&c.stock<=c.stock_min;
+        return `<tr>
+          <td>
+            <div style="font-weight:500">${c.nom}</div>
+            ${c.reference?`<div style="font-size:10px;color:var(--text3);font-family:monospace">${c.reference}</div>`:''}
+            ${c.description?`<div style="font-size:11px;color:var(--text2)">${c.description}</div>`:''}
+          </td>
+          <td><span class="badge bgray">${c.categorie||'—'}</span></td>
+          <td style="font-size:12px">${c.emplacement||'—'}</td>
+          <td>
+            <div style="display:flex;align-items:center;gap:6px">
+              <span style="font-size:14px;font-weight:600;color:${alerte?'var(--red)':c.stock>0?'var(--text)':'var(--text2)'}">${c.stock||0}</span>
+              <span style="font-size:11px;color:var(--text2)">${c.unite||'unité(s)'}</span>
+              ${alerte?'<span class="badge bred" style="font-size:9px">⚠ Stock bas</span>':''}
+            </div>
+            ${c.stock_min?`<div style="font-size:10px;color:var(--text3)">min: ${c.stock_min}</div>`:''}
+          </td>
+          <td style="font-size:12px">${c.stock_min||'—'}</td>
+          <td style="font-size:12px">${c.prix_achat?fmt2(c.prix_achat):'—'}</td>
+          <td style="font-size:12px;font-weight:500">${c.prix_achat&&c.stock?fmt2(c.stock*c.prix_achat):'—'}</td>
+          <td style="white-space:nowrap">
+            ${canEdit()?`<button class="btn btn-sm btn-p" data-cso-adjust="${c.id}">±</button> `:''}
+            ${isAdmin()?`<button class="btn btn-sm" data-edit-cso="${c.id}">✎</button> <button class="btn btn-d btn-sm" data-del-cso="${c.id}">✕</button>`:''}
+          </td>
+        </tr>`;
+      }).join('')}
+      ${filtered.length===0?'<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--text2)">Aucun consommable. Cliquez "+ Consommable" pour commencer.</td></tr>':''}
+      </tbody>
+    </table></div></div>`;
+  }
+
+  // === ÉTIQUETTES ===
+  if(cTab==='etiquettes'){
+    const byEmplacement = {};
+    conso.forEach(c=>{
+      const emp = c.emplacement||'Sans emplacement';
+      if(!byEmplacement[emp]) byEmplacement[emp]=[];
+      byEmplacement[emp].push(c);
+    });
+    return `${tabBar}
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px">
+      ${Object.entries(byEmplacement).map(([emp,items])=>`
+        <div class="card" style="padding:12px;text-align:center">
+          <canvas id="qr-cso-${btoa(emp).replace(/[^a-z0-9]/gi,'').slice(0,15)}" style="width:90px;height:90px"></canvas>
+          <div style="font-size:13px;font-weight:600;margin-top:6px">📦 ${emp}</div>
+          <div style="font-size:11px;color:var(--text2);margin:4px 0">${items.length} article(s)</div>
+          <div style="font-size:10px;color:var(--text3);margin-bottom:8px">${items.slice(0,3).map(i=>i.nom).join(', ')}${items.length>3?'...':''}</div>
+          <button class="btn btn-sm" data-print-cso-label="${emp}">🖨 Étiquette</button>
+        </div>`).join('')}
+      ${Object.keys(byEmplacement).length===0?'<div style="grid-column:1/-1;text-align:center;padding:30px;color:var(--text2)">Aucun consommable avec emplacement défini.</div>':''}
+    </div>`;
+  }
+
+  // === INVENTAIRE ===
+  if(cTab==='inventaire'){
+    const emplacements = [...new Set(conso.map(c=>c.emplacement).filter(Boolean))].sort();
+    const selEmp = S.csoInvEmp||(emplacements[0]||'');
+    const empItems = selEmp?conso.filter(c=>c.emplacement===selEmp):conso;
+    const invState = S.csoInvState||{};
+    const checked = empItems.filter(c=>invState[c.id]).length;
+    return `${tabBar}
+    <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center">
+      <select id="cso-inv-sel" style="padding:6px 10px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:13px">
+        ${emplacements.map(e=>`<option value="${e}" ${e===selEmp?'selected':''}>${e}</option>`).join('')}
+        <option value="">Tous les emplacements</option>
+      </select>
+      <span style="font-size:13px;color:var(--text2)">${checked}/${empItems.length} vérifiés</span>
+      <div style="flex:1;background:var(--bg3);border-radius:99px;height:6px;min-width:60px">
+        <div style="background:var(--green);height:100%;border-radius:99px;width:${empItems.length>0?Math.round(checked/empItems.length*100):0}%"></div>
+      </div>
+      <button class="btn btn-sm" id="btn-reset-cso-inv">↺ Réinitialiser</button>
+    </div>
+    <div class="card">
+      ${empItems.map(c=>{
+        const isChecked = invState[c.id];
+        const alerte = c.stock_min&&c.stock<=c.stock_min;
+        return `<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:0.5px solid var(--border);cursor:pointer" data-cso-inv-check="${c.id}">
+          <div style="width:22px;height:22px;border-radius:4px;border:2px solid ${isChecked?'var(--green)':'var(--border2)'};background:${isChecked?'var(--green)':'transparent'};display:flex;align-items:center;justify-content:center;flex-shrink:0">
+            ${isChecked?'<svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke="#fff" stroke-width="2" fill="none"/></svg>':''}
+          </div>
+          <div style="flex:1">
+            <div style="font-size:13px;font-weight:500">${c.nom} ${alerte?'<span style="color:var(--red)">⚠</span>':''}</div>
+            <div style="font-size:11px;color:var(--text2)">${c.categorie||''} · Stock: <b>${c.stock||0}</b> ${c.unite||''}</div>
+          </div>
+          <button class="btn btn-sm" data-cso-adjust="${c.id}" style="flex-shrink:0">±</button>
+        </div>`;
+      }).join('')}
+      ${empItems.length===0?'<div style="text-align:center;padding:20px;color:var(--text2)">Aucun article dans cet emplacement.</div>':''}
+    </div>
+    <div style="margin-top:12px;display:flex;gap:8px">
+      <button class="btn btn-p" id="btn-export-cso-inv">📄 Exporter liste</button>
+      <button class="btn" id="btn-print-cso-list">🖨 Imprimer</button>
+    </div>`;
+  }
+  return '';
+}
+
+function printConsoLabel(emp, items, siteUrl){
+  const qrData = siteUrl+'?cso_emp='+encodeURIComponent(emp);
+  const itemsHtml = items.map(i=>`<tr><td style="padding:3px 8px;font-size:11px">${i.nom}</td><td style="padding:3px 8px;font-size:11px;text-align:right">${i.stock||0} ${i.unite||''}</td><td style="padding:3px 8px;font-size:10px;color:#999">${i.reference||''}</td></tr>`).join('');
+  const w = window.open('','_blank','width=500,height=600');
+  if(!w) return;
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${emp}</title>
+  <style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:Arial,sans-serif;background:#f0f0f0;display:flex;flex-direction:column;align-items:center;padding:20px;gap:16px}
+  .label{background:#fff;border:2px solid #111;border-radius:8px;width:340px;overflow:hidden}
+  .hd{background:#111;color:#fff;padding:8px 14px;display:flex;justify-content:space-between;align-items:center}
+  .hd .own{font-size:13px;font-weight:700}.hd .type{font-size:10px;background:rgba(255,255,255,.2);padding:2px 7px;border-radius:10px}
+  .bd{display:flex;gap:10px;padding:12px}
+  .info{flex:1}h2{font-size:14px;font-weight:700;margin-bottom:8px}
+  table{width:100%;border-collapse:collapse}tr:nth-child(even){background:#f8f8f8}
+  .ft{background:#f5f5f5;border-top:1px solid #ddd;padding:5px 14px;font-size:9px;color:#999;display:flex;justify-content:space-between}
+  .btns{display:flex;gap:10px}.bp{padding:8px 20px;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;background:#111;color:#fff}
+  .bc{padding:8px 20px;border:1px solid #ccc;border-radius:6px;cursor:pointer;font-size:13px;background:#fff}
+  @media print{body{background:#fff;padding:0}.btns{display:none!important}.label{box-shadow:none;border-color:#000;width:300px;margin:0 auto}.hd{background:#000!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}}</style>
+  </head><body>
+  <div class="label">
+    <div class="hd"><span class="own">Antoine JOSSE</span><span class="type">Consommables</span></div>
+    <div class="bd">
+      <canvas id="qrc" width="90" height="90"></canvas>
+      <div class="info"><h2>📦 ${emp}</h2>
+        <table><thead><tr><th style="padding:3px 8px;font-size:10px;color:#666;text-align:left">Article</th><th style="padding:3px 8px;font-size:10px;color:#666;text-align:right">Qté</th><th style="padding:3px 8px;font-size:10px;color:#666">Réf.</th></tr></thead>
+        <tbody>${itemsHtml}</tbody></table>
+      </div>
+    </div>
+    <div class="ft"><span>📷 Scanner pour inventaire rapide</span><span>${new Date().toLocaleDateString('fr-FR')}</span></div>
+  </div>
+  <div class="btns"><button class="bp" onclick="window.print()">🖨 Imprimer</button><button class="bc" onclick="window.close()">Fermer</button></div>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"><\/script>
+  <script>QRCode.toCanvas(document.getElementById('qrc'),'${qrData}',{width:90,margin:1},()=>{});<\/script>
+  </body></html>`);
+  w.document.close();
+}
+
 function renderRangements(){
   const rangements = S.rangements||[];
   return `<div>
@@ -2228,7 +2409,27 @@ function renderModal(){
       <div class="form-group"><label>Date</label><input id="m-wdate" type="date" value="${w.date||NOW}"></div>
       <div class="form-group"><label>Coût (€)</label><input id="m-wcost" type="number" value="${w.cost||0}"></div>
     </div>
-    <div class="form-group"><label>Intervenant</label><input id="m-wby" value="${w.by_user||''}"></div>
+    <div class="form-group"><label>Intervenant assigné</label>
+      <select id="m-wby-sel" onchange="const inp=document.getElementById('m-wby-custom');inp.style.display=this.value==='__autre__'?'':'none';">
+        <option value="">— Sélectionner —</option>
+        ${S.users.map(u=>`<option value="${u.name}|${u.email||''}" ${w.by_user===u.name?'selected':''}>${u.name}${u.email?' — '+u.email:''}</option>`).join('')}
+        <option value="__autre__" ${w.by_user&&!S.users.find(u=>u.name===w.by_user)?'selected':''}>✏ Autre...</option>
+      </select>
+      <input id="m-wby" value="${w.by_user||''}" placeholder="Nom intervenant..." style="margin-top:6px;display:${w.by_user&&!S.users.find(u=>u.name===w.by_user)?'':'none'}">
+      <input id="m-wby-custom" value="${w.by_user&&!S.users.find(u=>u.name===w.by_user)?w.by_user:''}" placeholder="Nom intervenant..." style="margin-top:6px;display:${w.by_user&&!S.users.find(u=>u.name===w.by_user)?'':'none'}">
+    </div>
+    <div class="g2c">
+      <div class="form-group"><label>Alerte email</label>
+        <select id="m-walert">
+          <option value="" ${!w.alert_pref?'selected':''}>Pas d'alerte</option>
+          <option value="at_creation" ${w.alert_pref==='at_creation'?'selected':''}>À la création</option>
+          <option value="1_before" ${w.alert_pref==='1_before'?'selected':''}>1 jour avant</option>
+          <option value="3_before" ${w.alert_pref==='3_before'?'selected':''}>3 jours avant</option>
+          <option value="7_before" ${w.alert_pref==='7_before'?'selected':''}>7 jours avant</option>
+        </select>
+      </div>
+      <div class="form-group"><label>Date d'échéance</label><input id="m-wdue" type="date" value="${w.due_date||''}"></div>
+    </div>
 
     <div style="border-top:0.5px solid var(--border);margin:14px 0 10px"></div>
     <div style="font-size:13px;font-weight:500;margin-bottom:8px">📋 Journal de suivi</div>
@@ -2306,7 +2507,26 @@ function renderModal(){
       <div class="form-group"><label>Date</label><input id="m-wdate" type="date" value="${NOW}"></div>
       <div class="form-group"><label>Coût (€)</label><input id="m-wcost" type="number" placeholder="0"></div>
     </div>
-    <div class="form-group"><label>Intervenant</label><input id="m-wby" placeholder="Nom"></div>${mf}`;}
+    <div class="form-group"><label>Intervenant</label>
+      <select id="m-wby-sel">
+        <option value="">— Sélectionner un utilisateur —</option>
+        ${S.users.map(u=>`<option value="${u.name}" data-email="${u.email||''}">${u.name} ${u.email?'('+u.email+')':''}</option>`).join('')}
+        <option value="__autre__">✏ Autre...</option>
+      </select>
+      <input id="m-wby" placeholder="Nom intervenant..." style="margin-top:6px">
+    </div>
+    <div style="border-top:0.5px solid var(--border);margin:12px 0 10px"></div>
+    <div style="font-size:12px;font-weight:500;color:var(--text2);margin-bottom:6px">🛠 Check-list matériel</div>
+    <div id="checklist-items"></div>
+    <div style="display:flex;gap:6px;margin-top:4px">
+      <button type="button" class="btn btn-sm" id="btn-add-cl-item">+ Ligne</button>
+      <select id="cl-cso-sel" style="flex:1;padding:4px 8px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">
+        <option value="">Ajouter depuis consommables...</option>
+        ${S.consommables.map(c=>`<option value="${c.nom}" data-unite="${c.unite||''}">${c.nom} (stock: ${c.stock||0} ${c.unite||''})</option>`).join('')}
+      </select>
+      <button type="button" class="btn btn-sm btn-p" id="btn-add-cl-cso">+ Ajouter</button>
+    </div>
+    ${mf}`;}
 
   if(m.type==='add-history'){html=`${mhd('Nouvelle intervention')}
     <div class="g2c">
@@ -2414,6 +2634,55 @@ function renderModal(){
     ${mf}`;
   }
 
+  if(m.type==='add-cso'||m.type==='edit-cso'){
+    const c=m.cso||{};
+    const rngOpts=S.rangements.map(r=>`<option value="${r.nom}" ${c.emplacement===r.nom?'selected':''}>${r.nom}</option>`).join('');
+    html=`${mhd(m.type==='add-cso'?'Nouveau consommable':'Modifier — '+c.nom)}
+    <div class="form-group"><label>Désignation *</label><input id="m-cnom" value="${c.nom||''}" placeholder="Ex: Prise électrique 2P+T, Raccord 15/21..."></div>
+    <div class="g2c">
+      <div class="form-group"><label>Catégorie</label><input id="m-ccat" value="${c.categorie||''}" placeholder="Ex: Électricité, Plomberie..."></div>
+      <div class="form-group"><label>Référence</label><input id="m-cref" value="${c.reference||''}" placeholder="Ex: REF-123"></div>
+    </div>
+    <div class="g2c">
+      <div class="form-group"><label>Stock actuel</label><input id="m-cstock" type="number" value="${c.stock||0}" min="0"></div>
+      <div class="form-group"><label>Unité</label><input id="m-cunite2" value="${c.unite||'pièce(s)'}" placeholder="pièce(s), m, kg..."></div>
+    </div>
+    <div class="g2c">
+      <div class="form-group"><label>Stock minimum (alerte)</label><input id="m-cstockmin" type="number" value="${c.stock_min||0}" min="0"></div>
+      <div class="form-group"><label>Prix achat unitaire (€)</label><input id="m-cprix2" type="number" step="0.01" value="${c.prix_achat||0}"></div>
+    </div>
+    <div class="form-group"><label>Emplacement (boîte/caisse)</label>
+      <select id="m-cemp">
+        <option value="">— Saisir manuellement —</option>
+        ${rngOpts}
+        ${c.emplacement&&!S.rangements.find(r=>r.nom===c.emplacement)?`<option value="${c.emplacement}" selected>${c.emplacement}</option>`:''}
+      </select>
+      <input id="m-cemp-custom" value="${c.emplacement||''}" placeholder="Ex: Caisse rouge, Boîte électricité..." style="margin-top:6px">
+    </div>
+    <div class="form-group"><label>Description / Notes</label><input id="m-cdesc2" value="${c.description||''}"></div>
+    ${mf}`;
+  }
+
+  if(m.type==='adjust-cso'){
+    const c=m.cso;
+    html=`${mhd('Ajuster stock — '+c.nom)}
+    <div style="background:var(--bg2);padding:10px 12px;border-radius:var(--radius);margin-bottom:12px;font-size:13px">
+      Stock actuel : <b>${c.stock||0} ${c.unite||'unité(s)'}</b>
+    </div>
+    <div class="g2c">
+      <div class="form-group"><label>Opération</label>
+        <select id="m-cadj-op">
+          <option value="add">+ Entrée (réapprovisionnement)</option>
+          <option value="sub">- Sortie (utilisation)</option>
+          <option value="set">= Définir exactement</option>
+        </select>
+      </div>
+      <div class="form-group"><label>Quantité</label><input id="m-cadj-qty" type="number" min="0" step="0.1" value="1" autofocus></div>
+    </div>
+    <div class="form-group"><label>Motif</label><input id="m-cadj-note" placeholder="Ex: BT #123, Réapprovisionnement..."></div>
+    ${mf}`;
+  }
+
   if(m.type==='add-rng'||m.type==='edit-rng'){
     const r=m.rng||{};
     html=`${mhd(m.type==='add-rng'?'Nouveau rangement':'Modifier — '+r.nom)}
@@ -2443,6 +2712,28 @@ function renderModal(){
     </div>
     <div class="form-group"><label>Description</label><input id="m-tdesc" value="${t.description||''}"></div>
     <div class="form-group"><label>Notes</label><input id="m-tnotes" value="${t.notes||''}"></div>${mf}`;}
+
+  if(m.type==='checklist-wo'){
+    const w=m.wo;
+    const items=w.checklist||[];
+    html=`${mhd('📋 Check-list — '+w.title)}
+    <div style="margin-bottom:12px">
+      ${items.map((item,idx)=>`
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:0.5px solid var(--border)">
+          <div style="width:22px;height:22px;border-radius:4px;border:2px solid ${item.done?'var(--green)':'var(--border2)'};background:${item.done?'var(--green)':'transparent'};display:flex;align-items:center;justify-content:center;flex-shrink:0;cursor:pointer" data-cl-toggle="${idx}">
+            ${item.done?'<svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke="#fff" stroke-width="2" fill="none"/></svg>':''}
+          </div>
+          <span style="font-size:13px">${item.type==='cso'?'📦':'🔧'}</span>
+          <div style="flex:1">
+            <div style="font-size:13px;font-weight:500;${item.done?'text-decoration:line-through;color:var(--text2)':''}">${item.nom}</div>
+            ${item.quantite>1?`<div style="font-size:11px;color:var(--text2)">Quantité : ${item.quantite}</div>`:''}
+          </div>
+        </div>`).join('')}
+      ${items.length===0?'<div style="color:var(--text2);font-size:12px">Aucun élément dans la check-list.</div>':''}
+    </div>
+    <div style="font-size:12px;color:var(--text2);text-align:center">${items.filter(i=>i.done).length} / ${items.length} éléments validés</div>
+    ${mf}`;
+  }
 
   if(m.type==='quick-tool'){
     const t=m.tool;
@@ -2991,11 +3282,17 @@ async function saveModal(){
       topoRef=null;
     }
     const assetId=q('m-wasset')?.value||null;
+    const bySel2=q('m-wby-sel');
+    const byUser2=bySel2&&bySel2.value&&bySel2.value!=='__autre__'?bySel2.value:q('m-wby').value||w.by_user||'';
+    const clNoms2=[...document.querySelectorAll('.cl-item-nom')].map(el=>el.value.trim()).filter(Boolean);
+    const clQtes2=[...document.querySelectorAll('.cl-item-qte')].map(el=>parseFloat(el.value)||1);
+    const clUnites2=[...document.querySelectorAll('.cl-item-unite')].map(el=>el.value||'');
+    const checklist2=clNoms2.map((nom,i)=>({nom,qte:clQtes2[i],unite:clUnites2[i],fait:(w.checklist||[]).find(x=>x.nom===nom)?.fait||false}));
     const upd={title,description:q('m-wd').value,category:q('m-wc').value,
       status:q('m-wstatus').value,date:q('m-wdate').value,
-      cost:parseFloat(q('m-wcost').value)||0,by_user:q('m-wby').value,
+      cost:parseFloat(q('m-wcost').value)||0,by_user:byUser2,
       asset_id:assetId||w.asset_id,topo_ref:topoRef,
-      journal};
+      journal,checklist:checklist2};
     const {error}=await sb.from('work_orders').update(upd).eq('id',w.id);
     if(error){alert('Erreur : '+error.message);return;}
     Object.assign(w,upd);
@@ -3013,7 +3310,22 @@ async function saveModal(){
     const zone=prop?.zones?.find(z=>z.id===zoneId);
     const sub=zone?.subZones?.find(s=>s.id===subId);
     const topoRef=propId?{propId,propName:prop?.name||'',zoneId:zoneId||null,zoneName:zone?.name||'',subId:subId||null,subName:sub?.name||''}:null;
-    const {data}=await sb.from('work_orders').insert({title,description:q('m-wd').value,asset_id:assetId,topo_ref:topoRef,category:q('m-wc').value,date:q('m-wdate').value,status:'open',cost:parseFloat(q('m-wcost').value)||0,by_user:q('m-wby').value,docs:[]}).select().single();
+    // Get intervenant
+    const bySel=q('m-wby-sel');
+    const byUser=bySel&&bySel.value&&bySel.value!=='__autre__'?bySel.value:q('m-wby').value||'';
+    // Build checklist
+    const clNoms=[...document.querySelectorAll('.cl-item-nom')].map(el=>el.value.trim()).filter(Boolean);
+    const clQtes=[...document.querySelectorAll('.cl-item-qte')].map(el=>parseFloat(el.value)||1);
+    const clUnites=[...document.querySelectorAll('.cl-item-unite')].map(el=>el.value||'');
+    const checklist=clNoms.map((nom,i)=>({nom,qte:clQtes[i],unite:clUnites[i],fait:false}));
+    const {data}=await sb.from('work_orders').insert({title,description:q('m-wd').value,asset_id:assetId,topo_ref:topoRef,category:q('m-wc').value,date:q('m-wdate').value,status:'open',cost:parseFloat(q('m-wcost').value)||0,by_user:byUser,docs:[],checklist}).select().single();
+    // Send email to assigned user
+    if(data&&byUser){
+      const user=S.users.find(u=>u.name===byUser||u.email===byUser);
+      if(user?.email){
+        try{await sendBTAssignmentEmail(data,user);}catch(e){console.warn('Email BT:',e);}
+      }
+    }
     if(data)S.workOrders.push(data);}
 
   if(m.type==='add-history'){
@@ -3032,88 +3344,7 @@ async function saveModal(){
 
 
 
-  if(m.type==='add-membre-event'){
-    const mb=S.famille.find(x=>x.id===m.membreId)||{};
-    html=`${mhd('Événement — '+(mb.prenom||''))}
-    <div class="form-group"><label>Titre *</label><input id="m-etitle" placeholder="Ex: RDV médecin, Passeport, Vaccin..."></div>
-    <div class="g2c">
-      <div class="form-group"><label>Type</label><select id="m-etype">
-        ${['RDV médical','Document','Administratif','Scolaire','Autre'].map(t=>`<option>${t}</option>`).join('')}
-      </select></div>
-      <div class="form-group"><label>Date *</label><input id="m-edate" type="date" value="${NOW}"></div>
-    </div>
-    <div class="form-group"><label>Lieu / Médecin</label><input id="m-elieu" placeholder="Ex: Dr. Martin, Mairie..."></div>
-    <div class="form-group"><label>Notes</label><input id="m-enotes"></div>
-    ${mf}`;
-  }
 
-  if(m.type==='add-membre-doc'){
-    const mb=S.famille.find(x=>x.id===m.membreId)||{};
-    html=`${mhd('Document — '+(mb.prenom||''))}
-    <div class="form-group"><label>Type de document *</label><select id="m-dtype">
-      ${['Passeport','Carte nationale d\'identité','Permis de conduire','Carte Vitale','Mutuelle','Carte de séjour','Acte de naissance','Livret de famille','Autre'].map(t=>`<option>${t}</option>`).join('')}
-    </select></div>
-    <div class="form-group"><label>N° de document</label><input id="m-dnum" placeholder="Ex: 12AB34567"></div>
-    <div class="g2c">
-      <div class="form-group"><label>Date de délivrance</label><input id="m-ddelivre" type="date"></div>
-      <div class="form-group"><label>Date d'expiration</label><input id="m-dexpiry" type="date"></div>
-    </div>
-    <div class="form-group"><label>Notes</label><input id="m-dnotes"></div>
-    ${mf}`;
-  }
-
-  if(m.type==='view-membre-events'){
-    const mb=S.famille.find(x=>x.id===m.membreId)||{};
-    const events=(mb.events||[]).slice().sort((a,b)=>new Date(a.date)-new Date(b.date));
-    html=`${mhd('Événements — '+(mb.prenom||''))}
-    <button class="btn btn-p btn-sm" style="margin-bottom:12px" id="btn-add-event-here">+ Événement</button>
-    ${events.map(e=>`<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:0.5px solid var(--border)">
-      <div style="flex:1">
-        <div style="font-size:13px;font-weight:500">${e.titre}</div>
-        <div style="font-size:11px;color:var(--text2)">${dateLabel(e.date)} ${e.lieu?'· '+e.lieu:''}</div>
-      </div>
-      <button class="btn btn-d btn-sm" data-del-event="${e.id}" data-membre-id="${mb.id}">✕</button>
-    </div>`).join('')}
-    ${events.length===0?'<div style="color:var(--text2);font-size:12px">Aucun événement.</div>':''}
-    ${mf}`;
-  }
-
-  if(m.type==='view-membre-docs'){
-    const mb=S.famille.find(x=>x.id===m.membreId)||{};
-    const docs=(mb.docs||[]);
-    html=`${mhd('Documents — '+(mb.prenom||''))}
-    <button class="btn btn-p btn-sm" style="margin-bottom:12px" id="btn-add-doc-here">+ Document</button>
-    ${docs.map(d=>{
-      const days=d.expiry?Math.ceil((new Date(d.expiry)-new Date())/86400000):null;
-      return `<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:0.5px solid var(--border)">
-        <div style="flex:1">
-          <div style="font-size:13px;font-weight:500">${d.type}</div>
-          <div style="font-size:11px;color:var(--text2)">${d.numero||''} ${d.expiry?'· Expire: '+dateLabel(d.expiry):''}</div>
-        </div>
-        ${days!==null?`<span class="badge ${days<0?'bred':days<=90?'bamber':'bgreen'}">${days<0?'Expiré':'Dans '+days+'j'}</span>`:''}
-        <button class="btn btn-d btn-sm" data-del-fdoc="${d.id}" data-membre-id="${mb.id}">✕</button>
-      </div>`;
-    }).join('')}
-    ${docs.length===0?'<div style="color:var(--text2);font-size:12px">Aucun document.</div>':''}
-    ${mf}`;
-  }
-
-  if(m.type==='add-membre'||m.type==='edit-membre'){
-    const prenom=q('m-fprenom').value.trim();if(!prenom)return alert('Prénom requis');
-    const rec={prenom,nom:q('m-fnom').value,relation:q('m-frelation').value,
-      naissance:q('m-fnaissance').value||null,email:q('m-femail').value,
-      telephone:q('m-ftel').value,notes:q('m-fnotes').value,
-      events:m.membre?.events||[],docs:m.membre?.docs||[]};
-    if(m.type==='add-membre'){
-      const {data,error}=await sb.from('famille').insert(rec).select().single();
-      if(error){alert('Erreur : '+error.message);return;}
-      if(data){if(!S.famille)S.famille=[];S.famille.push(data);}
-    }else{
-      const {error}=await sb.from('famille').update(rec).eq('id',m.membre.id);
-      if(error){alert('Erreur : '+error.message);return;}
-      Object.assign(m.membre,rec);
-    }
-  }
 
   if(m.type==='add-membre-event'){
     const titre=q('m-etitle').value.trim();if(!titre)return alert('Titre requis');
@@ -3124,7 +3355,8 @@ async function saveModal(){
     const evt={id:uid(),titre,type:q('m-etype').value,date:dateVal,lieu,notes,done:false};
     if(!mb.events)mb.events=[];
     mb.events.push(evt);
-    await sb.from('famille').update({events:mb.events}).eq('id',mb.id);
+    const {error}=await sb.from('famille').update({events:mb.events}).eq('id',mb.id);
+    if(error){alert('Erreur : '+error.message);return;}
     // Proposer ajout Google Agenda
     const d=dateVal.replace(/-/g,'');
     const gcalUrl='https://calendar.google.com/calendar/render?action=TEMPLATE'
@@ -3146,6 +3378,45 @@ async function saveModal(){
     if(!mb.docs)mb.docs=[];
     mb.docs.push(doc);
     await sb.from('famille').update({docs:mb.docs}).eq('id',mb.id);
+  }
+
+  if(m.type==='add-cso'||m.type==='edit-cso'){
+    const nom=q('m-cnom').value.trim();if(!nom)return alert('Désignation requise');
+    const empSel=q('m-cemp')?.value||'';
+    const empCustom=q('m-cemp-custom')?.value||'';
+    const emplacement=empSel&&empSel!==''?empSel:empCustom;
+    const rec={nom,categorie:q('m-ccat').value,reference:q('m-cref').value||null,
+      stock:parseFloat(q('m-cstock').value)||0,unite:q('m-cunite2').value||'pièce(s)',
+      stock_min:parseFloat(q('m-cstockmin').value)||0,prix_achat:parseFloat(q('m-cprix2').value)||0,
+      emplacement,description:q('m-cdesc2').value||null};
+    if(m.type==='add-cso'){
+      const {data,error}=await sb.from('consommables').insert(rec).select().single();
+      if(error){alert('Erreur : '+error.message);return;}
+      if(data)S.consommables.push(data);
+    }else{
+      const {error}=await sb.from('consommables').update(rec).eq('id',m.cso.id);
+      if(error){alert('Erreur : '+error.message);return;}
+      Object.assign(m.cso,rec);
+    }
+  }
+
+  if(m.type==='adjust-cso'){
+    const c=m.cso;
+    const op=q('m-cadj-op').value;
+    const qty=parseFloat(q('m-cadj-qty').value)||0;
+    const note=q('m-cadj-note').value;
+    let newStock=c.stock||0;
+    if(op==='add') newStock+=qty;
+    else if(op==='sub') newStock=Math.max(0,newStock-qty);
+    else newStock=qty;
+    newStock=Math.round(newStock*100)/100;
+    // Log movement
+    const mvt={date:new Date().toISOString().slice(0,10),op,qty,note,by:S.currentUser?.name||'',stock_apres:newStock};
+    const mouvements=[...(c.mouvements||[]),mvt];
+    const {error}=await sb.from('consommables').update({stock:newStock,mouvements}).eq('id',c.id);
+    if(error){alert('Erreur : '+error.message);return;}
+    c.stock=newStock;c.mouvements=mouvements;
+    alert(`✓ Stock mis à jour : ${newStock} ${c.unite||'unité(s)'}`);
   }
 
   if(m.type==='add-rng'||m.type==='edit-rng'){
@@ -3176,6 +3447,28 @@ async function saveModal(){
     const location2=locSel2?(locSel2.value==='__autre__'?locCustom2?.value||'':locSel2.value):locCustom2?.value||'';
     const upd={name:q('m-tn').value,category:q('m-tc').value,status:q('m-ts').value,location:location2,description:q('m-tdesc').value,notes:q('m-tnotes').value};
     await sb.from('tools').update(upd).eq('id',t.id);Object.assign(t,upd);}
+
+  if(m.type==='checklist-wo'){
+    const w=m.wo;
+    const items=w.checklist||[];
+    html=`${mhd('📋 Check-list — '+w.title)}
+    <div style="margin-bottom:12px">
+      ${items.map((item,idx)=>`
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:0.5px solid var(--border)">
+          <div style="width:22px;height:22px;border-radius:4px;border:2px solid ${item.done?'var(--green)':'var(--border2)'};background:${item.done?'var(--green)':'transparent'};display:flex;align-items:center;justify-content:center;flex-shrink:0;cursor:pointer" data-cl-toggle="${idx}">
+            ${item.done?'<svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke="#fff" stroke-width="2" fill="none"/></svg>':''}
+          </div>
+          <span style="font-size:13px">${item.type==='cso'?'📦':'🔧'}</span>
+          <div style="flex:1">
+            <div style="font-size:13px;font-weight:500;${item.done?'text-decoration:line-through;color:var(--text2)':''}">${item.nom}</div>
+            ${item.quantite>1?`<div style="font-size:11px;color:var(--text2)">Quantité : ${item.quantite}</div>`:''}
+          </div>
+        </div>`).join('')}
+      ${items.length===0?'<div style="color:var(--text2);font-size:12px">Aucun élément dans la check-list.</div>':''}
+    </div>
+    <div style="font-size:12px;color:var(--text2);text-align:center">${items.filter(i=>i.done).length} / ${items.length} éléments validés</div>
+    ${mf}`;
+  }
 
   if(m.type==='quick-tool'){
     const t=m.tool;
@@ -3982,152 +4275,49 @@ function bindAll(){
   if(wfst)wfst.onchange=()=>{S.woSearch.status=wfst.value;render();};
   if(wfr)wfr.onclick=()=>{S.woSearch={prop:'',zone:'',sub:'',asset:'',status:'all'};S.filter.cat='all';render();};
 
-  document.querySelectorAll('[data-close-wo]').forEach(el=>el.onclick=async()=>{
-    await sb.from('work_orders').update({status:'done'}).eq('id',el.dataset.closeWo);
-    const w=S.workOrders.find(x=>x.id===el.dataset.closeWo);if(w)w.status='done';render();});
-  document.querySelectorAll('[data-edit-wo]').forEach(el=>el.onclick=()=>{
-    const w=S.workOrders.find(x=>x.id===el.dataset.editWo);
-    if(w){S.modal={type:'edit-wo',wo:w};render();}
+  // Checklist toggle
+  document.querySelectorAll('[data-checklist-wo]').forEach(el=>el.onclick=()=>{
+    const w=S.workOrders.find(x=>x.id===el.dataset.checklistWo);
+    if(w){S.modal={type:'checklist-wo',wo:w};render();}
   });
-  document.querySelectorAll('[data-del-wo]').forEach(el=>el.onclick=async()=>{
-    if(!confirm('Supprimer ?'))return;await sb.from('work_orders').delete().eq('id',el.dataset.delWo);
-    S.workOrders=S.workOrders.filter(w=>w.id!==el.dataset.delWo);render();});
-  document.querySelectorAll('[data-del-doc]').forEach(el=>el.onclick=async()=>{
-    if(!confirm('Supprimer ?'))return;const a=S.selectedAsset;
-    a.documents=(a.documents||[]).filter(d=>d.id!==el.dataset.delDoc);
-    await sb.from('assets').update({documents:a.documents}).eq('id',a.id);render();});
-  // Étiquettes & QR
-  document.querySelectorAll('[data-etab]').forEach(el=>el.onclick=()=>{S.eTab=el.dataset.etab;render();});
-  document.querySelectorAll('[data-efilter]').forEach(el=>el.onclick=()=>{S.eFilter=el.dataset.efilter;render();});
-
-  // Generate QR codes after render
-  setTimeout(()=>{
-    if(typeof QRCode==='undefined') return;
-    const siteUrl = window.location.origin+window.location.pathname;
-    // Tool QR codes
-    S.tools.forEach(t=>{
-      const canvas=document.getElementById('qr-tool-'+t.id);
-      if(canvas&&!canvas._qr){
-        canvas._qr=true;
-        QRCode.toCanvas(canvas,siteUrl+'?tool='+t.id,{width:100,margin:1},()=>{});
-      }
-    });
-    // Location QR codes
-    [...new Set(S.tools.map(t=>t.location).filter(Boolean))].forEach(loc=>{
-      const id='qr-loc-'+btoa(loc).replace(/[^a-z0-9]/gi,'');
-      const canvas=document.getElementById(id);
-      if(canvas&&!canvas._qr){
-        canvas._qr=true;
-        QRCode.toCanvas(canvas,siteUrl+'?location='+encodeURIComponent(loc),{width:100,margin:1},()=>{});
-      }
-    });
-  },300);
-
-  // Print buttons
-  document.querySelectorAll('[data-print-label]').forEach(el=>el.onclick=e=>{
-    e.stopPropagation();
-    const t=S.tools.find(x=>x.id===el.dataset.printLabel);
-    if(t) printLabel(t, window.location.origin+window.location.pathname);
-  });
-  document.querySelectorAll('[data-print-loc]').forEach(el=>el.onclick=e=>{
-    e.stopPropagation();
-    const loc=el.dataset.printLoc;
-    const tools=S.tools.filter(t=>t.location===loc);
-    printLocationLabel(loc, tools, window.location.origin+window.location.pathname);
-  });
-  document.querySelectorAll('[data-qr-tool]').forEach(el=>el.onclick=()=>{
-    if(el.dataset.qrTool && !el.dataset.printLabel){
-      S.eTab='outils'; S.view='etiquettes'; render();
-    }
-  });
-
-  // Inventaire
-  const invLocSel=document.getElementById('inv-loc-sel');
-  if(invLocSel) invLocSel.onchange=()=>{S.selInventLoc=invLocSel.value;S.inventState={};render();};
-  document.querySelectorAll('[data-inv-check]').forEach(el=>el.onclick=()=>{
-    if(!S.inventState) S.inventState={};
-    S.inventState[el.dataset.invCheck]=!S.inventState[el.dataset.invCheck];
+  // Checklist item toggle
+  document.querySelectorAll('[data-cl-toggle]').forEach(el=>el.onclick=async()=>{
+    const idx=parseInt(el.dataset.clToggle);
+    const w=S.modal?.wo;
+    if(!w||!w.checklist) return;
+    w.checklist[idx].done=!w.checklist[idx].done;
+    await sb.from('work_orders').update({checklist:w.checklist}).eq('id',w.id);
     render();
   });
-  const btnResetInv=document.getElementById('btn-reset-inv');
-  if(btnResetInv) btnResetInv.onclick=()=>{S.inventState={};render();};
-  const btnExportInv=document.getElementById('btn-export-inv');
-  if(btnExportInv) btnExportInv.onclick=()=>{
-    const loc=S.selInventLoc||'Tous';
-    const tools=S.selInventLoc?S.tools.filter(t=>t.location===S.selInventLoc):S.tools;
-    const inv=S.inventState||{};
-    const lines=['INVENTAIRE — '+loc+' — '+new Date().toLocaleDateString('fr-FR'),''];
-    tools.forEach(t=>{
-      const ok=inv[t.id];
-      const loan=S.loans.find(l=>l.tool_id===t.id&&!l.returned);
-      lines.push((ok?'[x] ':'[ ] ')+t.name+(loan?' ⚠ PRÊTÉ à '+loan.borrower:''));
-    });
-    lines.push('');
-    lines.push('Total : '+tools.filter(t=>inv[t.id]).length+' / '+tools.length+' vérifiés');
-    const blob=new Blob([lines.join('\n')],{type:'text/plain'});
-    const a=document.createElement('a');a.href=URL.createObjectURL(blob);
-    a.download='Inventaire_'+loc.replace(/\s/g,'_')+'_'+new Date().toISOString().slice(0,10)+'.txt';
-    a.click();
+  // Add checklist item in add-wo modal
+
+  const btnAddClCso=document.getElementById('btn-add-cl-cso');
+  if(btnAddClCso)btnAddClCso.onclick=()=>{
+    const sel=document.getElementById('cl-cso-sel');
+    if(!sel||!sel.value)return;
+    const container=document.getElementById('checklist-items');
+    const unite=sel.selectedOptions[0]?.dataset.unite||'';
+    const idx=container.querySelectorAll('.cl-item-nom').length;
+    const div=document.createElement('div');
+    div.style.cssText='display:flex;gap:6px;margin-bottom:4px';
+    div.innerHTML=`<input value="${sel.value}" style="flex:1;padding:4px 8px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px" class="cl-item-nom" data-idx="${idx}"><input value="1" type="number" min="1" style="width:60px;padding:4px 6px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px" class="cl-item-qte" data-idx="${idx}"><input value="${unite}" placeholder="unité" style="width:70px;padding:4px 6px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px" class="cl-item-unite" data-idx="${idx}">`;
+    container.appendChild(div);
+    sel.value='';
   };
 
-  // QR Scanner (via camera)
-  const btnScanQr=document.getElementById('btn-scan-qr');
-  if(btnScanQr) btnScanQr.onclick=()=>{
-    alert('📷 Pour scanner un QR code : utilisez l\'application appareil photo de votre smartphone ou une app de scan QR. Le lien ouvrira automatiquement la fiche de l\'outil dans GMAO Pro.');
-  };
-
-  // Handle QR code URL params on page load (for scan redirect)
-  const urlParams=new URLSearchParams(window.location.search);
-  const toolParam=urlParams.get('tool');
-  const locParam=urlParams.get('location');
-  if(toolParam&&S.currentUser){
-    const t=S.tools.find(x=>x.id===toolParam);
-    if(t){
-      S.view='tools';
-      S.modal={type:'quick-tool',tool:t};
-      render();
+  // WO user selector
+  const woBySel=document.getElementById('m-wby-sel');
+  if(woBySel){
+    woBySel.onchange=()=>{
+      const inp=document.getElementById('m-wby');
+      if(woBySel.value==='__autre__'){if(inp)inp.style.display='';}
+      else{if(inp){inp.value=woBySel.value;inp.style.display='none';}}
+    };
+    if(woBySel.value&&woBySel.value!=='__autre__'){
+      const inp=document.getElementById('m-wby');
+      if(inp){inp.value=woBySel.value;inp.style.display='none';}
     }
-  } else if(locParam&&S.currentUser){
-    S.view='etiquettes';S.eTab='inventaire';S.selInventLoc=locParam;render();
   }
-
-  // Famille
-  document.querySelectorAll('[data-ftab]').forEach(el=>el.onclick=()=>{S.fTab=el.dataset.ftab;render();});
-  const btnAddMembre=document.getElementById('btn-add-membre')||document.getElementById('btn-add-membre2');
-  if(btnAddMembre)btnAddMembre.onclick=()=>{S.modal={type:'add-membre'};render();};
-  document.querySelectorAll('[data-edit-membre]').forEach(el=>el.onclick=()=>{
-    const mb=S.famille.find(x=>x.id===el.dataset.editMembre);
-    if(mb){S.modal={type:'edit-membre',membre:mb};render();}
-  });
-  document.querySelectorAll('[data-del-membre]').forEach(el=>el.onclick=async()=>{
-    if(!confirm('Supprimer ce membre ?'))return;
-    await sb.from('famille').delete().eq('id',el.dataset.delMembre);
-    S.famille=S.famille.filter(x=>x.id!==el.dataset.delMembre);render();
-  });
-  document.querySelectorAll('[data-membre-events]').forEach(el=>el.onclick=()=>{
-    S.modal={type:'view-membre-events',membreId:el.dataset.membreEvents};render();
-  });
-  document.querySelectorAll('[data-membre-docs]').forEach(el=>el.onclick=()=>{
-    S.modal={type:'view-membre-docs',membreId:el.dataset.membreDocs};render();
-  });
-  const btnAddEventHere=document.getElementById('btn-add-event-here');
-  if(btnAddEventHere)btnAddEventHere.onclick=()=>{
-    S.modal={type:'add-membre-event',membreId:S.modal.membreId};render();
-  };
-  const btnAddDocHere=document.getElementById('btn-add-doc-here');
-  if(btnAddDocHere)btnAddDocHere.onclick=()=>{
-    S.modal={type:'add-membre-doc',membreId:S.modal.membreId};render();
-  };
-  document.querySelectorAll('[data-del-event]').forEach(el=>el.onclick=async()=>{
-    const mb=S.famille.find(x=>x.id===el.dataset.membreId);if(!mb)return;
-    mb.events=mb.events.filter(e=>e.id!==el.dataset.delEvent);
-    await sb.from('famille').update({events:mb.events}).eq('id',mb.id);render();
-  });
-  document.querySelectorAll('[data-del-fdoc]').forEach(el=>el.onclick=async()=>{
-    const mb=S.famille.find(x=>x.id===el.dataset.membreId);if(!mb)return;
-    mb.docs=mb.docs.filter(d=>d.id!==el.dataset.delFdoc);
-    await sb.from('famille').update({docs:mb.docs}).eq('id',mb.id);render();
-  });
 
   // Rangements
   const btnAddRng=document.getElementById('btn-add-rng');
@@ -4479,14 +4669,23 @@ function _openPicker(callback){
 // ============================================================
 // Clé Brevo stockée en localStorage (jamais dans le code)
 function getBrevoKey(){
+  return localStorage.getItem('brevo_api_key')||'';
+}
+function ensureBrevoKey(){
   let k = localStorage.getItem('brevo_api_key');
   if(!k){
-    k = prompt('Clé API Brevo requise (saisie une seule fois) :');
-    if(k) localStorage.setItem('brevo_api_key', k.trim());
+    k = prompt('Entrez votre clé API Brevo (commence par xkeysib-) :');
+    if(k && k.trim().startsWith('xkeysib-')){
+      localStorage.setItem('brevo_api_key', k.trim());
+      return k.trim();
+    } else {
+      alert('Clé invalide — les emails ne seront pas envoyés.');
+      return '';
+    }
   }
-  return k||'';
+  return k;
 }
-const BREVO_API_KEY = getBrevoKey(); // à remplacer après configuration Brevo
+let BREVO_API_KEY = getBrevoKey(); // à remplacer après configuration Brevo
 const ALERT_EMAIL   = 'antoinejoss56@gmail.com';
 const FROM_EMAIL    = 'savadur56@gmail.com';
 const FROM_NAME     = 'J&A SAVADUR';
@@ -5076,13 +5275,109 @@ document.addEventListener('click', function(e){
   }
 });
 
+async function sendBTAssignmentEmail(wo, user){
+  const asset = S.assets.find(a=>a.id===wo.asset_id);
+  const checklist = wo.checklist||[];
+  const checklistHtml = checklist.length>0
+    ?`<table style="width:100%;border-collapse:collapse;margin-top:8px;font-size:13px">
+      <thead><tr style="background:#f5f5f3"><th style="padding:6px 10px;text-align:left">Article</th><th style="padding:6px 10px;text-align:right">Qté</th><th style="padding:6px 10px">Unité</th></tr></thead>
+      <tbody>${checklist.map(i=>`<tr><td style="padding:6px 10px">${i.nom}</td><td style="padding:6px 10px;text-align:right">${i.qte||1}</td><td style="padding:6px 10px">${i.unite||''}</td></tr>`).join('')}</tbody>
+    </table>`:'<p style="color:#888;font-size:12px">Aucun matériel spécifié.</p>';
+
+  const html = `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
+    <div style="background:#1D9E75;padding:20px 24px;border-radius:8px 8px 0 0">
+      <h2 style="color:#fff;margin:0;font-size:18px">📋 GMAO Pro — Nouveau bon de travaux assigné</h2>
+    </div>
+    <div style="background:#fff;padding:24px;border:1px solid #e5e5e0;border-top:none;border-radius:0 0 8px 8px">
+      <p style="color:#444">Bonjour <b>${user.name}</b>,</p>
+      <p style="color:#444;margin:0 0 16px">Un nouveau bon de travaux vous a été assigné :</p>
+      <table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:16px">
+        <tr style="background:#f5f5f3"><td style="padding:8px 12px;font-weight:500;width:35%">Titre</td><td style="padding:8px 12px"><b>${wo.title}</b></td></tr>
+        ${wo.description?`<tr><td style="padding:8px 12px;font-weight:500">Description</td><td style="padding:8px 12px">${wo.description}</td></tr>`:''}
+        <tr style="background:#f5f5f3"><td style="padding:8px 12px;font-weight:500">Équipement</td><td style="padding:8px 12px">${asset?.name||'—'}</td></tr>
+        <tr><td style="padding:8px 12px;font-weight:500">Catégorie</td><td style="padding:8px 12px">${wo.category||'—'}</td></tr>
+        <tr style="background:#f5f5f3"><td style="padding:8px 12px;font-weight:500">Date</td><td style="padding:8px 12px">${dateLabel(wo.date)}</td></tr>
+        ${wo.cost>0?`<tr><td style="padding:8px 12px;font-weight:500">Coût estimé</td><td style="padding:8px 12px">${wo.cost}€</td></tr>`:''}
+      </table>
+      ${checklist.length>0?`<div style="margin-top:16px"><b style="font-size:14px">🛠 Matériel nécessaire :</b>${checklistHtml}</div>`:''}
+      <p style="color:#888;font-size:12px;margin-top:16px">Connectez-vous à GMAO Pro pour mettre à jour ce bon de travaux.</p>
+    </div>
+  </div>`;
+
+  return sendBrevoEmail([{email:user.email,name:user.name}], `📋 GMAO — BT assigné : ${wo.title}`, html);
+}
+
+async function sendGammeRappelEmail(mt, user, days){
+  const asset = S.assets.find(a=>a.id===mt.asset_id);
+  const html = `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
+    <div style="background:${days<=7?'#E65C00':days<=15?'#F5A623':'#1D9E75'};padding:20px 24px;border-radius:8px 8px 0 0">
+      <h2 style="color:#fff;margin:0;font-size:18px">⏰ GMAO Pro — Gamme d'entretien à prévoir</h2>
+    </div>
+    <div style="background:#fff;padding:24px;border:1px solid #e5e5e0;border-top:none;border-radius:0 0 8px 8px">
+      <p style="color:#444">Bonjour <b>${user.name}</b>,</p>
+      <p style="color:#444">Une gamme d'entretien arrive à échéance dans <b style="color:${days<=7?'#E65C00':days<=15?'#F5A623':'#1D9E75'}">${days} jour(s)</b> :</p>
+      <table style="width:100%;border-collapse:collapse;font-size:14px;margin:16px 0">
+        <tr style="background:#f5f5f3"><td style="padding:8px 12px;font-weight:500;width:35%">Gamme</td><td style="padding:8px 12px"><b>${mt.name}</b></td></tr>
+        <tr><td style="padding:8px 12px;font-weight:500">Équipement</td><td style="padding:8px 12px">${asset?.name||'—'}</td></tr>
+        <tr style="background:#f5f5f3"><td style="padding:8px 12px;font-weight:500">Échéance</td><td style="padding:8px 12px">${dateLabel(mt.next_due||mt.due_date)}</td></tr>
+        ${mt.description?`<tr><td style="padding:8px 12px;font-weight:500">Description</td><td style="padding:8px 12px">${mt.description}</td></tr>`:''}
+      </table>
+      <p style="color:#888;font-size:12px">Prévoyez cette intervention dans GMAO Pro.</p>
+    </div>
+  </div>`;
+  return sendBrevoEmail([{email:user.email,name:user.name}], `⏰ GMAO — Gamme à prévoir dans ${days}j : ${mt.name}`, html);
+}
+
+
 async function sendBrevoEmail(to, subject, htmlContent){
+  if(!BREVO_API_KEY) BREVO_API_KEY = ensureBrevoKey();
+  if(!BREVO_API_KEY) throw new Error('Clé Brevo manquante');
   return fetch('https://api.brevo.com/v3/smtp/email',{
     method:'POST',
     headers:{'api-key':BREVO_API_KEY,'Content-Type':'application/json','Accept':'application/json'},
     body:JSON.stringify({sender:{name:FROM_NAME,email:FROM_EMAIL},to,bcc:[{email:ALERT_EMAIL}],subject,htmlContent})
   });
 }
+
+// ============================================================
+// ALERTE EMAIL BON DE TRAVAUX
+// ============================================================
+async function sendWOAlert(wo, byUser, byEmail){
+  if(!byEmail) return;
+  const asset = S.assets.find(a=>a.id===wo.asset_id);
+  const tr = wo.topo_ref;
+  const location = tr?[tr.propName,tr.zoneName,tr.subName].filter(Boolean).join(' › '):'—';
+  const checklist = (wo.checklist||[]);
+  const clHtml = checklist.length>0?`
+    <div style="margin-top:12px"><b>📋 Matériel nécessaire :</b><ul style="margin:6px 0;padding-left:20px">
+      ${checklist.map(i=>`<li style="font-size:13px">${i.type==='cso'?'📦':'🔧'} ${i.nom}${i.quantite>1?' × '+i.quantite:''}</li>`).join('')}
+    </ul></div>`:'';
+
+  const html = `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
+    <div style="background:#E65C00;padding:18px 24px;border-radius:8px 8px 0 0">
+      <h2 style="color:#fff;margin:0;font-size:17px">📋 GMAO Pro — Bon de travaux assigné</h2>
+    </div>
+    <div style="background:#fff;padding:24px;border:1px solid #e5e5e0;border-top:none;border-radius:0 0 8px 8px">
+      <p style="color:#444">Bonjour <b>${byUser}</b>,</p>
+      <p style="color:#444">Un bon de travaux vous a été assigné :</p>
+      <table style="width:100%;border-collapse:collapse;font-size:13px;margin:12px 0">
+        <tr style="background:#f5f5f3"><td style="padding:8px 12px;font-weight:500;width:35%">Titre</td><td style="padding:8px 12px"><b>${wo.title}</b></td></tr>
+        <tr><td style="padding:8px 12px;font-weight:500">Description</td><td style="padding:8px 12px">${wo.description||'—'}</td></tr>
+        <tr style="background:#f5f5f3"><td style="padding:8px 12px;font-weight:500">Localisation</td><td style="padding:8px 12px">${location}${asset?' / '+asset.name:''}</td></tr>
+        <tr><td style="padding:8px 12px;font-weight:500">Catégorie</td><td style="padding:8px 12px">${wo.category||'—'}</td></tr>
+        <tr style="background:#f5f5f3"><td style="padding:8px 12px;font-weight:500">Date</td><td style="padding:8px 12px">${dateLabel(wo.date)}</td></tr>
+        ${wo.due_date?`<tr><td style="padding:8px 12px;font-weight:500">Échéance</td><td style="padding:8px 12px;color:#E65C00"><b>${dateLabel(wo.due_date)}</b></td></tr>`:''}
+      </table>
+      ${clHtml}
+      <p style="color:#888;font-size:12px;margin-top:16px">Connectez-vous à GMAO Pro pour mettre à jour ce bon de travaux.</p>
+    </div>
+  </div>`;
+
+  try {
+    await sendBrevoEmail([{email:byEmail,name:byUser}], `📋 GMAO — BT assigné : ${wo.title}`, html);
+  } catch(e){ console.warn('WO alert failed:', e.message); }
+}
+
 
 async function checkAndSendAlerts() {
   if (!isAdmin()) return;
@@ -5110,8 +5405,18 @@ async function checkAndSendAlerts() {
     }).join('');
     const html = `<div style="font-family:sans-serif;max-width:600px;margin:0 auto"><div style="background:#1D9E75;padding:20px 24px;border-radius:8px 8px 0 0"><h2 style="color:#fff;margin:0;font-size:18px">GMAO Pro — Alertes Échéances</h2></div><div style="background:#fff;padding:24px;border:1px solid #e5e5e0;border-top:none;border-radius:0 0 8px 8px"><p style="color:#444;margin:0 0 16px">${toAlert.length} gamme(s) arrivent à échéance dans les 30 prochains jours :</p><table style="width:100%;border-collapse:collapse;font-size:14px"><thead><tr style="background:#f5f5f3"><th style="padding:8px 12px;text-align:left;color:#666;font-weight:500">Gamme</th><th style="padding:8px 12px;text-align:left;color:#666;font-weight:500">Équipement</th><th style="padding:8px 12px;text-align:left;color:#666;font-weight:500">Délai</th></tr></thead><tbody>${listHTML}</tbody></table></div></div>`;
     try {
+      // Email admin
       const resp = await sendBrevoEmail([{email:ALERT_EMAIL}], `⚠ GMAO — ${toAlert.length} échéance(s) dans 30 jours`, html);
       if (resp.ok) toAlert.forEach(({key}) => newAlerted[key] = new Date().toISOString());
+      // Email intervenants assignés
+      for(const {mt,days} of toAlert){
+        if(mt.assigned_to){
+          const user=S.users.find(u=>u.id===mt.assigned_to||u.name===mt.assigned_to||u.email===mt.assigned_to);
+          if(user?.email&&user.email!==ALERT_EMAIL){
+            try{await sendGammeRappelEmail(mt,user,days);}catch(e){console.warn('Gamme email:',e);}
+          }
+        }
+      }
     } catch(e) { console.error('Alert gammes error:', e); }
   }
 
@@ -5119,22 +5424,19 @@ async function checkAndSendAlerts() {
   const woAlerts = S.workOrders.filter(w => {
     if (w.status === 'done') return false;
     if (!w.by_user) return false;
-    const key = 'wo_' + w.id;
+    if (!w.due_date || !w.alert_pref || w.alert_pref==='at_creation') return false;
+    const key = 'wo_due_' + w.id;
     if (alerted[key]) return false;
-    // Alerter si le BT est en cours depuis plus de 7 jours sans mise à jour
-    const created = new Date(w.created_at||w.date||today);
-    const daysSince = Math.ceil((today - created) / 86400000);
-    return daysSince >= 1; // alerte dès le lendemain de création
+    const daysBeforeMap = {'1_before':1,'3_before':3,'7_before':7};
+    const daysBefore = daysBeforeMap[w.alert_pref]||0;
+    const due = new Date(w.due_date);
+    const daysUntil = Math.ceil((due - today) / 86400000);
+    return daysUntil <= daysBefore && daysUntil >= 0;
   });
 
   for (const w of woAlerts) {
-    // Chercher l'email de l'intervenant dans les utilisateurs
-    const user = S.users.find(u =>
-      u.name === w.by_user ||
-      u.email === w.by_user ||
-      (u.name||'').toLowerCase().includes((w.by_user||'').toLowerCase())
-    );
-    const toEmail = user?.email ? [{email:user.email, name:user.name}] : [{email:ALERT_EMAIL}];
+    const byEmail = w.by_email || S.users.find(u=>u.name===w.by_user)?.email || ALERT_EMAIL;
+    const toEmail = [{email:byEmail, name:w.by_user}];
     const asset = S.assets.find(a => a.id === w.asset_id);
     const html = `<div style="font-family:sans-serif;max-width:600px;margin:0 auto">
       <div style="background:#E65C00;padding:20px 24px;border-radius:8px 8px 0 0">
@@ -5156,7 +5458,7 @@ async function checkAndSendAlerts() {
     </div>`;
     try {
       const resp = await sendBrevoEmail(toEmail, `📋 GMAO — BT en cours : ${w.title}`, html);
-      if (resp.ok) newAlerted['wo_'+w.id] = new Date().toISOString();
+      if (resp.ok) newAlerted['wo_due_'+w.id] = new Date().toISOString();
     } catch(e) { console.error('Alert BT error:', e); }
   }
 
