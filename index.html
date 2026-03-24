@@ -5395,16 +5395,20 @@ async function autoSendQuittance(tenant,payment,mois,annee){
   // Envoi Brevo
   if(!BREVO_API_KEY)BREVO_API_KEY=ensureBrevoKey();
   if(!BREVO_API_KEY)throw new Error('Clé Brevo manquante');
-  if(!BREVO_API_KEY)BREVO_API_KEY=ensureBrevoKey();
-  if(!BREVO_API_KEY)throw new Error('Clé Brevo manquante');
-  // BCC : admin + savadur56 pour archive
-  const bccList=[{email:ALERT_EMAIL},{email:'savadur56@gmail.com',name:'J&A SAVADUR (copie)'}];
+  // Envoi au locataire
   const resp=await fetch('https://api.brevo.com/v3/smtp/email',{
     method:'POST',
     headers:{'api-key':BREVO_API_KEY,'Content-Type':'application/json','Accept':'application/json'},
-    body:JSON.stringify({sender:{name:FROM_NAME,email:FROM_EMAIL},to:[{email:tenant.email,name:tenant.nom}],bcc:bccList,subject,htmlContent:emailHtml})
+    body:JSON.stringify({sender:{name:FROM_NAME,email:FROM_EMAIL},to:[{email:tenant.email,name:tenant.nom}],subject,htmlContent:emailHtml})
   });
   if(!resp.ok){const t=await resp.text();const w=window.open('','_blank');if(w){w.document.write(emailHtml);w.document.close();}throw new Error(t);}
+  // Copie séparée à savadur56 et admin
+  const copySubject='[COPIE] '+subject+' — '+tenant.nom;
+  fetch('https://api.brevo.com/v3/smtp/email',{
+    method:'POST',
+    headers:{'api-key':BREVO_API_KEY,'Content-Type':'application/json','Accept':'application/json'},
+    body:JSON.stringify({sender:{name:FROM_NAME,email:FROM_EMAIL},to:[{email:'savadur56@gmail.com',name:'J&A SAVADUR'},{email:ALERT_EMAIL,name:'Admin GMAO'}],subject:copySubject,htmlContent:emailHtml})
+  }).catch(e=>console.warn('Copie archive failed:',e.message));
   const w=window.open('','_blank');if(w){w.document.write(emailHtml);w.document.close();}
   return true;
 }
@@ -5427,13 +5431,19 @@ async function sendFactureEau(releve,cpt,tenant,conso,montant,prix){
   archiveEauToDrive(html,driveFilenameEau,moisEau,anneeEau);
   if(!BREVO_API_KEY)BREVO_API_KEY=ensureBrevoKey();
   if(!BREVO_API_KEY)throw new Error('Clé Brevo manquante');
-  const bccEau=[{email:ALERT_EMAIL},{email:'savadur56@gmail.com',name:'J&A SAVADUR (copie)'}];
+  // Envoi au locataire
   const resp=await fetch('https://api.brevo.com/v3/smtp/email',{
     method:'POST',
     headers:{'api-key':BREVO_API_KEY,'Content-Type':'application/json','Accept':'application/json'},
-    body:JSON.stringify({sender:{name:FROM_NAME,email:FROM_EMAIL},to:[{email:tenant.email,name:tenant.nom}],bcc:bccEau,subject,htmlContent:html})
+    body:JSON.stringify({sender:{name:FROM_NAME,email:FROM_EMAIL},to:[{email:tenant.email,name:tenant.nom}],subject,htmlContent:html})
   });
   if(!resp.ok){const t=await resp.text();throw new Error(t);}
+  // Copie séparée à savadur56 et admin
+  fetch('https://api.brevo.com/v3/smtp/email',{
+    method:'POST',
+    headers:{'api-key':BREVO_API_KEY,'Content-Type':'application/json','Accept':'application/json'},
+    body:JSON.stringify({sender:{name:FROM_NAME,email:FROM_EMAIL},to:[{email:'savadur56@gmail.com',name:'J&A SAVADUR'},{email:ALERT_EMAIL,name:'Admin GMAO'}],subject:'[COPIE] '+subject,htmlContent:html})
+  }).catch(e=>console.warn('Copie facture eau failed:',e.message));
   const w=window.open('','_blank');if(w){w.document.write(html);w.document.close();}
   return true;
 }
