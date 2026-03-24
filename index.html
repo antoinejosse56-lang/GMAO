@@ -2,7 +2,8 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light dark">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro</title>
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
@@ -1957,7 +1958,7 @@ function printCsoLabel(emp, items, siteUrl){
   .label{background:#fff;border:2px solid #111;border-radius:8px;width:340px;overflow:hidden}
   .hd{background:#111;color:#fff;padding:8px 12px;font-weight:700;font-size:13px;display:flex;justify-content:space-between}
   .body{display:flex;gap:10px;padding:10px 12px}
-  table{width:100%;border-collapse:collapse}th{background:#f5f5f5;font-size:11px;padding:4px 6px;text-align:left}
+  table{width:100%;border-collapse:collapse;color:var(--text)}tr:hover{background:var(--bg2)}th{background:#f5f5f5;font-size:11px;padding:4px 6px;text-align:left}
   .btns{display:flex;gap:8px}.btn{padding:8px 18px;border:none;border-radius:6px;cursor:pointer;font-size:13px}
   .bp{background:#111;color:#fff;font-weight:600}.bc{background:#eee}
   @media print{body{background:#fff;padding:0}.btns{display:none}.label{box-shadow:none;width:300px;margin:0 auto}.hd{background:#000!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}}</style>
@@ -1977,6 +1978,58 @@ function printCsoLabel(emp, items, siteUrl){
   </body></html>`);
   w.document.close();
 }
+
+function printMaintenanceLabel(mt, csoLinks, siteUrl){
+  const qrData = siteUrl+'?mt='+mt.id;
+  const asset = S.assets.find(a=>a.id===mt.asset_id);
+  const nextDue = mt.next_due||mt.due_date||'—';
+  const csoList = csoLinks.length>0
+    ? csoLinks.map(c=>`<tr><td style="padding:3px 6px;font-size:11px">${c.nom}</td><td style="padding:3px 6px;font-size:11px;text-align:center">Stock: ${c.stock||0} ${c.unite||'u'}</td><td style="padding:3px 6px;font-size:11px;color:#888">Min: ${c.stock_min||'—'}</td></tr>`).join('')
+    : '<tr><td colspan="3" style="padding:6px;font-size:11px;color:#888">Aucun consommable lié</td></tr>';
+
+  const w=window.open('','_blank','width=420,height:520');
+  if(!w){alert('Popup bloquée');return;}
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${mt.name}</title>
+  <style>body{font-family:Arial,sans-serif;background:#f0f0f0;padding:16px;display:flex;flex-direction:column;align-items:center;gap:12px}
+  .label{background:#fff;border:2px solid #111;border-radius:8px;width:340px;overflow:hidden}
+  .hd{background:#1D9E75;color:#fff;padding:8px 12px;font-weight:700;font-size:13px;display:flex;justify-content:space-between;align-items:center}
+  .bd{padding:10px 12px;display:flex;gap:10px}
+  .info h3{font-size:14px;font-weight:700;margin:0 0 4px}
+  .info p{font-size:11px;color:#666;margin:2px 0}
+  table{width:100%;border-collapse:collapse}th{background:#f5f5f5;font-size:10px;padding:3px 6px;text-align:left}
+  .ft{background:#f5f5f5;border-top:1px solid #ddd;padding:5px 12px;font-size:9px;color:#999;display:flex;justify-content:space-between}
+  .btns{display:flex;gap:8px}.bp{padding:8px 18px;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;background:#111;color:#fff}
+  .bc{padding:8px 18px;border:1px solid #ccc;border-radius:6px;cursor:pointer;font-size:13px;background:#fff}
+  @media print{body{background:#fff;padding:0}.btns,.hint{display:none}.label{box-shadow:none;width:300px;margin:0 auto}
+  .hd{background:#1D9E75!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}}</style>
+  </head><body>
+  <p class="hint" style="font-size:11px;color:#888">Étiquette gamme — cliquez Imprimer</p>
+  <div class="label">
+    <div class="hd">
+      <span>🔁 ${mt.type==='periodic'?mt.period_days+'j':'Date fixe'}</span>
+      <span style="font-size:10px;font-weight:400">${asset?asset.name:''}</span>
+    </div>
+    <div class="bd">
+      <div><canvas id="qrc" width="100" height="100"></canvas></div>
+      <div class="info" style="flex:1">
+        <h3>${mt.name}</h3>
+        <p>${mt.description||''}</p>
+        <p>📅 Prochaine : <strong>${nextDue}</strong></p>
+        ${csoLinks.length>0?`<p style="margin-top:4px;font-size:10px;color:#1D9E75;font-weight:500">📦 ${csoLinks.length} consommable(s) lié(s)</p>`:''}
+      </div>
+    </div>
+    ${csoLinks.length>0?`<div style="padding:6px 12px;border-top:1px solid #eee">
+      <div style="font-size:10px;font-weight:500;color:#666;margin-bottom:4px">Consommables nécessaires :</div>
+      <table><thead><tr><th>Désignation</th><th>Stock</th><th>Min.</th></tr></thead><tbody>${csoList}</tbody></table>
+    </div>`:''}
+    <div class="ft"><span>ID: ${mt.id.slice(0,12)}</span><span>📷 Scanner pour détails</span></div>
+  </div>
+  <div class="btns"><button class="bp" onclick="window.print()">🖨 Imprimer</button><button class="bc" onclick="window.close()">Fermer</button></div>
+  <script>var img=new Image();img.onload=function(){var c=document.getElementById('qrc');var ctx=c.getContext('2d');ctx.drawImage(img,0,0,100,100);};img.src='https://api.qrserver.com/v1/create-qr-code/?size=100x100&data='+encodeURIComponent('${qrData}');<\/script>
+  </body></html>`);
+  w.document.close();
+}
+
 
 function printLocationLabel(loc, tools, siteUrl){
   const qrData = siteUrl+'?location='+encodeURIComponent(loc);
@@ -2146,7 +2199,7 @@ function printConsoLabel(emp, items, siteUrl){
   .hd .own{font-size:13px;font-weight:700}.hd .type{font-size:10px;background:rgba(255,255,255,.2);padding:2px 7px;border-radius:10px}
   .bd{display:flex;gap:10px;padding:12px}
   .info{flex:1}h2{font-size:14px;font-weight:700;margin-bottom:8px}
-  table{width:100%;border-collapse:collapse}tr:nth-child(even){background:#f8f8f8}
+  table{width:100%;border-collapse:collapse;color:var(--text)}tr:hover{background:var(--bg2)}tr:nth-child(even){background:#f8f8f8}
   .ft{background:#f5f5f5;border-top:1px solid #ddd;padding:5px 14px;font-size:9px;color:#999;display:flex;justify-content:space-between}
   .btns{display:flex;gap:10px}.bp{padding:8px 20px;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;background:#111;color:#fff}
   .bc{padding:8px 20px;border:1px solid #ccc;border-radius:6px;cursor:pointer;font-size:13px;background:#fff}
@@ -2792,6 +2845,38 @@ function renderModal(){
     </div>
     <div class="form-group"><label>Description</label><input id="m-tdesc" value="${t.description||''}"></div>
     <div class="form-group"><label>Notes</label><input id="m-tnotes" value="${t.notes||''}"></div>${mf}`;}
+
+  if(m.type==='qr-mt'){
+    const mt=m.mt;
+    const linked=(mt.cso_links||[]);
+    html=`${mhd('🔁 Gamme — QR & Consommables')}
+    <div style="background:var(--bg2);padding:10px 12px;border-radius:var(--radius);margin-bottom:12px">
+      <div style="font-size:14px;font-weight:600">${mt.name}</div>
+      <div style="font-size:12px;color:var(--text2)">${mt.type==='periodic'?'Tous les '+mt.period_days+' jours':'Date fixe'}</div>
+    </div>
+    <div style="font-size:13px;font-weight:500;margin-bottom:8px">📦 Consommables liés (stock associé)</div>
+    <div id="mt-cso-list">
+      ${linked.map((l,i)=>{const c=S.consommables.find(x=>x.id===l.id);return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:0.5px solid var(--border)">
+        <div style="flex:1;font-size:12px">${c?c.nom:l.nom} <span style="color:var(--text2)">(stock: ${c?.stock||0} ${c?.unite||'u'} — besoin: ${l.quantite})</span></div>
+        <button type="button" class="btn btn-d btn-sm" onclick="window._mtCsoLinks.splice(${i},1);renderMtCsoList()">✕</button>
+      </div>`;}).join('')}
+      ${linked.length===0?'<div style="font-size:12px;color:var(--text2);padding:6px 0">Aucun consommable lié.</div>':''}
+    </div>
+    <div style="display:flex;gap:6px;margin-top:8px">
+      <select id="mt-cso-sel" style="flex:1;padding:5px 8px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">
+        <option value="">+ Ajouter un consommable...</option>
+        ${(S.consommables||[]).map(c=>`<option value="${c.id}|${c.nom}|${c.unite||'u'}">${c.nom} (stock: ${c.stock||0} ${c.unite||'u'})</option>`).join('')}
+      </select>
+      <input id="mt-cso-qte" type="number" value="1" min="1" style="width:60px;padding:5px 8px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">
+      <button type="button" class="btn btn-sm btn-p" id="btn-add-mt-cso">+ Lier</button>
+    </div>
+    <div style="margin-top:14px;display:flex;gap:8px">
+      <button type="button" class="btn btn-p" style="flex:1" id="btn-print-mt-label">🖨 Imprimer étiquette QR</button>
+    </div>
+    ${mf}`;
+  }
+
+
 
   if(m.type==='checklist-wo'){
     const w=m.wo;
@@ -4553,6 +4638,53 @@ function bindAll(){
   // ============================================================
   // MAINTENANCE / GAMMES
   // ============================================================
+  // QR Gammes
+  document.querySelectorAll('[data-qr-mt]').forEach(el=>el.onclick=()=>{
+    const mt=S.maintenanceTemplates.find(x=>x.id===el.dataset.qrMt);
+    if(!mt)return;
+    window._mtCsoLinks=JSON.parse(JSON.stringify(mt.cso_links||[]));
+    S.modal={type:'qr-mt',mt};render();
+  });
+  // After render: bind add-mt-cso and print buttons
+  const btnAddMtCso=document.getElementById('btn-add-mt-cso');
+  if(btnAddMtCso){
+    const renderMtCsoList=()=>{
+      const listEl=document.getElementById('mt-cso-list');
+      if(!listEl)return;
+      const links=window._mtCsoLinks||[];
+      listEl.innerHTML=links.map((l,i)=>{
+        const c=S.consommables.find(x=>x.id===l.id);
+        return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:0.5px solid var(--border)">
+          <div style="flex:1;font-size:12px">${c?c.nom:l.nom} <span style="color:var(--text2)">(stock: ${c?.stock||0} ${c?.unite||'u'} — besoin: ${l.quantite})</span></div>
+          <button class="btn btn-d btn-sm" onclick="window._mtCsoLinks.splice(${i},1);document.getElementById('btn-add-mt-cso').dispatchEvent(new Event('rerender'))">✕</button>
+        </div>`;
+      }).join('')||(links.length===0?'<div style="font-size:12px;color:var(--text2);padding:6px 0">Aucun consommable lié.</div>':'');
+    };
+    window.renderMtCsoList=renderMtCsoList;
+    btnAddMtCso.addEventListener('rerender',renderMtCsoList);
+    btnAddMtCso.onclick=()=>{
+      const sel=document.getElementById('mt-cso-sel');
+      const qte=parseInt(document.getElementById('mt-cso-qte')?.value)||1;
+      if(!sel?.value)return;
+      const [id,nom,unite]=sel.value.split('|');
+      if(!(window._mtCsoLinks||[]).find(l=>l.id===id)){
+        if(!window._mtCsoLinks)window._mtCsoLinks=[];
+        window._mtCsoLinks.push({id,nom,unite,quantite:qte});
+        sel.value='';
+        renderMtCsoList();
+      }
+    };
+  }
+  const btnPrintMtLabel=document.getElementById('btn-print-mt-label');
+  if(btnPrintMtLabel&&S.modal?.mt){
+    btnPrintMtLabel.onclick=()=>{
+      const mt=S.modal.mt;
+      const links=window._mtCsoLinks||mt.cso_links||[];
+      const csoFull=links.map(l=>({...l,...(S.consommables.find(c=>c.id===l.id)||{})}));
+      printMaintenanceLabel(mt,csoFull,window.location.origin+window.location.pathname);
+    };
+  }
+
   document.querySelectorAll('[data-edit-mt]').forEach(el=>el.onclick=()=>{
     const mt=S.maintenanceTemplates.find(x=>x.id===el.dataset.editMt);
     if(mt){S.modal={type:'edit-mt',mt};render();}
@@ -4932,6 +5064,43 @@ async function checkAndSendAlerts() {
         if (resp.ok) famAlerts.forEach(({key}) => newAlerted[key] = new Date().toISOString());
       } catch(e) { console.error('Alert famille error:', e); }
     }
+  }
+
+  // === 4. CONSOMMABLES — stock critique ===
+  const stockAlerts = (S.consommables||[]).filter(c=>{
+    if(!c.stock_min||c.stock_min<=0) return false;
+    if(c.stock>c.stock_min) return false;
+    const key='stock_'+c.id;
+    return !alerted[key];
+  });
+  if(stockAlerts.length>0){
+    const listHTML2=stockAlerts.map(c=>`<tr>
+      <td style="padding:8px 12px;font-weight:500">${c.nom}</td>
+      <td style="padding:8px 12px">${c.categorie||'—'}</td>
+      <td style="padding:8px 12px">${c.emplacement||'—'}</td>
+      <td style="padding:8px 12px"><span style="background:#FCEBEB;color:#A32D2D;padding:2px 8px;border-radius:12px;font-size:12px">${c.stock||0} ${c.unite||'u'}</span></td>
+      <td style="padding:8px 12px;color:#888">${c.stock_min} ${c.unite||'u'}</td>
+    </tr>`).join('');
+    const html2=`<div style="font-family:sans-serif;max-width:600px;margin:0 auto">
+      <div style="background:#E65C00;padding:18px 24px;border-radius:8px 8px 0 0"><h2 style="color:#fff;margin:0;font-size:17px">📦 GMAO Pro — Stock critique</h2></div>
+      <div style="background:#fff;padding:24px;border:1px solid #e5e5e0;border-top:none;border-radius:0 0 8px 8px">
+        <p style="color:#444;margin:0 0 16px">${stockAlerts.length} consommable(s) en dessous du seuil critique :</p>
+        <table style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead><tr style="background:#f5f5f3">
+            <th style="padding:8px 12px;text-align:left">Désignation</th>
+            <th style="padding:8px 12px;text-align:left">Catégorie</th>
+            <th style="padding:8px 12px;text-align:left">Emplacement</th>
+            <th style="padding:8px 12px;text-align:left">Stock actuel</th>
+            <th style="padding:8px 12px;text-align:left">Minimum</th>
+          </tr></thead>
+          <tbody>${listHTML2}</tbody>
+        </table>
+      </div>
+    </div>`;
+    try{
+      const resp2=await sendBrevoEmail([{email:'antoinejoss56@gmail.com'}],`📦 GMAO — ${stockAlerts.length} consommable(s) en stock critique`,html2);
+      if(resp2.ok) stockAlerts.forEach(c=>newAlerted['stock_'+c.id]=new Date().toISOString());
+    }catch(e){console.error('Stock alert error:',e);}
   }
 
   localStorage.setItem('gmao_alerted', JSON.stringify(newAlerted));
