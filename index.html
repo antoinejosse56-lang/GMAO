@@ -125,7 +125,7 @@ function dateLabel(d){if(!d)return '—';return new Date(d).toLocaleDateString('
 // ============================================================
 // CONFIGURATION EMAIL & DRIVE
 // ============================================================
-const ALERT_EMAIL   = 'antoinejoss56@gmail.com';
+const ALERT_EMAIL   = 'antoinejosse56@gmail.com';
 const FROM_EMAIL    = 'savadur56@gmail.com';
 const FROM_NAME     = 'J&A SAVADUR';
 
@@ -5235,7 +5235,7 @@ async function checkAndSendAlerts() {
       </div>
     </div>`;
     try{
-      const resp2=await sendBrevoEmail([{email:'antoinejoss56@gmail.com'}],`📦 GMAO — ${stockAlerts.length} consommable(s) en stock critique`,html2);
+      const resp2=await sendBrevoEmail([{email:'antoinejosse56@gmail.com',name:'Antoine JOSSE'},{email:'savadur56@gmail.com',name:'J&A SAVADUR'}],`📦 GMAO — ${stockAlerts.length} consommable(s) en stock critique`,html2);
       if(resp2&&resp2.ok) stockAlerts.forEach(c=>newAlerted['stock_'+c.id]=new Date().toISOString());
     }catch(e){console.error('Stock alert error:',e);}
   }
@@ -5256,7 +5256,7 @@ function getDriveAccount(logement){
   const l=(logement||'').toLowerCase();
   if(l.includes('dubail')||l.includes('général dubail')||l.includes('general dubail'))
     return {hint:'savadur56@gmail.com',label:'J&A SAVADUR',key:'savadur'};
-  return {hint:'antoinejoss56@gmail.com',label:'Antoine Josse',key:'antoine'};
+  return {hint:'antoinejosse56@gmail.com',label:'Antoine Josse',key:'antoine'};
 }
 
 async function getGdriveToken(accountKey,loginHint){
@@ -5336,7 +5336,7 @@ async function archiveToDrive(htmlContent,filename,mois,annee,logement){
 async function archiveEauToDrive(htmlContent,filename,mois,annee){
   if(!GDRIVE_CLIENT_ID)return null;
   try{
-    const token=await getGdriveToken('antoine','antoinejoss56@gmail.com');
+    const token=await getGdriveToken('antoine','antoinejosse56@gmail.com');
     const eauId=await getOrCreateFolder(token,'Factures Eau',GDRIVE_ROOT_FOLDER_ID);
     const yearId=await getOrCreateFolder(token,String(annee),eauId);
     const monthId=await getOrCreateFolder(token,mois,yearId);
@@ -5357,7 +5357,7 @@ function openDrivePicker(callback){
   }else{_openPicker(callback);}
 }
 function _openPicker(callback){
-  getGdriveToken('antoine','antoinejoss56@gmail.com').then(token=>{
+  getGdriveToken('antoine','antoinejosse56@gmail.com').then(token=>{
     const view=new google.picker.DocsView().setIncludeFolders(true).setSelectFolderEnabled(false);
     new google.picker.PickerBuilder()
       .setAppId(GDRIVE_PICKER_APP_ID).setOAuthToken(token)
@@ -5438,11 +5438,11 @@ async function sendFactureEau(releve,cpt,tenant,conso,montant,prix){
     body:JSON.stringify({sender:{name:FROM_NAME,email:FROM_EMAIL},to:[{email:tenant.email,name:tenant.nom}],subject,htmlContent:html})
   });
   if(!resp.ok){const t=await resp.text();throw new Error(t);}
-  // Copie séparée à savadur56 et admin
+  // Copie à savadur56
   fetch('https://api.brevo.com/v3/smtp/email',{
     method:'POST',
     headers:{'api-key':BREVO_API_KEY,'Content-Type':'application/json','Accept':'application/json'},
-    body:JSON.stringify({sender:{name:FROM_NAME,email:FROM_EMAIL},to:[{email:'savadur56@gmail.com',name:'J&A SAVADUR'},{email:ALERT_EMAIL,name:'Admin GMAO'}],subject:'[COPIE] '+subject,htmlContent:html})
+    body:JSON.stringify({sender:{name:FROM_NAME,email:FROM_EMAIL},to:[{email:'savadur56@gmail.com',name:'J&A SAVADUR (archive)'}],subject:'[COPIE] '+subject,htmlContent:html})
   }).catch(e=>console.warn('Copie facture eau failed:',e.message));
   const w=window.open('','_blank');if(w){w.document.write(html);w.document.close();}
   return true;
