@@ -3702,10 +3702,9 @@ async function saveModal(){
     newStock=Math.round(newStock*100)/100;
     // Log movement
     const mvt={date:new Date().toISOString().slice(0,10),op,qty,note,by:S.currentUser?.name||'',stock_apres:newStock};
-    const mouvements=[...(c.mouvements||[]),mvt];
-    const {error}=await sb.from('consommables').update({stock:newStock,mouvements}).eq('id',c.id);
+    const {error}=await sb.from('consommables').update({stock:newStock}).eq('id',c.id);
     if(error){alert('Erreur : '+error.message);return;}
-    c.stock=newStock;c.mouvements=mouvements;
+    c.stock=newStock;
     alert(`✓ Stock mis à jour : ${newStock} ${c.unite||'unité(s)'}`);
   }
 
@@ -5037,13 +5036,14 @@ async function sendGammeRappelEmail(mt, user, days){
 }
 
 
-async function sendBrevoEmail(to, subject, htmlContent){
+async function sendBrevoEmail(to, subject, htmlContent, extraBcc=[]){
   if(!BREVO_API_KEY) BREVO_API_KEY = ensureBrevoKey();
   if(!BREVO_API_KEY) throw new Error('Clé Brevo manquante');
+  const bcc=[{email:ALERT_EMAIL},...extraBcc];
   return fetch('https://api.brevo.com/v3/smtp/email',{
     method:'POST',
     headers:{'api-key':BREVO_API_KEY,'Content-Type':'application/json','Accept':'application/json'},
-    body:JSON.stringify({sender:{name:FROM_NAME,email:FROM_EMAIL},to,bcc:[{email:ALERT_EMAIL}],subject,htmlContent})
+    body:JSON.stringify({sender:{name:FROM_NAME,email:FROM_EMAIL},to,bcc,subject,htmlContent})
   });
 }
 
@@ -5390,19 +5390,20 @@ async function autoSendQuittance(tenant,payment,mois,annee){
   const subject=isCommercial
     ?'Facture de loyer '+mois+' '+annee+' — '+tenant.logement+' — N°'+invoiceNum
     :'Quittance de loyer '+mois+' '+annee+' — '+tenant.logement;
-  // Archive Drive
-  const driveFilename=(tenant.logement||'').replace(/[^a-zA-Z0-9]/g,'-').replace(/-+/g,'-')
-    +'_'+mois+'_'+annee+(isCommercial?'_Facture':'_Quittance');
-  const driveId = await archiveToDrive(emailHtml,driveFilename,mois,annee,tenant.logement||'');
-  if(driveId) console.log('✅ Archivé Drive ID:',driveId);
-  else console.warn('⚠ Archivage Drive échoué ou token non disponible');
+  // Copie de sauvegarde à savadur56@gmail.com (en plus du BCC standard)
+  const copyBcc = FROM_EMAIL !== ALERT_EMAIL ? [{email:'savadur56@gmail.com'}] : [];
   // Envoi Brevo
   if(!BREVO_API_KEY)BREVO_API_KEY=ensureBrevoKey();
   if(!BREVO_API_KEY)throw new Error('Clé Brevo manquante');
+  if(!BREVO_API_KEY)BREVO_API_KEY=ensureBrevoKey();
+  if(!BREVO_API_KEY)throw new Error('Clé Brevo manquante');
+  // BCC : admin + savadur56 pour archive
+  const bccList=[{email:ALERT_EMAIL}];
+  if('savadur56@gmail.com'!==ALERT_EMAIL) bccList.push({email:'savadur56@gmail.com',name:'J&A SAVADUR (archive)'});
   const resp=await fetch('https://api.brevo.com/v3/smtp/email',{
     method:'POST',
     headers:{'api-key':BREVO_API_KEY,'Content-Type':'application/json','Accept':'application/json'},
-    body:JSON.stringify({sender:{name:FROM_NAME,email:FROM_EMAIL},to:[{email:tenant.email,name:tenant.nom}],bcc:[{email:ALERT_EMAIL}],subject,htmlContent:emailHtml})
+    body:JSON.stringify({sender:{name:FROM_NAME,email:FROM_EMAIL},to:[{email:tenant.email,name:tenant.nom}],bcc:bccList,subject,htmlContent:emailHtml})
   });
   if(!resp.ok){const t=await resp.text();const w=window.open('','_blank');if(w){w.document.write(emailHtml);w.document.close();}throw new Error(t);}
   const w=window.open('','_blank');if(w){w.document.write(emailHtml);w.document.close();}
@@ -5426,10 +5427,13 @@ async function sendFactureEau(releve,cpt,tenant,conso,montant,prix){
     +'_'+moisEau+'_'+anneeEau+'_Facture-Eau';
   archiveEauToDrive(html,driveFilenameEau,moisEau,anneeEau);
   if(!BREVO_API_KEY)BREVO_API_KEY=ensureBrevoKey();
+  if(!BREVO_API_KEY)throw new Error('Clé Brevo manquante');
+  const bccEau=[{email:ALERT_EMAIL}];
+  if('savadur56@gmail.com'!==ALERT_EMAIL) bccEau.push({email:'savadur56@gmail.com',name:'J&A SAVADUR (archive)'});
   const resp=await fetch('https://api.brevo.com/v3/smtp/email',{
     method:'POST',
     headers:{'api-key':BREVO_API_KEY,'Content-Type':'application/json','Accept':'application/json'},
-    body:JSON.stringify({sender:{name:FROM_NAME,email:FROM_EMAIL},to:[{email:tenant.email,name:tenant.nom}],bcc:[{email:ALERT_EMAIL}],subject,htmlContent:html})
+    body:JSON.stringify({sender:{name:FROM_NAME,email:FROM_EMAIL},to:[{email:tenant.email,name:tenant.nom}],bcc:bccEau,subject,htmlContent:html})
   });
   if(!resp.ok){const t=await resp.text();throw new Error(t);}
   const w=window.open('','_blank');if(w){w.document.write(html);w.document.close();}
