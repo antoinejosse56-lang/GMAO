@@ -1572,8 +1572,25 @@ function renderFinances(){
   }
 
   if(fTab==='depenses'){
-    const allWos=S.workOrders.filter(w=>w.cost>0&&(!year||!w.date||w.date.startsWith(String(year)))).sort((a,b)=>new Date(b.date)-new Date(a.date));
+    const selLocDep=S.finLoc||'';
+    const allWos=S.workOrders.filter(w=>{
+      if(!w.cost>0)return false;
+      if(year&&w.date&&!w.date.startsWith(String(year)))return false;
+      if(!selLocDep)return true;
+      const tr=w.topo_ref;
+      if(!tr)return false;
+      if(selLocDep.startsWith('prop_')){const p=S.topology.properties.find(x=>'prop_'+x.id===selLocDep);return p&&tr.propName===p.name;}
+      if(selLocDep.startsWith('zone_')){const zId=selLocDep.replace('zone_','');let found=false;S.topology.properties.forEach(p=>(p.zones||[]).forEach(z=>{if(z.id===zId&&tr.zoneName===z.name)found=true;}));return found;}
+      return true;
+    }).sort((a,b)=>new Date(b.date)-new Date(a.date));
     const finSub=S.finSub||'liste';
+    const locBarDep=`<div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;flex-wrap:wrap">
+      <label style="font-size:12px;color:var(--text2)">Filtrer par lieu :</label>
+      <select id="fin-loc-sel" style="padding:5px 10px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">
+        <option value="">Tous les biens</option>
+        ${(()=>{const opts=[];S.topology.properties.forEach(p=>{opts.push(`<option value="prop_${p.id}" ${selLocDep==='prop_'+p.id?'selected':''}>🏠 ${p.name}</option>`);(p.zones||[]).forEach(z=>{opts.push(`<option value="zone_${z.id}" ${selLocDep==='zone_'+z.id?'selected':''}>&nbsp;&nbsp;📁 ${p.name} › ${z.name}</option>`);});});return opts.join('');})()}
+      </select>
+    </div>`;
     const subBar=`<div class="tab-bar" style="margin-bottom:12px">
       <div class="tab ${finSub==='liste'?'active':''}" data-fin-sub="liste">Liste détaillée</div>
       <div class="tab ${finSub==='bien'?'active':''}" data-fin-sub="bien">Par bien</div>
@@ -1584,7 +1601,7 @@ function renderFinances(){
     const totalDep=allWos.reduce((s,w)=>s+parseFloat(w.cost||0),0);
 
     if(finSub==='liste'){
-      return `${tabBar}${yearBar}${subBar}
+      return `${tabBar}${yearBar}${locBarDep}${subBar}
       <div class="card"><div style="overflow-x:auto"><table>
         <thead><tr><th>Bon de travaux</th><th>Bien / Zone</th><th>Équipement</th><th>Date</th><th>Cat.</th><th>Coût</th></tr></thead>
         <tbody>
@@ -1613,7 +1630,7 @@ function renderFinances(){
       const groups={};
       allWos.forEach(w=>{const k=fn(w);if(!groups[k])groups[k]=[];groups[k].push(w);});
       const sorted=Object.entries(groups).sort((a,b)=>b[1].reduce((s,w)=>s+parseFloat(w.cost||0),0)-a[1].reduce((s,w)=>s+parseFloat(w.cost||0),0));
-      return `${tabBar}${yearBar}${subBar}
+      return `${tabBar}${yearBar}${locBarDep}${subBar}
       <div class="card"><div style="overflow-x:auto"><table>
         <thead><tr><th>${label}</th><th>Nb BT</th><th>Total dépenses</th><th>% du total</th></tr></thead>
         <tbody>
@@ -1648,13 +1665,41 @@ function renderFinances(){
 
   if(fTab==='revenus'){
     const MONTHS=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+    // Build location filter options from topology
+    const locOpts=[];
+    S.topology.properties.forEach(p=>{
+      locOpts.push({val:'prop_'+p.id,label:'🏠 '+p.name});
+      (p.zones||[]).forEach(z=>{
+        locOpts.push({val:'zone_'+z.id,label:'  📁 '+p.name+' › '+z.name});
+        (z.subZones||[]).forEach(s=>{
+          locOpts.push({val:'sub_'+s.id,label:'    📂 '+p.name+' › '+z.name+' › '+s.name});
+        });
+      });
+    });
+    const selLoc=S.finLoc||'';
+    // Filter tenants by location if selected
+    const filteredTenants=S.tenants.filter(t=>{
+      if(!selLoc||!t.actif===false) return true;
+      if(selLoc.startsWith('prop_')){
+        const p=S.topology.properties.find(x=>'prop_'+x.id===selLoc);
+        return p&&(t.logement||'').toLowerCase().includes((p.name||'').toLowerCase());
+      }
+      return true; // zone/sub filtering by name match
+    });
     return `${tabBar}${yearBar}
+    <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;flex-wrap:wrap">
+      <label style="font-size:12px;color:var(--text2)">Filtrer par :</label>
+      <select id="fin-loc-sel" style="padding:5px 10px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">
+        <option value="">Tous les logements</option>
+        ${locOpts.map(o=>`<option value="${o.val}" ${selLoc===o.val?'selected':''}>${o.label}</option>`).join('')}
+      </select>
+    </div>
     <div class="card"><div style="overflow-x:auto"><table>
       <thead><tr><th>Logement</th><th>Locataire</th><th>Type</th>
         ${MONTHS.map(m=>`<th style="font-size:10px;padding:4px 6px">${m.slice(0,3)}</th>`).join('')}
         <th>Total</th></tr></thead>
       <tbody>
-      ${S.tenants.filter(t=>t.actif!==false).map(t=>{
+      ${(selLoc?S.tenants.filter(t=>{if(!t.actif===false)return false;const logement=(t.logement||'').toLowerCase();if(selLoc.startsWith('prop_')){const p=S.topology.properties.find(x=>'prop_'+x.id===selLoc);return p&&logement.includes((p.name||'').toLowerCase());}if(selLoc.startsWith('zone_')){const zId=selLoc.replace('zone_','');let found=false;S.topology.properties.forEach(p=>(p.zones||[]).forEach(z=>{if(z.id===zId&&logement.includes((z.name||'').toLowerCase()))found=true;}));return found;}return true;}):S.tenants.filter(t=>t.actif!==false)).map(t=>{
         const monthly=MONTHS.map(m=>{
           const p=S.rentPayments.find(x=>x.tenant_id===t.id&&x.annee===year&&x.mois===m);
           return p?.paye?p.loyer||0:0;
@@ -4375,7 +4420,9 @@ function bindAll(){
 
   // Finances tab
   if(!S.finTab) S.finTab='overview';
-  document.querySelectorAll('[data-fin-tab]').forEach(el=>el.onclick=()=>{S.finTab=el.dataset.finTab;S.finSub='liste';render();});
+  document.querySelectorAll('[data-fin-tab]').forEach(el=>el.onclick=()=>{S.finTab=el.dataset.finTab;S.finSub='liste';S.finLoc='';render();});
+  const finLocSel=document.getElementById('fin-loc-sel');
+  if(finLocSel)finLocSel.onchange=()=>{S.finLoc=finLocSel.value;render();};
   document.querySelectorAll('[data-fin-sub]').forEach(el=>el.onclick=()=>{S.finSub=el.dataset.finSub;render();});
   document.querySelectorAll('[data-fin-year]').forEach(el=>el.onclick=()=>{S.finYear=parseInt(el.dataset.finYear);render();});
   const btnRev=document.getElementById('btn-add-revenue');
