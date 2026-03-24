@@ -5398,8 +5398,7 @@ async function autoSendQuittance(tenant,payment,mois,annee){
   if(!BREVO_API_KEY)BREVO_API_KEY=ensureBrevoKey();
   if(!BREVO_API_KEY)throw new Error('Clé Brevo manquante');
   // BCC : admin + savadur56 pour archive
-  const bccList=[{email:ALERT_EMAIL}];
-  if('savadur56@gmail.com'!==ALERT_EMAIL) bccList.push({email:'savadur56@gmail.com',name:'J&A SAVADUR (archive)'});
+  const bccList=[{email:ALERT_EMAIL},{email:'savadur56@gmail.com',name:'J&A SAVADUR (copie)'}];
   const resp=await fetch('https://api.brevo.com/v3/smtp/email',{
     method:'POST',
     headers:{'api-key':BREVO_API_KEY,'Content-Type':'application/json','Accept':'application/json'},
@@ -5428,8 +5427,7 @@ async function sendFactureEau(releve,cpt,tenant,conso,montant,prix){
   archiveEauToDrive(html,driveFilenameEau,moisEau,anneeEau);
   if(!BREVO_API_KEY)BREVO_API_KEY=ensureBrevoKey();
   if(!BREVO_API_KEY)throw new Error('Clé Brevo manquante');
-  const bccEau=[{email:ALERT_EMAIL}];
-  if('savadur56@gmail.com'!==ALERT_EMAIL) bccEau.push({email:'savadur56@gmail.com',name:'J&A SAVADUR (archive)'});
+  const bccEau=[{email:ALERT_EMAIL},{email:'savadur56@gmail.com',name:'J&A SAVADUR (copie)'}];
   const resp=await fetch('https://api.brevo.com/v3/smtp/email',{
     method:'POST',
     headers:{'api-key':BREVO_API_KEY,'Content-Type':'application/json','Accept':'application/json'},
@@ -5466,7 +5464,7 @@ async function sendAccuseEau(releve,cpt,tenant,montant){
   const resp=await fetch('https://api.brevo.com/v3/smtp/email',{
     method:'POST',
     headers:{'api-key':BREVO_API_KEY,'Content-Type':'application/json','Accept':'application/json'},
-    body:JSON.stringify({sender:{name:FROM_NAME,email:FROM_EMAIL},to:[{email:tenant.email,name:tenant.nom}],bcc:[{email:ALERT_EMAIL}],subject:'Accusé de réception paiement eau — '+dateReleve+' — '+tenant.logement,htmlContent:html})
+    body:JSON.stringify({sender:{name:FROM_NAME,email:FROM_EMAIL},to:[{email:tenant.email,name:tenant.nom}],bcc:[{email:ALERT_EMAIL},{email:'savadur56@gmail.com'}],subject:'Accusé de réception paiement eau — '+dateReleve+' — '+tenant.logement,htmlContent:html})
   });
   if(!resp.ok){const t=await resp.text();throw new Error(t);}
   const w=window.open('','_blank');if(w){w.document.write(html);w.document.close();}
