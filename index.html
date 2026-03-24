@@ -2181,7 +2181,7 @@ function renderConsommables(){
           <td style="font-size:12px">${c.prix_achat?fmt2(c.prix_achat):'—'}</td>
           <td style="font-size:12px;font-weight:500">${c.prix_achat&&c.stock?fmt2(c.stock*c.prix_achat):'—'}</td>
           <td style="white-space:nowrap">
-            ${canEdit()?`<button class="btn btn-sm btn-p" data-cso-adjust="${c.id}">±</button> `:''}
+            <button class="btn btn-sm btn-p" data-cso-adjust="${c.id}">± Stock</button>
             ${isAdmin()?`<button class="btn btn-sm" data-edit-cso="${c.id}">✎</button> <button class="btn btn-d btn-sm" data-del-cso="${c.id}">✕</button>`:''}
           </td>
         </tr>`;
