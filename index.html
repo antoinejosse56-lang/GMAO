@@ -122,6 +122,29 @@ function uid(){return 'x'+Math.random().toString(36).slice(2,9);}
 function daysUntil(d){if(!d)return null;return Math.ceil((new Date(d)-new Date())/86400000);}
 function dateLabel(d){if(!d)return '—';return new Date(d).toLocaleDateString('fr-FR');}
 
+// ============================================================
+// CONFIGURATION EMAIL & DRIVE
+// ============================================================
+const ALERT_EMAIL   = 'antoinejoss56@gmail.com';
+const FROM_EMAIL    = 'savadur56@gmail.com';
+const FROM_NAME     = 'J&A SAVADUR';
+
+function getBrevoKey(){
+  return localStorage.getItem('brevo_api_key')||'';
+}
+function ensureBrevoKey(){
+  let k = localStorage.getItem('brevo_api_key');
+  if(k && k.trim().startsWith('xkeysib-')) return k.trim();
+  k = prompt('Entrez votre clé API Brevo (commence par xkeysib-) :\n(Elle sera sauvegardée dans votre navigateur)');
+  if(k && k.trim().startsWith('xkeysib-')){
+    localStorage.setItem('brevo_api_key', k.trim());
+    return k.trim();
+  }
+  alert('Clé invalide — les emails ne seront pas envoyés.');
+  return '';
+}
+let BREVO_API_KEY = getBrevoKey();
+
 let S = {
   currentUser: null, view: 'dashboard', modal: null,
   subTab: 'info', filter: {cat:'all', search:''},
@@ -265,7 +288,8 @@ function navItems(){
     {group:'Finances', items:[
       {id:'finances', label:'Coûts & Revenus', icon:'€'},
     ]},
-    {group:'Admin', items: isAdmin()?[{id:'users', label:'Utilisateurs', icon:'◎'}]:[]},
+    {group:'Admin', items: isAdmin()?[{id:'users', label:'Utilisateurs', icon:'◎'},
+      {id:'settings', label:'Paramètres', icon:'⚙'}]:[]},
     {group:'Famille', items: [{id:'famille', label:'Suivi famille', icon:'👨‍👩‍👧‍👦'}]}
   ];
 }
@@ -289,6 +313,7 @@ function renderApp(){
     topology: renderTopology(),
     maintenance: renderMaintenance(),
     users: isAdmin() ? renderUsers() : '<div style="padding:20px;color:var(--text2)">Accès restreint.</div>',
+    settings: isAdmin() ? renderSettings() : '',
     famille: renderFamille(),
     asset_detail: S.selectedAsset ? renderAssetDetail(S.selectedAsset) : '',
   };
@@ -2083,7 +2108,7 @@ function renderConsommables(){
     <div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;align-items:center">
       ${cats.map(c=>`<span class="pill ${selCat===c?'active':''}" data-csofilter="${c}">${c==='all'?'Tous':c}</span>`).join('')}
       <span style="margin-left:auto;font-size:12px;color:var(--text2)">Valeur stock : <b>${fmt(valeurTotale)}</b></span>
-      ${isAdmin()?`<button class="btn btn-p btn-sm" id="btn-add-conso">+ Consommable</button>`:''}
+      ${canEdit()?`<button class="btn btn-p btn-sm" id="btn-add-cso">+ Consommable</button>`:''}
     </div>
     <div class="card"><div style="overflow-x:auto"><table>
       <thead><tr><th>Désignation</th><th>Catégorie</th><th>Emplacement</th><th>Stock</th><th>Alerte</th><th>Prix achat</th><th>Valeur</th><th></th></tr></thead>
@@ -2409,6 +2434,37 @@ function renderFamille(){
     </table></div></div>`;
   }
   return '';
+}
+
+function renderSettings(){
+  const brevoKey = localStorage.getItem('brevo_api_key')||'';
+  const maskedKey = brevoKey ? brevoKey.slice(0,12)+'...'+brevoKey.slice(-8) : '— Non configurée —';
+  return `<div style="max-width:600px">
+    <div class="card" style="margin-bottom:16px">
+      <div class="sec">📧 Configuration Brevo (email)</div>
+      <div style="margin-bottom:12px">
+        <div style="font-size:12px;color:var(--text2);margin-bottom:4px">Clé API actuelle :</div>
+        <div style="font-size:13px;font-family:monospace;background:var(--bg2);padding:8px 12px;border-radius:var(--radius);color:${brevoKey?'var(--green)':'var(--red)'}">
+          ${brevoKey?'✅ '+maskedKey:'❌ Non configurée — les emails ne seront pas envoyés'}
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-p btn-sm" id="btn-set-brevo">🔑 Saisir / Modifier la clé</button>
+        ${brevoKey?`<button class="btn btn-sm" id="btn-test-brevo">📧 Tester l'envoi</button>`:''}
+        ${brevoKey?`<button class="btn btn-d btn-sm" id="btn-clear-brevo">🗑 Supprimer la clé</button>`:''}
+      </div>
+    </div>
+    <div class="card">
+      <div class="sec">☁️ Configuration Google Drive</div>
+      <div style="font-size:12px;color:var(--text2);margin-bottom:8px">
+        Dossier racine : <code>1xEwr6MJf0Z2a7bWPUBdKJ_RNkUJyZ0I3</code>
+      </div>
+      <div style="font-size:12px;color:var(--text2)">
+        • 26 rue Général Dubail → savadur56@gmail.com<br>
+        • Autres biens → antoinejoss56@gmail.com
+      </div>
+    </div>
+  </div>`;
 }
 
 function renderMaintenance(){
@@ -3972,6 +4028,32 @@ function bindAll(){
     };
   }
   if(q('btn-add-user'))q('btn-add-user').onclick=()=>{S.modal={type:'add-user'};render();};
+  // Settings - Brevo key management
+  const btnSetBrevo=document.getElementById('btn-set-brevo');
+  if(btnSetBrevo)btnSetBrevo.onclick=()=>{
+    const k=prompt('Entrez votre clé API Brevo (xkeysib-...) :',localStorage.getItem('brevo_api_key')||'');
+    if(k&&k.trim().startsWith('xkeysib-')){
+      localStorage.setItem('brevo_api_key',k.trim());
+      BREVO_API_KEY=k.trim();
+      alert('✅ Clé Brevo enregistrée !');render();
+    } else if(k!==null){alert('Clé invalide — elle doit commencer par xkeysib-');}
+  };
+  const btnTestBrevo=document.getElementById('btn-test-brevo');
+  if(btnTestBrevo)btnTestBrevo.onclick=async()=>{
+    if(!BREVO_API_KEY){BREVO_API_KEY=ensureBrevoKey();}
+    try{
+      const r=await sendBrevoEmail([{email:ALERT_EMAIL}],'✅ Test GMAO Pro — Brevo OK','<p>Votre configuration Brevo fonctionne correctement !</p>');
+      if(r.ok)alert('✅ Email de test envoyé à '+ALERT_EMAIL);
+      else{const t=await r.text();alert('Erreur : '+t);}
+    }catch(e){alert('Erreur : '+e.message);}
+  };
+  const btnClearBrevo=document.getElementById('btn-clear-brevo');
+  if(btnClearBrevo)btnClearBrevo.onclick=()=>{
+    if(confirm('Supprimer la clé Brevo ?')){
+      localStorage.removeItem('brevo_api_key');
+      BREVO_API_KEY='';render();
+    }
+  };
   if(q('btn-edit-asset'))q('btn-edit-asset').onclick=()=>{S.modal={type:'edit-asset',asset:S.selectedAsset};render();};
   if(q('btn-edit-cg'))q('btn-edit-cg').onclick=()=>{S.modal={type:'edit-cg',asset:S.selectedAsset};render();};
   if(q('btn-add-history'))q('btn-add-history').onclick=()=>{S.modal={type:'add-history',assetId:S.selectedAsset?.id};render();};
