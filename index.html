@@ -5090,7 +5090,15 @@ async function sendWOAlert(wo, byUser, byEmail){
 async function checkAndSendAlerts() {
   if (!isAdmin()) return;
   const today = new Date();
-  const alerted = JSON.parse(localStorage.getItem('gmao_alerted') || '{}');
+  // Clear old alert keys (older than 1 day) to re-send daily alerts
+  const rawAlerted = JSON.parse(localStorage.getItem('gmao_alerted') || '{}');
+  const alerted = {};
+  const oneDayAgo = new Date(Date.now()-86400000).toISOString();
+  Object.entries(rawAlerted).forEach(([k,v])=>{
+    // Keep gamme/wo/fam alerts longer, but stock alerts reset daily
+    if(k.startsWith('stock_') && v < oneDayAgo) return;
+    alerted[k] = v;
+  });
   const newAlerted = {...alerted};
 
   // === 1. GAMMES D'ENTRETIEN ===
@@ -5228,7 +5236,7 @@ async function checkAndSendAlerts() {
     </div>`;
     try{
       const resp2=await sendBrevoEmail([{email:'antoinejoss56@gmail.com'}],`📦 GMAO — ${stockAlerts.length} consommable(s) en stock critique`,html2);
-      if(resp2.ok) stockAlerts.forEach(c=>newAlerted['stock_'+c.id]=new Date().toISOString());
+      if(resp2&&resp2.ok) stockAlerts.forEach(c=>newAlerted['stock_'+c.id]=new Date().toISOString());
     }catch(e){console.error('Stock alert error:',e);}
   }
 
@@ -5304,13 +5312,25 @@ async function archiveToDrive(htmlContent,filename,mois,annee,logement){
   if(!GDRIVE_CLIENT_ID||GDRIVE_CLIENT_ID==='VOTRE_CLIENT_ID'){console.log('Drive non configuré');return null;}
   try{
     const account=getDriveAccount(logement||'');
+    console.log('📁 Archivage Drive → '+account.label+' ('+account.hint+')...');
     const token=await getGdriveToken(account.key,account.hint);
+    if(!token){console.warn('Token Drive non obtenu');return null;}
     const yearId=await getOrCreateFolder(token,String(annee),GDRIVE_ROOT_FOLDER_ID);
     const monthId=await getOrCreateFolder(token,mois,yearId);
     const file=await uploadToDrive(token,htmlContent,filename,monthId);
-    console.log('✓ Archivé sur Drive ('+account.label+'):',filename,'→',file.id);
+    console.log('✅ Archivé sur Drive ('+account.label+'):',filename,'→',file.id);
     return file.id;
-  }catch(e){console.warn('Drive archive failed:',e.message);return null;}
+  }catch(e){
+    console.warn('❌ Drive archive failed:',e.message);
+    // If token expired, clear it so it's requested again next time
+    if(e.message.includes('401')||e.message.includes('invalid_token')){
+      const account=getDriveAccount(logement||'');
+      localStorage.removeItem('gdrive_token_'+account.key);
+      localStorage.removeItem('gdrive_expiry_'+account.key);
+      delete gdriveTokens[account.key];
+    }
+    return null;
+  }
 }
 
 async function archiveEauToDrive(htmlContent,filename,mois,annee){
@@ -5373,7 +5393,9 @@ async function autoSendQuittance(tenant,payment,mois,annee){
   // Archive Drive
   const driveFilename=(tenant.logement||'').replace(/[^a-zA-Z0-9]/g,'-').replace(/-+/g,'-')
     +'_'+mois+'_'+annee+(isCommercial?'_Facture':'_Quittance');
-  archiveToDrive(emailHtml,driveFilename,mois,annee,tenant.logement||'');
+  const driveId = await archiveToDrive(emailHtml,driveFilename,mois,annee,tenant.logement||'');
+  if(driveId) console.log('✅ Archivé Drive ID:',driveId);
+  else console.warn('⚠ Archivage Drive échoué ou token non disponible');
   // Envoi Brevo
   if(!BREVO_API_KEY)BREVO_API_KEY=ensureBrevoKey();
   if(!BREVO_API_KEY)throw new Error('Clé Brevo manquante');
