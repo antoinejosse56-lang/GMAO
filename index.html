@@ -5676,19 +5676,25 @@ function buildQuittanceHtml(tenant,payment,mois,annee,loyer,charges,total,datePa
   const dateLoc=payment.date_loc?new Date(payment.date_loc).toLocaleDateString('fr-FR'):datePaiement;
   const loyerRef=parseFloat(tenant.loyer_ref||0);
   const chargesRef=parseFloat(tenant.charges||0);
-  const css='body{font-family:Arial,sans-serif;max-width:680px;margin:40px auto;padding:30px;color:#222;font-size:14px}'
-    +'.header{display:flex;justify-content:space-between;margin-bottom:30px;padding-bottom:20px;border-bottom:2px solid #222}'
-    +'.title{text-align:center;font-size:20px;font-weight:bold;margin:20px 0;text-transform:uppercase;letter-spacing:1px}'
-    +'.subtitle{text-align:center;font-size:14px;margin-bottom:24px;color:#444}'
-    +'.montant-box{border:2px solid #222;padding:20px;text-align:center;margin:24px 0;border-radius:4px}'
-    +'.montant-box .somme{font-size:26px;font-weight:bold;margin:8px 0}'
-    +'table{width:100%;border-collapse:collapse;margin:20px 0;font-size:13px}'
-    +'td{padding:6px 0;vertical-align:top}'
-    +'.mention{font-size:11px;color:#888;margin-top:24px;padding-top:12px;border-top:1px solid #ddd;line-height:1.6}'
-    +'.sig-block{margin-top:40px;display:flex;justify-content:space-between;align-items:flex-end}'
-    +'.sig-right{text-align:right;font-size:13px}'
-    +'.sig-right .name{font-weight:bold;margin-top:50px;border-top:1px solid #222;padding-top:6px}';
-  return '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>'+css+'</style></head><body>'
+  const css=`
+    @media print{.print-bar{display:none!important}body{margin:0;padding:20px}}
+    .print-bar{background:#1D9E75;color:#fff;padding:10px 20px;display:flex;align-items:center;justify-content:space-between;font-family:Arial,sans-serif;font-size:13px}
+    .print-bar strong{font-size:14px}.print-bar .hint{font-size:11px;opacity:.85}
+    .print-btn{background:#fff;color:#1D9E75;border:none;padding:7px 18px;border-radius:6px;font-weight:700;font-size:13px;cursor:pointer}
+    body{font-family:Arial,sans-serif;max-width:680px;margin:0 auto;padding:0 30px 30px;color:#222;font-size:14px}
+    .header{display:flex;justify-content:space-between;margin-bottom:30px;padding-bottom:20px;border-top:40px solid #fff;border-bottom:2px solid #222}
+    .title{text-align:center;font-size:20px;font-weight:bold;margin:20px 0;text-transform:uppercase;letter-spacing:1px}
+    .subtitle{text-align:center;font-size:14px;margin-bottom:24px;color:#444}
+    .montant-box{border:2px solid #222;padding:20px;text-align:center;margin:24px 0;border-radius:4px}
+    .montant-box .somme{font-size:26px;font-weight:bold;margin:8px 0}
+    table{width:100%;border-collapse:collapse;margin:20px 0;font-size:13px}
+    td{padding:6px 0;vertical-align:top}
+    .mention{font-size:11px;color:#888;margin-top:24px;padding-top:12px;border-top:1px solid #ddd;line-height:1.6}
+    .sig-block{margin-top:40px;display:flex;justify-content:space-between;align-items:flex-end}
+    .sig-right{text-align:right;font-size:13px}
+    .sig-right .name{font-weight:bold;margin-top:50px;border-top:1px solid #222;padding-top:6px}`;
+  const printBar='<div class="print-bar"><div><strong>🖨 Quittance de loyer</strong><div class="hint">Cliquez Imprimer pour enregistrer en PDF</div></div><button class="print-btn" onclick="window.print()">🖨 Imprimer / PDF</button></div>';
+  return '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>'+css+'</style></head><body>'+printBar
     +'<div class="header">'
     +'<div><strong>LE BAILLEUR</strong><br>J&A SAVADUR<br>29 RUE VICE AMIRAL BOUVET<br>56100 LORIENT<br>Savadur56@gmail.com<br>06.30.37.06.88</div>'
     +'<div style="text-align:right"><strong>LE LOCATAIRE</strong><br>'+tenant.nom+'<br>'+tenant.logement+'<br>26 Rue Général Dubail<br>56100 LORIENT</div>'
@@ -5724,17 +5730,23 @@ function buildFactureHtml(tenant,payment,mois,annee,loyer,charges,total,datePaie
   const totalTVA=loyerTVA+chargesTVA;
   const totalTTC=loyerTTC+chargesTTC;
   const dateLoc=payment.date_loc?new Date(payment.date_loc).toLocaleDateString('fr-FR'):datePaiement;
-  const css='body{font-family:Arial,sans-serif;max-width:680px;margin:40px auto;padding:30px;color:#222;font-size:14px}'
-    +'.header{display:flex;justify-content:space-between;margin-bottom:24px}'
-    +'.title{text-align:center;font-size:20px;font-weight:bold;margin:20px 0;text-decoration:underline}'
-    +'.subtitle{text-align:center;font-size:14px;font-weight:bold;margin-bottom:20px}'
-    +'table{width:100%;border-collapse:collapse;margin:16px 0;font-size:13px}'
-    +'th{background:#222;color:#fff;padding:8px 10px;text-align:center;font-weight:500}'
-    +'td{padding:8px 10px;border:1px solid #ddd;text-align:center}'
-    +'td:first-child{text-align:left}'
-    +'.total-row td{font-weight:bold;font-size:15px;background:#f0f0f0;border-top:2px solid #222}'
-    +'.sig-block{margin-top:40px;text-align:right;font-size:13px}';
-  return '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>'+css+'</style></head><body>'
+  const css=`
+    @media print{.print-bar{display:none!important}body{margin:0;padding:20px}}
+    .print-bar{background:#1565C0;color:#fff;padding:10px 20px;display:flex;align-items:center;justify-content:space-between;font-family:Arial,sans-serif;font-size:13px}
+    .print-bar strong{font-size:14px}.print-bar .hint{font-size:11px;opacity:.85}
+    .print-btn{background:#fff;color:#1565C0;border:none;padding:7px 18px;border-radius:6px;font-weight:700;font-size:13px;cursor:pointer}
+    body{font-family:Arial,sans-serif;max-width:680px;margin:0 auto;padding:0 30px 30px;color:#222;font-size:14px}
+    .header{display:flex;justify-content:space-between;margin-bottom:24px;padding-top:20px}
+    .title{text-align:center;font-size:20px;font-weight:bold;margin:20px 0;text-decoration:underline}
+    .subtitle{text-align:center;font-size:14px;font-weight:bold;margin-bottom:20px}
+    table{width:100%;border-collapse:collapse;margin:16px 0;font-size:13px}
+    th{background:#222;color:#fff;padding:8px 10px;text-align:center;font-weight:500;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    td{padding:8px 10px;border:1px solid #ddd;text-align:center}
+    td:first-child{text-align:left}
+    .total-row td{font-weight:bold;font-size:15px;background:#f0f0f0;border-top:2px solid #222}
+    .sig-block{margin-top:40px;text-align:right;font-size:13px}`;
+  const printBar='<div class="print-bar"><div><strong>🖨 Facture de loyer</strong><div class="hint">Cliquez Imprimer pour enregistrer en PDF</div></div><button class="print-btn" onclick="window.print()">🖨 Imprimer / PDF</button></div>';
+  return '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>'+css+'</style></head><body>'+printBar
     +'<div class="header">'
     +'<div><strong>J&A SAVADUR</strong><br>29 RUE AMIRAL BOUVET<br>56100 LORIENT<br>savadur56@gmail.com<br>06.30.37.06.88</div>'
     +'<div style="text-align:right"><strong>'+tenant.nom+'</strong><br>'+tenant.logement+'<br>26 rue général Dubail<br>56100 Lorient</div>'
@@ -5753,16 +5765,21 @@ function buildFactureHtml(tenant,payment,mois,annee,loyer,charges,total,datePaie
 }
 
 function buildFactureEauHtml(tenant,cpt,conso,montant,montantHT,montantTVA,prix,dateReleve,invoiceNum,releve,fmt){
-  return '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>'
-    +'body{font-family:Arial,sans-serif;max-width:680px;margin:40px auto;padding:30px;color:#222;font-size:14px}'
-    +'.header{display:flex;justify-content:space-between;margin-bottom:24px}'
-    +'.title{text-align:center;font-size:20px;font-weight:bold;margin:20px 0;text-decoration:underline}'
-    +'table{width:100%;border-collapse:collapse;margin:16px 0;font-size:13px}'
-    +'th{background:#222;color:#fff;padding:8px 10px;text-align:center;font-weight:500}'
-    +'td{padding:8px 10px;border:1px solid #ddd;text-align:center}'
-    +'td:first-child{text-align:left}'
-    +'.total-row td{font-weight:bold;background:#f0f0f0;border-top:2px solid #222}'
-    +'</style></head><body>'
+  const eauCss=`
+    @media print{.print-bar{display:none!important}body{margin:0;padding:20px}}
+    .print-bar{background:#0277BD;color:#fff;padding:10px 20px;display:flex;align-items:center;justify-content:space-between;font-family:Arial,sans-serif;font-size:13px}
+    .print-bar strong{font-size:14px}.print-bar .hint{font-size:11px;opacity:.85}
+    .print-btn{background:#fff;color:#0277BD;border:none;padding:7px 18px;border-radius:6px;font-weight:700;font-size:13px;cursor:pointer}
+    body{font-family:Arial,sans-serif;max-width:680px;margin:0 auto;padding:0 30px 30px;color:#222;font-size:14px}
+    .header{display:flex;justify-content:space-between;margin-bottom:24px;padding-top:20px}
+    .title{text-align:center;font-size:20px;font-weight:bold;margin:20px 0;text-decoration:underline}
+    table{width:100%;border-collapse:collapse;margin:16px 0;font-size:13px}
+    th{background:#222;color:#fff;padding:8px 10px;text-align:center;font-weight:500;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    td{padding:8px 10px;border:1px solid #ddd;text-align:center}
+    td:first-child{text-align:left}
+    .total-row td{font-weight:bold;background:#f0f0f0;border-top:2px solid #222}`;
+  const eauPrintBar='<div class="print-bar"><div><strong>💧 Facture eau</strong><div class="hint">Cliquez Imprimer pour enregistrer en PDF</div></div><button class="print-btn" onclick="window.print()">🖨 Imprimer / PDF</button></div>';
+  return '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>'+eauCss+'</style></head><body>'+eauPrintBar
     +'<div class="header">'
     +'<div><strong>J&A SAVADUR</strong><br>29 RUE AMIRAL BOUVET<br>56100 LORIENT<br>savadur56@gmail.com</div>'
     +'<div style="text-align:right"><strong>'+tenant.nom+'</strong><br>'+tenant.logement+'<br>26 rue général Dubail<br>56100 Lorient</div>'
