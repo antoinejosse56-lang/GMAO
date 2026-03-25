@@ -133,7 +133,14 @@ const NOW = new Date().toISOString().split('T')[0];
 function isDubailProfile(){
   const u=S.currentUser;
   if(!u||u.role==='admin')return false;
-  return u.profile==='dubail';
+  // Check profile field OR if visible_tabs contains locatif but not tools (= dubail pattern)
+  if(u.profile==='dubail')return true;
+  // Fallback: if user has visible_tabs set with locatif but no tools/etiquettes
+  if(u.visible_tabs&&u.visible_tabs.length>0){
+    const vt=u.visible_tabs;
+    if(vt.includes('locatif')&&!vt.includes('tools')&&!vt.includes('etiquettes'))return true;
+  }
+  return false;
 }
 function dubailFilter(str){
   const s=(str||'').toLowerCase();
@@ -269,27 +276,43 @@ async function loadAll() {
 // Retourne les IDs d'assets liés à Dubail
 function getDubailAssetIds(){
   const ids=new Set();
+  // Find dubail property in topology
   S.topology.properties.forEach(p=>{
     if(!dubailFilter(p.name))return;
-    (p.zones||[]).forEach(z=>{
-      (z.subZones||[]).forEach(s=>(s.assetIds||[]).forEach(id=>ids.add(id)));
-      (z.assetIds||[]).forEach(id=>ids.add(id));
-    });
+    // Add asset linked to this property node
+    if(p.assetId)ids.add(p.assetId);
     (p.assetIds||[]).forEach(id=>ids.add(id));
+    (p.zones||[]).forEach(z=>{
+      if(z.assetId)ids.add(z.assetId);
+      (z.assetIds||[]).forEach(id=>ids.add(id));
+      (z.subZones||[]).forEach(s=>{
+        if(s.assetId)ids.add(s.assetId);
+        (s.assetIds||[]).forEach(id=>ids.add(id));
+      });
+    });
   });
-  // Also add assets whose name/location contains dubail
-  S.assets.forEach(a=>{if(dubailFilter(a.name)||dubailFilter(a.location||''))ids.add(a.id);});
+  // Also match by asset name or location
+  S.assets.forEach(a=>{
+    if(dubailFilter(a.name)||dubailFilter(a.location||''))ids.add(a.id);
+  });
   return ids;
 }
 
 // Retourne les BT filtrés selon le profil
 function getFilteredWOs(){
   if(!isDubailProfile())return S.workOrders;
+  const dubailAssetIds=getDubailAssetIds();
   return S.workOrders.filter(w=>{
+    // Check topo_ref
     const tr=w.topo_ref;
     if(tr&&dubailFilter(tr.propName))return true;
-    const a=S.assets.find(x=>x.id===w.asset_id);
-    if(a&&(dubailFilter(a.name)||dubailFilter(a.location||'')))return true;
+    // Check asset belongs to dubail
+    if(w.asset_id){
+      if(dubailAssetIds.has(w.asset_id))return true;
+      const a=S.assets.find(x=>x.id===w.asset_id);
+      if(a&&(dubailFilter(a.name)||dubailFilter(a.location||'')))return true;
+    }
+    // No asset and no topo → exclude for dubail profile
     return false;
   });
 }
@@ -557,7 +580,10 @@ function renderDashboard(){
   const overdueT = tasks.filter(t=>t.status==='overdue').length;
   const loanedN = S.loans.filter(l=>!l.returned).length;
   const openWO = wos.filter(w=>w.status==='open').length;
+  const dubailAssetIdSet=isDubailProfile()?getDubailAssetIds():null;
   const upcoming = S.maintenanceTemplates.filter(mt=>{
+    if(dubailAssetIdSet&&mt.asset_id&&!dubailAssetIdSet.has(mt.asset_id))return false;
+    if(dubailAssetIdSet&&!mt.asset_id)return false;
     const d = mt.type==='periodic' ? mt.next_due : mt.due_date;
     const n = daysUntil(d); return n!==null && n<=60 && n>=-10;
   }).sort((a,b)=>new Date(a.type==='periodic'?a.next_due:a.due_date)-new Date(b.type==='periodic'?b.next_due:b.due_date)).slice(0,5);
