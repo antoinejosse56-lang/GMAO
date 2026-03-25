@@ -300,29 +300,52 @@ function getDubailAssetIds(){
 
 // Retourne les BT filtrés selon le profil
 function getFilteredWOs(){
+  const u=S.currentUser;
+  if(!u||u.role==='admin')return S.workOrders;
+  // If user has explicit visible_assets, filter WOs by those assets
+  const va=u.visible_assets||u.assets||[];
+  if(va.length>0){
+    return S.workOrders.filter(w=>{
+      if(!w.asset_id&&!w.topo_ref)return false; // no link = hide
+      if(w.asset_id&&va.includes(w.asset_id))return true;
+      if(w.topo_ref){
+        // Check if topo_ref's asset is in visible_assets
+        const a=S.assets.find(x=>x.id===w.topo_ref.assetId);
+        if(a&&va.includes(a.id))return true;
+        // Fallback: dubail name check
+        if(isDubailProfile()&&dubailFilter(w.topo_ref.propName||''))return true;
+      }
+      return false;
+    });
+  }
   if(!isDubailProfile())return S.workOrders;
+  // Dubail without explicit assets: filter by topo_ref or asset name
   const dubailAssetIds=getDubailAssetIds();
   return S.workOrders.filter(w=>{
-    // Check topo_ref
     const tr=w.topo_ref;
-    if(tr&&dubailFilter(tr.propName))return true;
-    // Check asset belongs to dubail
+    if(tr&&dubailFilter(tr.propName||''))return true;
     if(w.asset_id){
       if(dubailAssetIds.has(w.asset_id))return true;
       const a=S.assets.find(x=>x.id===w.asset_id);
       if(a&&(dubailFilter(a.name)||dubailFilter(a.location||'')))return true;
     }
-    // No asset and no topo → exclude for dubail profile
     return false;
   });
 }
 
 // Retourne les assets filtrés selon le profil  
 function getFilteredAssets(){
-  if(!isDubailProfile())return accessAssets(S.currentUser);
-  const ids=getDubailAssetIds();
-  const base=accessAssets(S.currentUser);
-  return base.filter(a=>ids.has(a.id)||dubailFilter(a.name)||dubailFilter(a.location||''));
+  const u=S.currentUser;
+  if(!u||u.role==='admin')return S.assets;
+  // If user has explicit visible_assets list, use it
+  const va=u.visible_assets||u.assets||[];
+  if(va.length>0)return S.assets.filter(a=>va.includes(a.id));
+  // Dubail: filter by topology
+  if(isDubailProfile()){
+    const ids=getDubailAssetIds();
+    return S.assets.filter(a=>ids.has(a.id)||dubailFilter(a.name)||dubailFilter(a.location||''));
+  }
+  return S.assets;
 }
 
 // Retourne les locataires filtrés
@@ -390,7 +413,7 @@ function bindLogin(){
 const USER_PROFILE_TABS = {
   admin:      null,
   technicien: ['dashboard','assets','tasks','workorders','tools','consommables','etiquettes','loans','maintenance','rangements'],
-  dubail:     ['dashboard','assets','workorders','consommables','locatif','compteurs','finances'],
+  dubail:     ['assets','workorders','consommables','locatif','compteurs','finances'],
   perso:      ['dashboard','assets','tasks','workorders','vehicles','finances','famille'],
   custom:     null
 };
