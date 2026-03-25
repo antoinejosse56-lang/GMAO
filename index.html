@@ -215,8 +215,13 @@ async function loadAll() {
       sb.from('consommables').select('*').order('nom')
     ]);
 
-    for (const [name, res] of [['users',u],['assets',a],['tasks',t],['tools',tl],['loans',l],['work_orders',wo],['maintenance_templates',mt],['topology',topo],['revenues',rev],['compteurs',cpt],['releves',rel],['tenants',ten],['rent_payments',rp],['water_readings',wr]]) {
+    // Only block on critical tables
+    for (const [name, res] of [['users',u],['assets',a],['work_orders',wo]]) {
       if (res.error) { showError(`Table "${name}" : ${res.error.message}`); return; }
+    }
+    // Non-blocking tables
+    for (const [name, res] of [['tasks',t],['tools',tl],['loans',l],['maintenance_templates',mt],['topology',topo],['revenues',rev],['compteurs',cpt],['releves',rel],['tenants',ten],['rent_payments',rp],['water_readings',wr]]) {
+      if (res.error) { console.warn(`Table "${name}" non disponible:`, res.error.message); }
     }
     // Rangements — non-bloquant si table pas encore créée
     if (rng.error) { console.warn('Table rangements manquante — créez-la dans Supabase'); }
@@ -227,13 +232,13 @@ async function loadAll() {
     S.tools = tl.data || [];
     S.loans = l.data || [];
     S.workOrders = wo.data || [];
-    S.maintenanceTemplates = mt.data || [];
-    S.revenues = rev.data || [];
-    S.compteurs = cpt.data || [];
-    S.releves = rel.data || [];
-    S.tenants = ten.data || [];
-    S.rentPayments = rp.data || [];
-    S.waterReadings = wr.data || [];
+    S.maintenanceTemplates = mt.error ? [] : (mt.data || []);
+    S.revenues = rev.error ? [] : (rev.data || []);
+    S.compteurs = cpt.error ? [] : (cpt.data || []);
+    S.releves = rel.error ? [] : (rel.data || []);
+    S.tenants = ten.error ? [] : (ten.data || []);
+    S.rentPayments = rp.error ? [] : (rp.data || []);
+    S.waterReadings = wr.error ? [] : (wr.data || []);
     S.rangements = rng.error ? [] : (rng.data || []);
     S.famille = fam.error ? [] : (fam.data || []);
     S.consommables = conso.error ? [] : (conso.data || []);
