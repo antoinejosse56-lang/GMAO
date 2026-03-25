@@ -266,6 +266,48 @@ async function loadAll() {
 }
 
 
+// Retourne les IDs d'assets liés à Dubail
+function getDubailAssetIds(){
+  const ids=new Set();
+  S.topology.properties.forEach(p=>{
+    if(!dubailFilter(p.name))return;
+    (p.zones||[]).forEach(z=>{
+      (z.subZones||[]).forEach(s=>(s.assetIds||[]).forEach(id=>ids.add(id)));
+      (z.assetIds||[]).forEach(id=>ids.add(id));
+    });
+    (p.assetIds||[]).forEach(id=>ids.add(id));
+  });
+  // Also add assets whose name/location contains dubail
+  S.assets.forEach(a=>{if(dubailFilter(a.name)||dubailFilter(a.location||''))ids.add(a.id);});
+  return ids;
+}
+
+// Retourne les BT filtrés selon le profil
+function getFilteredWOs(){
+  if(!isDubailProfile())return S.workOrders;
+  return S.workOrders.filter(w=>{
+    const tr=w.topo_ref;
+    if(tr&&dubailFilter(tr.propName))return true;
+    const a=S.assets.find(x=>x.id===w.asset_id);
+    if(a&&(dubailFilter(a.name)||dubailFilter(a.location||'')))return true;
+    return false;
+  });
+}
+
+// Retourne les assets filtrés selon le profil  
+function getFilteredAssets(){
+  if(!isDubailProfile())return accessAssets(S.currentUser);
+  const ids=getDubailAssetIds();
+  const base=accessAssets(S.currentUser);
+  return base.filter(a=>ids.has(a.id)||dubailFilter(a.name)||dubailFilter(a.location||''));
+}
+
+// Retourne les locataires filtrés
+function getFilteredTenants(){
+  if(!isDubailProfile())return S.tenants;
+  return S.tenants.filter(t=>dubailFilter(t.logement||''));
+}
+
 function accessAssets(u){if(!u)return[];if(u.role==='admin')return S.assets;const vis=u.visible_assets||u.assets||[];if(vis.length===0)return S.assets;return S.assets.filter(a=>vis.includes(a.id));}
 function canEdit(){return S.currentUser&&S.currentUser.role!=='lecteur';}
 function isAdmin(){return S.currentUser?.role==='admin';}
@@ -509,11 +551,12 @@ function renderApp(){
 }
 
 function renderDashboard(){
-  const assets = accessAssets(S.currentUser);
+  const assets = getFilteredAssets();
+  const wos = getFilteredWOs();
   const tasks = S.tasks.filter(t=>isAdmin()||assets.map(a=>a.id).includes(t.asset_id));
   const overdueT = tasks.filter(t=>t.status==='overdue').length;
   const loanedN = S.loans.filter(l=>!l.returned).length;
-  const openWO = S.workOrders.filter(w=>w.status==='open').length;
+  const openWO = wos.filter(w=>w.status==='open').length;
   const upcoming = S.maintenanceTemplates.filter(mt=>{
     const d = mt.type==='periodic' ? mt.next_due : mt.due_date;
     const n = daysUntil(d); return n!==null && n<=60 && n>=-10;
@@ -550,7 +593,7 @@ function renderDashboard(){
 }
 
 function renderAssets(){
-  const assets = accessAssets(S.currentUser);
+  const assets = getFilteredAssets();
   const as = S.assetNav||{propId:null, zoneId:null, subId:null};
 
   // Helper: get WOs for an asset or topo node
@@ -951,16 +994,7 @@ function renderWorkOrders(){
   if(!S.woSearch) S.woSearch={prop:'',zone:'',sub:'',asset:'',status:'all'};
   const sf = S.woSearch;
 
-  const wos = S.workOrders.filter(w=>{
-    if(isAdmin())return true;
-    if(isDubailProfile()){
-      const tr=w.topo_ref;
-      if(tr&&dubailFilter(tr.propName))return true;
-      if(w.asset_id&&assets.map(a=>a.id).includes(w.asset_id))return true;
-      return false;
-    }
-    return !w.asset_id||assets.map(a=>a.id).includes(w.asset_id);
-  });
+  const wos = getFilteredWOs().filter(w=>isAdmin()||!w.asset_id||assets.map(a=>a.id).includes(w.asset_id)||isDubailProfile());
 
   const filtered = wos.filter(w=>{
     if(sf.status==='open'&&w.status!=='open') return false;
@@ -1648,12 +1682,8 @@ function renderFinances(){
 
   // === COSTS: from work_orders only ===
   function getAllCosts(){
-    return S.workOrders.filter(w=>{
+    return getFilteredWOs().filter(w=>{
       if(!(w.cost>0&&w.date&&w.date.startsWith(String(year))))return false;
-      if(isDubailProfile()){
-        const tr=w.topo_ref;
-        return tr&&dubailFilter(tr.propName);
-      }
       return true;
     });
   }
@@ -1840,8 +1870,8 @@ function renderFinances(){
     });
     const selLoc=S.finLoc||'';
     // Filter tenants by location if selected
-    const filteredTenants=S.tenants.filter(t=>{
-      if(isDubailProfile()&&!dubailFilter(t.logement||''))return false;
+    const filteredTenants=getFilteredTenants().filter(t=>{
+      if(false)return false; // placeholder
       if(!selLoc||!t.actif===false) return true;
       if(selLoc.startsWith('prop_')){
         const p=S.topology.properties.find(x=>'prop_'+x.id===selLoc);
