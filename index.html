@@ -126,6 +126,19 @@ const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 const NOW = new Date().toISOString().split('T')[0];
+
+// ============================================================
+// PROFIL DUBAIL — filtre sur 26 rue Général Dubail
+// ============================================================
+function isDubailProfile(){
+  const u=S.currentUser;
+  if(!u||u.role==='admin')return false;
+  return u.profile==='dubail';
+}
+function dubailFilter(str){
+  const s=(str||'').toLowerCase();
+  return s.includes('dubail');
+}
 function uid(){return 'x'+Math.random().toString(36).slice(2,9);}
 function daysUntil(d){if(!d)return null;return Math.ceil((new Date(d)-new Date())/86400000);}
 function dateLabel(d){if(!d)return '—';return new Date(d).toLocaleDateString('fr-FR');}
