@@ -4094,45 +4094,33 @@ async function saveModal(){
     }
   }
 
-  if(m.type==='add-tenant'){
+  if(m.type==='add-tenant'||m.type==='edit-tenant'){
     const nom=q('m-tnom').value.trim();if(!nom)return alert('Nom requis');
     const logement=q('m-tlog').value;if(!logement)return alert('Logement requis');
     const rec={
       nom,logement,
       email:q('m-temail').value||'',
       telephone:q('m-ttel')?.value||'',
-      type_bail:q('m-tbail').value||'habitation',
-      loyer_ref:parseFloat(q('m-tloyer').value)||0,
-      charges:parseFloat(q('m-tcharges').value)||0,
-      caution:parseFloat(q('m-tcaution').value)||0,
-      caf:q('m-tcaf')?.checked||false,
-      date_entree:q('m-tentree')?.value||null,
-      notes:q('m-tnotes')?.value||'',
-      actif:true
-    };
-    const {data,error}=await sb.from('tenants').insert(rec).select().single();
-    if(error){alert('Erreur : '+error.message);return;}
-    if(data)S.tenants.push(data);
-  }
-
-  if(m.type==='edit-tenant'){
-    const t=m.tenant;
-    const rec={
-      nom:q('m-tnom').value.trim(),
-      logement:q('m-tlog').value,
-      email:q('m-temail').value||'',
-      telephone:q('m-ttel')?.value||'',
-      type_bail:q('m-tbail').value||'habitation',
-      loyer_ref:parseFloat(q('m-tloyer').value)||0,
-      charges:parseFloat(q('m-tcharges').value)||0,
-      caution:parseFloat(q('m-tcaution').value)||0,
-      caf:q('m-tcaf')?.checked||false,
-      date_entree:q('m-tentree')?.value||null,
+      type_bail:q('m-tbail')?.value||'habitation',
+      loyer_ref:parseFloat(q('m-tloy')?.value)||0,
+      charges:parseFloat(q('m-tch')?.value)||0,
+      caution:parseFloat(q('m-tcau')?.value)||0,
+      dette:parseFloat(q('m-tdet')?.value)||0,
+      caf:q('m-tcaf')?.value==='true'||false,
+      actif:q('m-tact')?.value!=='false',
+      date_entree:q('m-tent')?.value||null,
+      date_sortie:q('m-tsort')?.value||null,
       notes:q('m-tnotes')?.value||''
     };
-    const {error}=await sb.from('tenants').update(rec).eq('id',t.id);
-    if(error){alert('Erreur : '+error.message);return;}
-    Object.assign(t,rec);
+    if(m.type==='add-tenant'){
+      const {data,error}=await sb.from('tenants').insert(rec).select().single();
+      if(error){alert('Erreur : '+error.message);return;}
+      if(data)S.tenants.push(data);
+    } else {
+      const {error}=await sb.from('tenants').update(rec).eq('id',m.tenant.id);
+      if(error){alert('Erreur : '+error.message);return;}
+      Object.assign(m.tenant,rec);
+    }
   }
 
   if(m.type==='edit-tenant-old'){
