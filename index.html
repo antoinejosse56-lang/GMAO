@@ -1502,7 +1502,7 @@ function renderLocatif(){
   const tab = S.locatifTab||'tenants';
   const MONTHS = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
   const year = S.locatifYear||2026;
-  const tenants = S.tenants.filter(t=>t.actif!==false);
+  const tenants = getFilteredTenants().filter(t=>t.actif!==false);
   const fmt = n => new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR',minimumFractionDigits:2}).format(n||0);
 
   const tabBar = `<div class="tab-bar" style="margin-bottom:14px">
@@ -1549,6 +1549,8 @@ function renderLocatif(){
 
   // ====== SAISIE LOYERS ======
   if(tab==='loyers'){
+    const allowedTenantIds=new Set(tenants.map(t=>t.id));
+    const filteredPayments=S.rentPayments.filter(p=>allowedTenantIds.has(p.tenant_id));
     const selTenant = S.selTenantLoyer||null;
     const selMonth = S.selMonthLoyer||MONTHS[new Date().getMonth()];
     return `${tabBar}${yearBar}
@@ -1557,7 +1559,7 @@ function renderLocatif(){
       <div class="card" style="padding:10px">
         <div class="sec" style="margin-bottom:8px">Locataires</div>
         ${tenants.map(t=>{
-          const paid = S.rentPayments.filter(p=>p.tenant_id===t.id&&p.annee===year&&p.paye).reduce((s,p)=>s+(p.loyer||0),0);
+          const paid = filteredPayments.filter(p=>p.tenant_id===t.id&&p.annee===year&&p.paye).reduce((s,p)=>s+(p.loyer||0),0);
           const due = (t.loyer_ref||0)*12;
           return `<div class="tree-row ${selTenant===t.id?'selected':''}" data-sel-tenant="${t.id}" style="padding:7px 8px">
             <div style="flex:1">
@@ -1599,7 +1601,7 @@ function renderLocatif(){
             </tr></thead>
             <tbody>
             ${MONTHS.map((mois,mi)=>{
-              const p = S.rentPayments.find(x=>x.tenant_id===t.id&&x.annee===year&&x.mois===mois);
+              const p = filteredPayments.find(x=>x.tenant_id===t.id&&x.annee===year&&x.mois===mois);
               const isPaid = p?.paye;
               const montant = p?.loyer||0;
               const isComm = t.type_bail==='commercial';
@@ -1640,7 +1642,7 @@ function renderLocatif(){
           </table></div>
           <div style="display:flex;justify-content:space-between;padding:10px 0;border-top:0.5px solid var(--border);margin-top:8px;font-weight:500">
             <span>Total reçu ${year}</span>
-            <span style="color:var(--green)">${fmt(S.rentPayments.filter(p=>p.tenant_id===t.id&&p.annee===year&&p.paye).reduce((s,p)=>s+(p.loyer||0),0))}</span>
+            <span style="color:var(--green)">${fmt(filteredPayments.filter(p=>p.tenant_id===t.id&&p.annee===year&&p.paye).reduce((s,p)=>s+(p.loyer||0),0))}</span>
           </div>
         </div>`;
       })():`<div class="card" style="display:flex;align-items:center;justify-content:center;min-height:200px;color:var(--text2)">
@@ -1651,9 +1653,11 @@ function renderLocatif(){
 
   // ====== SYNTHESE ======
   if(tab==='synthese'){
-    const totalPercu = S.rentPayments.filter(p=>p.paye&&p.annee===year).reduce((s,p)=>s+(p.loyer||0),0);
+    const allowedTenantIds=new Set(tenants.map(t=>t.id));
+    const filteredPayments=S.rentPayments.filter(p=>allowedTenantIds.has(p.tenant_id));
+    const totalPercu = filteredPayments.filter(p=>p.paye&&p.annee===year).reduce((s,p)=>s+(p.loyer||0),0);
     const totalAttendu = tenants.reduce((s,t)=>s+(t.loyer_ref||0)*12,0);
-    const totalDettes = S.rentPayments.filter(p=>!p.paye&&p.loyer>0&&p.annee===year).reduce((s,p)=>s+(p.loyer||0),0);
+    const totalDettes = filteredPayments.filter(p=>!p.paye&&p.loyer>0&&p.annee===year).reduce((s,p)=>s+(p.loyer||0),0);
     return `${tabBar}${yearBar}
     <div class="g4" style="margin-bottom:16px">
       <div class="stat"><div class="stat-l">Loyers perçus ${year}</div><div class="stat-v" style="color:var(--green)">${fmt(totalPercu)}</div></div>
@@ -1670,7 +1674,7 @@ function renderLocatif(){
         <tbody>
         ${tenants.map(t=>{
           const monthlyData = MONTHS.map(m=>{
-            const p = S.rentPayments.find(x=>x.tenant_id===t.id&&x.annee===year&&x.mois===m);
+            const p = filteredPayments.find(x=>x.tenant_id===t.id&&x.annee===year&&x.mois===m);
             return p?.paye?p.loyer||0:0;
           });
           const total = monthlyData.reduce((s,v)=>s+v,0);
