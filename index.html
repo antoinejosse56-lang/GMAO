@@ -1632,6 +1632,7 @@ function renderLocatif(){
                 <td style="white-space:nowrap">
                   ${canEdit()&&!isPaid?`<button class="btn btn-sm btn-p" data-pay-loyer="${t.id}" data-pay-mois="${mois}" data-pay-year="${year}">✓ Valider</button> `:''}
                   ${canEdit()?`<button class="btn btn-sm" data-saisie-loyer="${t.id}" data-saisie-mois="${mois}" data-saisie-year="${year}">✎ Saisir</button>`:''}
+                  ${p&&canEdit()?`<button class="btn btn-sm btn-d" data-del-rp="${p.id}" title="Supprimer ce paiement">✕</button>`:''}
                 </td>
               </tr>`;
             }).join('')}
@@ -2992,6 +2993,10 @@ function renderModal(){
       <div class="form-group"><label>Date</label><input id="m-wdate" type="date" value="${NOW}"></div>
       <div class="form-group"><label>Coût (€)</label><input id="m-wcost" type="number" placeholder="0"></div>
     </div>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+      <input type="checkbox" id="m-wpaid-new">
+      <label for="m-wpaid-new" style="font-size:13px;cursor:pointer">💰 Dépense déjà réglée</label>
+    </div>
     <div class="form-group"><label>Intervenant</label>
       <select id="m-wby-sel">
         <option value="">— Sélectionner un utilisateur —</option>
@@ -3380,6 +3385,10 @@ function renderModal(){
           ${(()=>{
             const opts=[];
             S.topology.properties.forEach(p=>{
+              // Add property itself if no zones or as parent option
+              if((p.zones||[]).length===0){
+                opts.push('<option value="'+p.name+'" '+(t.logement===p.name?'selected':'')+'>'+p.name+'</option>');
+              }
               (p.zones||[]).forEach(z=>{
                 if((z.subZones||[]).length>0){
                   (z.subZones||[]).forEach(s=>{
@@ -4706,6 +4715,13 @@ function bindAll(){
   document.querySelectorAll('[data-fin-tab]').forEach(el=>el.onclick=()=>{S.finTab=el.dataset.finTab;S.finSub='liste';S.finLoc='';render();});
   const elPaidOnly=document.getElementById('fin-paid-only');
   if(elPaidOnly)elPaidOnly.onchange=()=>{S.finPaidOnly=elPaidOnly.checked;render();};
+  document.querySelectorAll('[data-del-rp]').forEach(el=>el.onclick=async()=>{
+    if(!confirm('Supprimer ce paiement ?'))return;
+    const id=el.dataset.delRp;
+    await sb.from('rent_payments').delete().eq('id',id);
+    S.rentPayments=S.rentPayments.filter(p=>p.id!==id);
+    render();
+  });
   const finLocSel=document.getElementById('fin-loc-sel');
   if(finLocSel)finLocSel.onchange=()=>{S.finLoc=finLocSel.value;render();};
   document.querySelectorAll('[data-fin-sub]').forEach(el=>el.onclick=()=>{S.finSub=el.dataset.finSub;render();});
@@ -5099,6 +5115,17 @@ function bindAll(){
     };
   }
 
+  document.querySelectorAll('[data-create-bt-from-mt]').forEach(el=>el.onclick=async()=>{
+    const mt=S.maintenanceTemplates.find(x=>x.id===el.dataset.createBtFromMt);
+    if(!mt)return;
+    const {data}=await sb.from('work_orders').insert({
+      title:mt.name,description:mt.description||'',
+      asset_id:mt.asset_id||null,category:mt.bt_category||'Entretien',
+      date:NOW,status:'open',cost:0,paid:false,
+      by_user:mt.assigned_to||'',docs:[],journal:[],checklist:[]
+    }).select().single();
+    if(data){S.workOrders.push(data);alert('✅ BT créé : '+mt.name);render();}
+  });
   document.querySelectorAll('[data-edit-mt]').forEach(el=>el.onclick=()=>{
     const mt=S.maintenanceTemplates.find(x=>x.id===el.dataset.editMt);
     if(mt){S.modal={type:'edit-mt',mt};render();}
@@ -5695,7 +5722,19 @@ async function autoSendQuittance(tenant,payment,mois,annee){
     headers:{'api-key':BREVO_API_KEY,'Content-Type':'application/json','Accept':'application/json'},
     body:JSON.stringify({sender:{name:FROM_NAME,email:FROM_EMAIL},to:[{email:'savadur56@gmail.com',name:'J&A SAVADUR'},{email:ALERT_EMAIL,name:'Admin GMAO'}],subject:copySubject,htmlContent:emailHtml})
   }).catch(e=>console.warn('Copie archive failed:',e.message));
-  const w=window.open('','_blank');if(w){w.document.write(emailHtml);w.document.close();}
+  // Open print preview
+  try{
+    const w=window.open('','_blank');
+    if(w){w.document.write(emailHtml);w.document.close();}
+    else{
+      // Fallback: data URI
+      const url='data:text/html;charset=utf-8,'+encodeURIComponent(emailHtml);
+      window.location.href=url;
+    }
+  }catch(e){
+    const url='data:text/html;charset=utf-8,'+encodeURIComponent(emailHtml);
+    const a=document.createElement('a');a.href=url;a.target='_blank';a.click();
+  }
   return true;
 }
 
@@ -5730,7 +5769,14 @@ async function sendFactureEau(releve,cpt,tenant,conso,montant,prix){
     headers:{'api-key':BREVO_API_KEY,'Content-Type':'application/json','Accept':'application/json'},
     body:JSON.stringify({sender:{name:FROM_NAME,email:FROM_EMAIL},to:[{email:'savadur56@gmail.com',name:'J&A SAVADUR (archive)'}],subject:'[COPIE] '+subject,htmlContent:html})
   }).catch(e=>console.warn('Copie facture eau failed:',e.message));
-  const w=window.open('','_blank');if(w){w.document.write(html);w.document.close();}
+  try{
+    const w=window.open('','_blank');
+    if(w){w.document.write(html);w.document.close();}
+    else{const url='data:text/html;charset=utf-8,'+encodeURIComponent(html);window.location.href=url;}
+  }catch(e){
+    const url='data:text/html;charset=utf-8,'+encodeURIComponent(html);
+    const a=document.createElement('a');a.href=url;a.target='_blank';a.click();
+  }
   return true;
 }
 
