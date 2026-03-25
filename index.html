@@ -140,15 +140,31 @@ const FROM_NAME     = 'J&A SAVADUR';
 function getBrevoKey(){
   return localStorage.getItem('brevo_api_key')||'';
 }
+async function loadBrevoKeyFromSupabase(){
+  try{
+    const {data}=await sb.from('app_config').select('value').eq('key','brevo_api_key').single();
+    if(data?.value){
+      localStorage.setItem('brevo_api_key',data.value);
+      BREVO_API_KEY=data.value;
+    }
+  }catch(e){}
+}
+async function saveBrevoKeyToSupabase(key){
+  try{
+    await sb.from('app_config').upsert({key:'brevo_api_key',value:key},{onConflict:'key'});
+  }catch(e){}
+}
 function ensureBrevoKey(){
-  let k = localStorage.getItem('brevo_api_key');
-  if(k && k.trim().startsWith('xkeysib-')) return k.trim();
-  k = prompt('Entrez votre clé API Brevo (commence par xkeysib-) :\n(Elle sera sauvegardée dans votre navigateur)');
-  if(k && k.trim().startsWith('xkeysib-')){
-    localStorage.setItem('brevo_api_key', k.trim());
+  let k=localStorage.getItem('brevo_api_key');
+  if(k&&k.trim().startsWith('xkeysib-'))return k.trim();
+  k=prompt('Clé API Brevo (xkeysib-...) — elle sera partagée sur tous vos appareils :');
+  if(k&&k.trim().startsWith('xkeysib-')){
+    localStorage.setItem('brevo_api_key',k.trim());
+    saveBrevoKeyToSupabase(k.trim());
+    BREVO_API_KEY=k.trim();
     return k.trim();
   }
-  alert('Clé invalide — les emails ne seront pas envoyés.');
+  alert('Clé invalide.');
   return '';
 }
 let BREVO_API_KEY = getBrevoKey();
@@ -232,7 +248,7 @@ async function loadAll() {
 }
 
 
-function accessAssets(u){if(!u)return[];if(u.role==='admin')return S.assets;return S.assets.filter(a=>u.assets&&u.assets.includes(a.id));}
+function accessAssets(u){if(!u)return[];if(u.role==='admin')return S.assets;const vis=u.visible_assets||u.assets||[];if(vis.length===0)return S.assets;return S.assets.filter(a=>vis.includes(a.id));}
 function canEdit(){return S.currentUser&&S.currentUser.role!=='lecteur';}
 function isAdmin(){return S.currentUser?.role==='admin';}
 
@@ -287,12 +303,76 @@ function bindLogin(){
   document.getElementById('lp').onkeydown = e => { if(e.key==='Enter') document.getElementById('lb').click(); };
 }
 
+
+const USER_PROFILE_TABS = {
+  admin:      null,
+  technicien: ['dashboard','assets','tasks','workorders','tools','consommables','etiquettes','loans','maintenance','rangements'],
+  dubail:     ['dashboard','assets','workorders','consommables','locatif','compteurs','finances'],
+  perso:      ['dashboard','assets','tasks','workorders','vehicles','finances','famille'],
+  custom:     null
+};
+function getUserVisibleTabs(){
+  const u=S.currentUser;
+  if(!u||u.role==='admin') return null;
+  if(u.visible_tabs&&u.visible_tabs.length>0) return u.visible_tabs;
+  return USER_PROFILE_TABS[u.profile||'technicien']||null;
+}
+function applyUserProfile(prof){
+  const tabs=USER_PROFILE_TABS[prof];
+  document.querySelectorAll('.utab').forEach(cb=>{
+    cb.checked = !tabs||tabs.includes(cb.value);
+  });
+}
+// ============================================================
+// PROFILS UTILISATEURS
+// ============================================================
+const USER_PROFILES = {
+  admin:      {label:'Administrateur',  tabs:null}, // null = tous les onglets
+  technicien: {label:'Technicien',      tabs:['dashboard','assets','tasks','workorders','tools','consommables','etiquettes','loans','maintenance','rangements','vehicles']},
+  dubail:     {label:'26 rue Dubail',   tabs:['dashboard','assets','workorders','consommables','locatif','compteurs','finances']},
+  perso:      {label:'Perso',           tabs:['dashboard','assets','tasks','workorders','vehicles','finances','famille']},
+  lecteur:    {label:'Lecteur',         tabs:['dashboard','assets','tasks','workorders','maintenance']},
+  custom:     {label:'Personnalisé',    tabs:[]}
+};
+const ALL_TABS_LABELS = {
+  dashboard:'Tableau de bord',assets:'Équipements',tasks:'Échéances',
+  workorders:'Bons de travaux',tools:'Outils',consommables:'Consommables',
+  etiquettes:'Étiquettes QR',loans:'Prêts outils',vehicles:'Véhicules',
+  topology:'Topologie',maintenance:'Gammes',locatif:'Gestion locative',
+  compteurs:'Compteurs',finances:'Finances',rangements:'Rangements',
+  famille:'Famille',settings:'Paramètres'
+};
+function getUserTabs(user){
+  if(!user||user.role==='admin')return null; // null = tout visible
+  // Priorité : visible_tabs personnalisés > profil prédéfini
+  if(user.visible_tabs&&user.visible_tabs.length>0)return user.visible_tabs;
+  const prof=USER_PROFILES[user.profile]||USER_PROFILES['technicien'];
+  return prof.tabs;
+}
+function canSeeTab(tabId){
+  const tabs=getUserTabs(S.currentUser);
+  return !tabs||tabs.includes(tabId);
+}
+function getUserAssets(user){
+  if(!user||user.role==='admin')return S.assets;
+  const vis=user.visible_assets||user.assets||[];
+  if(vis.length===0)return S.assets; // vide = tous
+  return S.assets.filter(a=>vis.includes(a.id));
+}
+
+function applyProfile(prof){
+  const profileTabs=USER_PROFILES[prof]?.tabs||[];
+  document.querySelectorAll('.utab').forEach(cb=>{
+    cb.checked = (prof==='admin')||profileTabs.includes(cb.value);
+  });
+}
+
 function navItems(){
   const assets = accessAssets(S.currentUser);
   const overdueT = S.tasks.filter(t=>t.status==='overdue'&&(isAdmin()||assets.map(a=>a.id).includes(t.asset_id))).length;
   const loanedN = S.loans.filter(l=>!l.returned).length;
   const openWO = S.workOrders.filter(w=>w.status==='open').length;
-  return [
+  const allGroups = [
     {group:'Principal', items:[
       {id:'dashboard', label:'Tableau de bord', icon:'⊞'},
       {id:'assets', label:'Équipements', icon:'◧', badge: S.assets.filter(a=>a.status==='urgent').length||0},
@@ -319,11 +399,22 @@ function navItems(){
     {group:'Finances', items:[
       {id:'finances', label:'Coûts & Revenus', icon:'€'},
     ]},
-    {group:'Admin', items: isAdmin()?[{id:'users', label:'Utilisateurs', icon:'◎'}]:[]},
-    {group:'Système', items: isAdmin()?[{id:'settings', label:'Paramètres', icon:'⚙️'}]:[]},
-    {group:'Famille', items: [{id:'famille', label:'Suivi famille', icon:'👨‍👩‍👧‍👦'}]}
+    {group:'Admin', items: isAdmin()?[
+      {id:'users', label:'Utilisateurs', icon:'◎'},
+    ]:[]},
+    {group:'Système', items: isAdmin()?[
+      {id:'settings', label:'Paramètres', icon:'⚙️'},
+    ]:[]},
+    {group:'Famille', items:[
+      {id:'famille', label:'Suivi famille', icon:'👨‍👩‍👧‍👦'},
+    ]},
   ];
+  // Apply visible_tabs filter
+  const visibleTabs = getUserVisibleTabs();
+  if(!visibleTabs) return allGroups;
+  return allGroups.map(g=>({...g, items:g.items.filter(i=>visibleTabs.includes(i.id))})).filter(g=>g.items.length>0);
 }
+
 
 function renderApp(){
   const navs = navItems();
@@ -842,7 +933,16 @@ function renderWorkOrders(){
   if(!S.woSearch) S.woSearch={prop:'',zone:'',sub:'',asset:'',status:'all'};
   const sf = S.woSearch;
 
-  const wos = S.workOrders.filter(w=>isAdmin()||!w.asset_id||assets.map(a=>a.id).includes(w.asset_id));
+  const wos = S.workOrders.filter(w=>{
+    if(isAdmin())return true;
+    if(isDubailProfile()){
+      const tr=w.topo_ref;
+      if(tr&&dubailFilter(tr.propName))return true;
+      if(w.asset_id&&assets.map(a=>a.id).includes(w.asset_id))return true;
+      return false;
+    }
+    return !w.asset_id||assets.map(a=>a.id).includes(w.asset_id);
+  });
 
   const filtered = wos.filter(w=>{
     if(sf.status==='open'&&w.status!=='open') return false;
@@ -1530,7 +1630,14 @@ function renderFinances(){
 
   // === COSTS: from work_orders only ===
   function getAllCosts(){
-    return S.workOrders.filter(w=>w.cost>0&&w.date&&w.date.startsWith(String(year)));
+    return S.workOrders.filter(w=>{
+      if(!(w.cost>0&&w.date&&w.date.startsWith(String(year))))return false;
+      if(isDubailProfile()){
+        const tr=w.topo_ref;
+        return tr&&dubailFilter(tr.propName);
+      }
+      return true;
+    });
   }
   function getCostsByType(){
     const res={};
@@ -1604,7 +1711,9 @@ function renderFinances(){
 
   if(fTab==='depenses'){
     const selLocDep=S.finLoc||'';
+    const showPaidOnly=S.finPaidOnly!==false;
     const allWos=S.workOrders.filter(w=>{
+      if(showPaidOnly&&!w.paid)return false;
       if(!w.cost>0)return false;
       if(year&&w.date&&!w.date.startsWith(String(year)))return false;
       if(!selLocDep)return true;
@@ -1616,7 +1725,11 @@ function renderFinances(){
     }).sort((a,b)=>new Date(b.date)-new Date(a.date));
     const finSub=S.finSub||'liste';
     const locBarDep=`<div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;flex-wrap:wrap">
-      <label style="font-size:12px;color:var(--text2)">Filtrer par lieu :</label>
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;background:var(--bg2);padding:5px 10px;border-radius:var(--radius)">
+        <input type="checkbox" id="fin-paid-only" ${showPaidOnly?'checked':''}>
+        💰 Réglées uniquement
+      </label>
+      <label style="font-size:12px;color:var(--text2)">Lieu :</label>
       <select id="fin-loc-sel" style="padding:5px 10px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">
         <option value="">Tous les biens</option>
         ${(()=>{const opts=[];S.topology.properties.forEach(p=>{opts.push(`<option value="prop_${p.id}" ${selLocDep==='prop_'+p.id?'selected':''}>🏠 ${p.name}</option>`);(p.zones||[]).forEach(z=>{opts.push(`<option value="zone_${z.id}" ${selLocDep==='zone_'+z.id?'selected':''}>&nbsp;&nbsp;📁 ${p.name} › ${z.name}</option>`);});});return opts.join('');})()}
@@ -1710,6 +1823,7 @@ function renderFinances(){
     const selLoc=S.finLoc||'';
     // Filter tenants by location if selected
     const filteredTenants=S.tenants.filter(t=>{
+      if(isDubailProfile()&&!dubailFilter(t.logement||''))return false;
       if(!selLoc||!t.actif===false) return true;
       if(selLoc.startsWith('prop_')){
         const p=S.topology.properties.find(x=>'prop_'+x.id===selLoc);
@@ -2162,7 +2276,16 @@ function printLocationLabel(loc, tools, siteUrl){
 
 
 function renderConsommables(){
-  const conso = S.consommables||[];
+  // Dubail: only show consommables linked to Dubail assets or emplacement
+  const conso = isDubailProfile()
+    ? (S.consommables||[]).filter(c=>{
+        if(c.asset_id){const a=S.assets.find(x=>x.id===c.asset_id);if(a&&dubailFilter(a.name))return true;}
+        if(dubailFilter(c.emplacement||''))return true;
+        // If no asset linked and not dubail emplacement: hide for dubail profile
+        if(!c.asset_id&&!dubailFilter(c.emplacement||''))return false;
+        return true;
+      })
+    : (S.consommables||[]);
   const cTab = S.csoTab||'stock';
   const siteUrl = window.location.origin+window.location.pathname;
 
@@ -2537,7 +2660,7 @@ function renderSettings(){
       </div>
       <div style="font-size:12px;color:var(--text2)">
         • 26 rue Général Dubail → savadur56@gmail.com<br>
-        • Autres biens → antoinejoss56@gmail.com
+        • Autres biens → antoinejosse56@gmail.com
       </div>
     </div>
   </div>`;
@@ -3117,13 +3240,37 @@ function renderModal(){
     html=`${mhd(m.type==='add-user'?'Nouvel utilisateur':'Modifier — '+u.name)}
     <div class="g2c">
       <div class="form-group"><label>Nom *</label><input id="m-un" value="${u.name||''}"></div>
-      <div class="form-group"><label>Email *</label><input id="m-ue" type="email" value="${u.email||''}"></div>
+      <div class="form-group"><label>Email</label><input id="m-ue" type="email" value="${u.email||''}"></div>
     </div>
     <div class="g2c">
-      <div class="form-group"><label>Mot de passe ${m.type==='edit-user'?'(vide = inchangé)':' *'}</label><input id="m-up" type="password"></div>
-      <div class="form-group"><label>Rôle</label><select id="m-ur"><option value="lecteur" ${u.role==='lecteur'?'selected':''}>Lecteur</option><option value="technicien" ${u.role==='technicien'?'selected':''}>Technicien</option><option value="admin" ${u.role==='admin'?'selected':''}>Administrateur</option></select></div>
+      <div class="form-group"><label>Mot de passe ${m.type==='edit-user'?'(vide = inchangé)':'*'}</label><input id="m-up" type="password"></div>
+      <div class="form-group"><label>Rôle</label><select id="m-ur">
+        <option value="lecteur" ${u.role==='lecteur'?'selected':''}>Lecteur</option>
+        <option value="technicien" ${u.role==='technicien'?'selected':''}>Technicien</option>
+        <option value="admin" ${u.role==='admin'?'selected':''}>Administrateur</option>
+      </select></div>
     </div>
-    <div class="form-group"><label>Accès équipements</label>${S.assets.map(a=>`<label style="display:flex;align-items:center;gap:6px;margin-bottom:4px;font-size:12px"><input type="checkbox" value="${a.id}" class="ac" ${(u.assets||[]).includes(a.id)?'checked':''}> ${a.name}</label>`).join('')}</div>${mf}`;}
+    <div class="form-group"><label>Profil d'accès rapide</label>
+      <select id="m-uprof" onchange="applyProfile(this.value)">
+        <option value="admin" ${(u.profile||'custom')==='admin'?'selected':''}>🔑 Admin (accès complet)</option>
+        <option value="technicien" ${(u.profile||'custom')==='technicien'?'selected':''}>🔧 Technicien</option>
+        <option value="dubail" ${(u.profile||'custom')==='dubail'?'selected':''}>🏢 26 rue Dubail</option>
+        <option value="perso" ${(u.profile||'custom')==='perso'?'selected':''}>🏠 Perso</option>
+        <option value="custom" ${(u.profile||'custom')==='custom'?'selected':''}>⚙ Personnalisé</option>
+      </select>
+    </div>
+    <div class="form-group"><label>Onglets visibles</label>
+      <div style="display:flex;flex-wrap:wrap;gap:4px 8px;background:var(--bg2);padding:8px;border-radius:var(--radius);max-height:130px;overflow-y:auto" id="utab-wrap">
+        <label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="dashboard" ${(u.visible_tabs||[]).includes("dashboard")?"checked":""}> Tableau de bord</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="assets" ${(u.visible_tabs||[]).includes("assets")?"checked":""}> Équipements</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="tasks" ${(u.visible_tabs||[]).includes("tasks")?"checked":""}> Échéances</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="workorders" ${(u.visible_tabs||[]).includes("workorders")?"checked":""}> Bons de travaux</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="tools" ${(u.visible_tabs||[]).includes("tools")?"checked":""}> Outils</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="consommables" ${(u.visible_tabs||[]).includes("consommables")?"checked":""}> Consommables</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="etiquettes" ${(u.visible_tabs||[]).includes("etiquettes")?"checked":""}> Étiquettes QR</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="loans" ${(u.visible_tabs||[]).includes("loans")?"checked":""}> Prêts outils</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="vehicles" ${(u.visible_tabs||[]).includes("vehicles")?"checked":""}> Véhicules</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="topology" ${(u.visible_tabs||[]).includes("topology")?"checked":""}> Topologie</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="maintenance" ${(u.visible_tabs||[]).includes("maintenance")?"checked":""}> Gammes</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="locatif" ${(u.visible_tabs||[]).includes("locatif")?"checked":""}> Gestion locative</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="compteurs" ${(u.visible_tabs||[]).includes("compteurs")?"checked":""}> Compteurs</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="finances" ${(u.visible_tabs||[]).includes("finances")?"checked":""}> Finances</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="rangements" ${(u.visible_tabs||[]).includes("rangements")?"checked":""}> Rangements</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="famille" ${(u.visible_tabs||[]).includes("famille")?"checked":""}> Famille</label>
+      </div>
+    </div>
+    <div class="form-group"><label>Équipements accessibles <small style="color:var(--text2)">(vide = tous)</small></label>
+      <div style="display:flex;flex-wrap:wrap;gap:4px 8px;background:var(--bg2);padding:8px;border-radius:var(--radius);max-height:100px;overflow-y:auto">
+        ${S.assets.map(a=>`<label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" value="${a.id}" class="ac" ${(u.visible_assets||u.assets||[]).includes(a.id)?'checked':''}> ${a.name}</label>`).join('')}
+      </div>
+    </div>
+    ${mf}`;
+  }
 
   if(m.type==='add-tenant'||m.type==='edit-tenant'){
     const t=m.tenant||{};
@@ -3709,7 +3856,7 @@ async function saveModal(){
     const rec={nom,categorie:q('m-ccat').value,reference:q('m-cref').value||null,
       stock:parseFloat(q('m-cstock').value)||0,unite:q('m-cunite2').value||'pièce(s)',
       stock_min:parseFloat(q('m-cstockmin').value)||0,prix_achat:parseFloat(q('m-cprix2').value)||0,
-      emplacement,description:q('m-cdesc2').value||null};
+      emplacement,description:q('m-cdesc2').value||null,asset_id:q('m-casset')?.value||null};
     if(m.type==='add-cso'){
       const {data,error}=await sb.from('consommables').insert(rec).select().single();
       if(error){alert('Erreur : '+error.message);return;}
@@ -3771,14 +3918,23 @@ async function saveModal(){
   if(m.type==='add-user'){
     const name=q('m-un').value.trim(),email=q('m-ue').value.trim(),pass=q('m-up').value;if(!name||!email||!pass)return alert('Champs requis');
     const checked=[...document.querySelectorAll('.ac:checked')].map(c=>c.value);
+    const vtabs=[...document.querySelectorAll('.utab:checked')].map(c=>c.value);
+    const prof=q('m-uprof')?.value||'custom';
     const initials=name.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2);
-    const {data}=await sb.from('users').insert({name,email,password:pass,role:q('m-ur').value,assets:checked,initials}).select().single();
+    const {data}=await sb.from('users').insert({name,email,password:pass,role:q('m-ur').value,assets:checked,visible_assets:checked,visible_tabs:vtabs,profile:prof,initials}).select().single();
     if(data)S.users.push(data);}
 
   if(m.type==='edit-user'){
-    const u=m.user;const upd={name:q('m-un').value,email:q('m-ue').value,role:q('m-ur').value,assets:[...document.querySelectorAll('.ac:checked')].map(c=>c.value)};
-    const np=q('m-up').value;if(np)upd.password=np;upd.initials=upd.name.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2);
-    await sb.from('users').update(upd).eq('id',u.id);Object.assign(u,upd);if(u.id===S.currentUser.id)S.currentUser=u;}
+    const u=m.user;
+    const checked=[...document.querySelectorAll('.ac:checked')].map(c=>c.value);
+    const vtabs=[...document.querySelectorAll('.utab:checked')].map(c=>c.value);
+    const prof=q('m-uprof')?.value||'custom';
+    const upd={name:q('m-un').value,email:q('m-ue').value,role:q('m-ur').value,
+      assets:checked,visible_assets:checked,visible_tabs:vtabs,profile:prof};
+    const np=q('m-up').value;if(np)upd.password=np;
+    upd.initials=upd.name.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2);
+    await sb.from('users').update(upd).eq('id',u.id);
+    Object.assign(u,upd);if(u.id===S.currentUser?.id)S.currentUser=u;}
 
   if(m.type==='link-asset'){
     const chosen = q('m-link-asset').value;
@@ -4451,6 +4607,8 @@ function bindAll(){
   // Finances tab
   if(!S.finTab) S.finTab='overview';
   document.querySelectorAll('[data-fin-tab]').forEach(el=>el.onclick=()=>{S.finTab=el.dataset.finTab;S.finSub='liste';S.finLoc='';render();});
+  const elPaidOnly=document.getElementById('fin-paid-only');
+  if(elPaidOnly)elPaidOnly.onchange=()=>{S.finPaidOnly=elPaidOnly.checked;render();};
   const finLocSel=document.getElementById('fin-loc-sel');
   if(finLocSel)finLocSel.onchange=()=>{S.finLoc=finLocSel.value;render();};
   document.querySelectorAll('[data-fin-sub]').forEach(el=>el.onclick=()=>{S.finSub=el.dataset.finSub;render();});
@@ -5625,7 +5783,7 @@ function buildFactureEauHtml(tenant,cpt,conso,montant,montantHT,montantTVA,prix,
 }
 
 
-loadAll().then(()=>{render();setTimeout(()=>checkAndSendAlerts(),3000);});
+loadAll().then(async()=>{render();setTimeout(()=>checkAndSendAlerts(),3000);});
 </script>
 </body>
 </html>
