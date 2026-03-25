@@ -454,7 +454,7 @@ function navItems(){
   const assets = accessAssets(S.currentUser);
   const overdueT = S.tasks.filter(t=>t.status==='overdue'&&(isAdmin()||assets.map(a=>a.id).includes(t.asset_id))).length;
   const loanedN = S.loans.filter(l=>!l.returned).length;
-  const openWO = S.workOrders.filter(w=>w.status==='open').length;
+  const openWO = getFilteredWOs().filter(w=>w.status==='open').length;
   const allGroups = [
     {group:'Principal', items:[
       {id:'dashboard', label:'Tableau de bord', icon:'⊞'},
@@ -608,12 +608,12 @@ function renderDashboard(){
     </div>
     <div class="card">
       <div class="sec">Bons de travaux ouverts</div>
-      ${S.workOrders.filter(w=>w.status==='open').slice(0,5).map(w=>{
+      ${getFilteredWOs().filter(w=>w.status==='open').slice(0,5).map(w=>{
         const asset = S.assets.find(a=>a.id===w.asset_id);
         return `<div class="row"><div class="fg"><div class="fgs">${w.title}</div><div class="fgsub">${asset?.name||'—'} · ${dateLabel(w.date)}</div></div>
           <span class="badge ${w.category==='Urgence'?'bred':'bamber'}">${w.category}</span></div>`;
       }).join('')}
-      ${S.workOrders.filter(w=>w.status==='open').length===0?'<div style="font-size:12px;color:var(--text2)">Aucun bon ouvert.</div>':''}
+      ${getFilteredWOs().filter(w=>w.status==='open').length===0?'<div style="font-size:12px;color:var(--text2)">Aucun bon ouvert.</div>':''}
     </div>
   </div>`;
 }
@@ -624,7 +624,7 @@ function renderAssets(){
 
   // Helper: get WOs for an asset or topo node
   function nodeWOs(assetId, propId, zoneId, subId){
-    return S.workOrders.filter(w=>{
+    return getFilteredWOs().filter(w=>{
       if(assetId && w.asset_id===assetId) return true;
       if(!w.topo_ref) return false;
       if(subId && w.topo_ref.subId===subId) return true;
