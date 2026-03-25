@@ -3962,7 +3962,7 @@ async function saveModal(){
     const rec={nom,categorie:q('m-ccat').value,reference:q('m-cref').value||null,
       stock:parseFloat(q('m-cstock').value)||0,unite:q('m-cunite2').value||'pièce(s)',
       stock_min:parseFloat(q('m-cstockmin').value)||0,prix_achat:parseFloat(q('m-cprix2').value)||0,
-      emplacement,description:q('m-cdesc2').value||null,asset_id:q('m-casset')?.value||null};
+      emplacement,description:q('m-cdesc2').value||null};
     if(m.type==='add-cso'){
       const {data,error}=await sb.from('consommables').insert(rec).select().single();
       if(error){alert('Erreur : '+error.message);return;}
@@ -4094,7 +4094,48 @@ async function saveModal(){
     }
   }
 
+  if(m.type==='add-tenant'){
+    const nom=q('m-tnom').value.trim();if(!nom)return alert('Nom requis');
+    const logement=q('m-tlog').value;if(!logement)return alert('Logement requis');
+    const rec={
+      nom,logement,
+      email:q('m-temail').value||'',
+      telephone:q('m-ttel')?.value||'',
+      type_bail:q('m-tbail').value||'habitation',
+      loyer_ref:parseFloat(q('m-tloyer').value)||0,
+      charges:parseFloat(q('m-tcharges').value)||0,
+      caution:parseFloat(q('m-tcaution').value)||0,
+      caf:q('m-tcaf')?.checked||false,
+      date_entree:q('m-tentree')?.value||null,
+      notes:q('m-tnotes')?.value||'',
+      actif:true
+    };
+    const {data,error}=await sb.from('tenants').insert(rec).select().single();
+    if(error){alert('Erreur : '+error.message);return;}
+    if(data)S.tenants.push(data);
+  }
+
   if(m.type==='edit-tenant'){
+    const t=m.tenant;
+    const rec={
+      nom:q('m-tnom').value.trim(),
+      logement:q('m-tlog').value,
+      email:q('m-temail').value||'',
+      telephone:q('m-ttel')?.value||'',
+      type_bail:q('m-tbail').value||'habitation',
+      loyer_ref:parseFloat(q('m-tloyer').value)||0,
+      charges:parseFloat(q('m-tcharges').value)||0,
+      caution:parseFloat(q('m-tcaution').value)||0,
+      caf:q('m-tcaf')?.checked||false,
+      date_entree:q('m-tentree')?.value||null,
+      notes:q('m-tnotes')?.value||''
+    };
+    const {error}=await sb.from('tenants').update(rec).eq('id',t.id);
+    if(error){alert('Erreur : '+error.message);return;}
+    Object.assign(t,rec);
+  }
+
+  if(m.type==='edit-tenant-old'){
     const logs = S.locatif?.logements||[];
     const log = logs.find(l=>l.id===m.logId);
     if(log){
