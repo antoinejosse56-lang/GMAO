@@ -3545,7 +3545,10 @@ function renderModal(){
       <option value="partial" ${!p.paye&&(p.locataire_part>0||p.caf>0)?'selected':''}>Partiel — en cours</option>
       <option value="false" ${!p.paye&&!(p.locataire_part>0||p.caf>0)?'selected':''}>Non — rien reçu</option>
     </select></div>
-    <div class="form-group"><label>Notes</label><input id="m-sl-notes" value="${p.notes||''}"></div>
+    <div class="form-group"><label>Notes (internes, non imprimées)</label><input id="m-sl-notes" value="${p.notes||''}"></div>
+    <div class="form-group"><label>Commentaire sur la quittance/facture <span style="color:var(--text2);font-size:11px">(apparaîtra sur le document)</span></label>
+      <input id="m-sl-comment" value="${p.commentaire||''}" placeholder="Ex: Paiement reçu par virement, Solde partiel — reste dû...">
+    </div>
     ${mf}`;
   }
 
@@ -4358,7 +4361,7 @@ async function saveModal(){
     }
     if(paye&&m.tenant?.email&&payment){
       try{
-        const r2 = await autoSendQuittance(m.tenant,payment,m.mois,m.annee);
+        const r2 = await autoSendQuittance(m.tenant,payment,m.mois,m.annee,q('m-sl-comment')?.value||payment.commentaire||'');
         alert('✓ Enregistré !\n\n📄 Document ouvert pour impression/PDF.\n📧 Copie envoyée sur '+ALERT_EMAIL+' (à transférer à '+m.tenant.email+')');
       }catch(e){
         console.error('Email err:',e);
@@ -4531,7 +4534,7 @@ function bindAll(){
     }
     if(tenant.email&&payment){
       try{
-        const r = await autoSendQuittance(tenant,payment,mois,annee);
+        const r = await autoSendQuittance(tenant,payment,mois,annee,payment.commentaire||'');
         alert('✓ Loyer validé !\n\n📄 Document ouvert pour impression/PDF.\n📧 Copie envoyée sur '+ALERT_EMAIL+' (à transférer à '+tenant.email+')');
       }catch(e){
         console.error('Email err:',e);
@@ -4629,7 +4632,7 @@ function bindAll(){
     // Auto-send quittance if tenant has email
     if(tenant?.email && payment){
       try{
-        await autoSendQuittance(tenant, payment, mois, annee);
+        await autoSendQuittance(tenant, payment, mois, annee, payment.commentaire||'');
         await sb.from('rent_payments').update({quittance_envoyee:true}).eq('id',payment.id);
         if(payment) payment.quittance_envoyee=true;
       }catch(e){console.error('Email quittance error:',e);}
@@ -5717,7 +5720,7 @@ function _openPicker(callback){
 // ============================================================
 // QUITTANCES & FACTURES
 // ============================================================
-async function autoSendQuittance(tenant,payment,mois,annee){
+async function autoSendQuittance(tenant,payment,mois,annee,commentaire=''){
   if(!tenant.email)return;
   const fmt=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR',minimumFractionDigits:2}).format(n||0);
   const isCommercial=tenant.type_bail==='commercial';
@@ -5727,8 +5730,8 @@ async function autoSendQuittance(tenant,payment,mois,annee){
   const moisNum=String(['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'].indexOf(mois)+1).padStart(2,'0');
   const invoiceNum=annee+'-'+moisNum+'-'+tenant.logement.replace(/[^A-Z0-9]/gi,'').toUpperCase().slice(0,6);
   const emailHtml=isCommercial
-    ?buildFactureHtml(tenant,payment,mois,annee,total,charges,total,datePaiement,invoiceNum,fmt)
-    :buildQuittanceHtml(tenant,payment,mois,annee,total,charges,total,datePaiement,fmt);
+    ?buildFactureHtml(tenant,payment,mois,annee,total,charges,total,datePaiement,invoiceNum,fmt,commentaire)
+    :buildQuittanceHtml(tenant,payment,mois,annee,total,charges,total,datePaiement,fmt,commentaire);
   const subject=isCommercial
     ?'Facture de loyer '+mois+' '+annee+' — '+tenant.logement+' — N°'+invoiceNum
     :'Quittance de loyer '+mois+' '+annee+' — '+tenant.logement;
@@ -5842,7 +5845,7 @@ async function sendAccuseEau(releve,cpt,tenant,montant){
   return true;
 }
 
-function buildQuittanceHtml(tenant,payment,mois,annee,loyer,charges,total,datePaiement,fmt){
+function buildQuittanceHtml(tenant,payment,mois,annee,loyer,charges,total,datePaiement,fmt,commentaire=''){
   const caf=parseFloat(payment.caf||0);
   const locPart=parseFloat(payment.locataire_part||0);
   const dateLoc=payment.date_loc?new Date(payment.date_loc).toLocaleDateString('fr-FR'):datePaiement;
@@ -5875,9 +5878,10 @@ function buildQuittanceHtml(tenant,payment,mois,annee,loyer,charges,total,datePa
     +'<div class="subtitle">LOYER '+mois.toUpperCase()+' '+annee+'</div>'
     +'<div class="montant-box">'
     +'<div>REÇU LA SOMME DE</div>'
-    +'<div class="somme">'+fmt(loyerRef+chargesRef)+'</div>'
+    +'<div class="somme">'+fmt(parseFloat(payment.loyer||0)||loyerRef+chargesRef)+'</div>'
     +'<div>LE '+dateLoc+'</div>'
     +(caf>0?'<div style="font-size:13px;color:#555;margin-top:8px">dont part CAF : '+fmt(caf)+' — part locataire : '+fmt(locPart)+'</div>':'')
+    +(commentaire?'<div style="font-size:12px;color:#666;margin-top:8px;font-style:italic">'+commentaire+'</div>':'')
     +'</div>'
     +'<div style="font-size:13px;margin:20px 0;line-height:1.7"><strong>POUR LOYER DU LOGEMENT SITUÉ :</strong><br>'
     +tenant.logement+'<br>26 RUE GÉNÉRAL DUBAIL<br>56100 LORIENT</div>'
@@ -5891,7 +5895,7 @@ function buildQuittanceHtml(tenant,payment,mois,annee,loyer,charges,total,datePa
     +'</body></html>';
 }
 
-function buildFactureHtml(tenant,payment,mois,annee,loyer,charges,total,datePaiement,invoiceNum,fmt){
+function buildFactureHtml(tenant,payment,mois,annee,loyer,charges,total,datePaiement,invoiceNum,fmt,commentaire=''){
   const loyerHT=parseFloat(tenant.loyer_ref||0);
   const loyerTVA=Math.round(loyerHT*0.2*100)/100;
   const loyerTTC=Math.round((loyerHT+loyerTVA)*100)/100;
@@ -5931,6 +5935,7 @@ function buildFactureHtml(tenant,payment,mois,annee,loyer,charges,total,datePaie
     +'<tr class="total-row"><td colspan="3">TOTAL TTC</td><td>'+fmt(totalTTC)+'</td></tr>'
     +'</tbody></table>'
     +'<p style="font-size:13px">Date de paiement : '+dateLoc+'</p>'
+    +(commentaire?'<div style="background:#f5f5f5;border-left:3px solid #185FA5;padding:8px 12px;margin:12px 0;font-size:13px;font-style:italic;color:#444">'+commentaire+'</div>':'')
     +'<div class="sig-block">SCI J&A SAVADUR<br>savadur56@gmail.com<br><br><strong>JOSSE Antoine — Gérant</strong></div>'
     +'<p style="font-size:11px;color:#888;margin-top:24px">Facture établie par J&A SAVADUR. TVA 20% appliquée. Conserver ce document pour votre comptabilité.</p>'
     +'</body></html>';
