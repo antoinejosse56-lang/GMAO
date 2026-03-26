@@ -4063,74 +4063,7 @@ function renderModal(){
     ${mf}`;
   }
 
-    if(m.type==='add-facture'||m.type==='edit-facture'){
-    const f=m.facture||{};
-    const CATS=['Travaux/Réparation','Matériaux','Énergie','Téléphone/Internet','Assurance','Entretien','Abonnement','Autre'];
-    const bienOpts=S.topology.properties.map(p=>`<option value="${p.name}" ${f.bien===p.name?'selected':''}>${p.name}</option>`).join('');
-    const woOpts=S.workOrders.filter(w=>w.status!=='done'||f.wo_id===w.id).map(w=>`<option value="${w.id}" ${f.wo_id===w.id?'selected':''}>${w.title} — ${dateLabel(w.date)}</option>`).join('');
-    html=`${mhd(m.type==='add-facture'?'Nouvelle facture':'Modifier facture')}
-    <div class="g2c">
-      <div class="form-group"><label>Date *</label><input id="f-date" type="date" value="${f.date||NOW}"></div>
-      <div class="form-group"><label>Compte</label>
-        <select id="f-compte">
-          <option value="savadur" ${(f.compte||'savadur')==='savadur'?'selected':''}>🏢 J&A SAVADUR (savadur56)</option>
-          <option value="perso" ${f.compte==='perso'?'selected':''}>🏠 Perso (antoinejosse56)</option>
-        </select>
-      </div>
-    </div>
-    <div class="g2c">
-      <div class="form-group"><label>Fournisseur *</label><input id="f-fourn" value="${f.fournisseur||''}" placeholder="Ex: Plomberie Dupont, EDF, Orange..."></div>
-      <div class="form-group"><label>Catégorie</label>
-        <select id="f-cat">
-          ${CATS.map(c=>`<option value="${c}" ${f.categorie===c?'selected':''}>${c}</option>`).join('')}
-        </select>
-      </div>
-    </div>
-    <div class="form-group"><label>Description</label><input id="f-desc" value="${f.description||''}" placeholder="Ex: Remplacement robinet appt 3, Facture EDF janv 2026..."></div>
-    <div class="g2c">
-      <div class="form-group"><label>Bien immobilier</label>
-        <select id="f-bien">
-          <option value="">— Général / Non lié —</option>
-          ${bienOpts}
-        </select>
-      </div>
-      <div class="form-group"><label>BT lié (optionnel)</label>
-        <select id="f-wo">
-          <option value="">— Aucun BT —</option>
-          ${woOpts}
-        </select>
-      </div>
-    </div>
-    <div class="g2c">
-      <div class="form-group"><label>Montant HT (€)</label><input id="f-ht" type="number" step="0.01" value="${f.montant_ht||''}" placeholder="0.00" oninput="(function(){const ht=parseFloat(document.getElementById('f-ht').value)||0;const tva=parseFloat(document.getElementById('f-tva-pct').value)||0;const t=Math.round(ht*tva/100*100)/100;document.getElementById('f-tva').value=t;document.getElementById('f-ttc').value=Math.round((ht+t)*100)/100;})()"></div>
-      <div class="form-group"><label>TVA (%)</label>
-        <select id="f-tva-pct" onchange="(function(){const ht=parseFloat(document.getElementById('f-ht').value)||0;const tva=parseFloat(document.getElementById('f-tva-pct').value)||0;const t=Math.round(ht*tva/100*100)/100;document.getElementById('f-tva').value=t;document.getElementById('f-ttc').value=Math.round((ht+t)*100)/100;})()">
-          <option value="0" ${!f.tva_pct||f.tva_pct===0?'selected':''}>0% (exonéré)</option>
-          <option value="10" ${f.tva_pct===10?'selected':''}>10%</option>
-          <option value="20" ${f.tva_pct===20?'selected':''}>20%</option>
-        </select>
-      </div>
-    </div>
-    <div class="g2c">
-      <div class="form-group"><label>TVA (€)</label><input id="f-tva" type="number" step="0.01" value="${f.tva||0}" readonly style="background:var(--bg2)"></div>
-      <div class="form-group"><label>Montant TTC (€) *</label><input id="f-ttc" type="number" step="0.01" value="${f.montant_ttc||''}" placeholder="Montant total payé"></div>
-    </div>
-    <div class="g2c">
-      <div class="form-group"><label>N° de facture</label><input id="f-num" value="${f.numero||''}" placeholder="Ex: FAC-2026-001"></div>
-      <div class="form-group" style="display:flex;align-items:center;gap:8px;margin-top:20px">
-        <input type="checkbox" id="f-rapproche" ${f.rapproche?'checked':''}>
-        <label for="f-rapproche" style="font-size:13px;cursor:pointer">✓ Rapprochée (débit vérifié)</label>
-      </div>
-    </div>
-    <div class="form-group"><label>🔗 Lien PDF Drive (optionnel)</label>
-      <div style="display:flex;gap:6px">
-        <input id="f-drive" value="${f.drive_url||''}" placeholder="https://drive.google.com/..." style="flex:1">
-        <button type="button" class="btn btn-sm" onclick="openDrivePicker(f=>{document.getElementById('f-drive').value=f.url;},(document.getElementById('f-compte')?.value==='savadur'?'savadur56':'antoinejosse56'))">📁</button>
-      </div>
-    </div>
-    <div class="form-group"><label>Notes</label><input id="f-notes" value="${f.notes||''}" placeholder="Remarques, référence commande..."></div>
-    ${mf}`;
-  }
+    
 
   if(m.type==='add-mt'){html=`${mhd("Nouvelle gamme d'entretien")}
     <div class="form-group"><label>Nom *</label><input id="m-mn"></div>
@@ -4429,30 +4362,33 @@ function renderModal(){
     html=`${mhd(m.type==='add-tenant'?'Nouveau locataire':'Modifier locataire — '+t.nom)}
     <div class="g2c">
       <div class="form-group"><label>Nom / Raison sociale *</label><input id="m-tnom" value="${t.nom||''}"></div>
-      <div class="form-group"><label>Logement *</label>
-        <select id="m-tlog">
-          <option value="">— Sélectionner un logement —</option>
+      <div class="form-group"><label>Bien immobilier *</label>
+        <select id="m-tprop" onchange="(function(){
+          const p=S.topology.properties.find(x=>x.name===document.getElementById('m-tprop').value);
+          const zones=p?(p.zones||[]):[];
+          const sel=document.getElementById('m-tzone');
+          sel.innerHTML='<option value="">— Aucune zone —</option>'+zones.map(z=>'<option value="'+z.name+'">'+z.name+'</option>').join('');
+          sel.parentElement.style.display=zones.length?'':'none';
+          document.getElementById('m-tlog').value=(p?p.name:'');
+        })()">
+          <option value="">— Sélectionner un bien —</option>
+          ${S.topology.properties.map(p=>`<option value="${p.name}" ${(t.logement||'').startsWith(p.name)?'selected':''}>${p.name}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group" id="m-tzone-wrap" style="display:${(()=>{const p=S.topology.properties.find(x=>(t.logement||'').startsWith(x.name));return p&&(p.zones||[]).length?'':'none';})()}">
+        <label>Zone / Appartement</label>
+        <select id="m-tzone">
+          <option value="">— Aucune zone —</option>
           ${(()=>{
-            const opts=[];
-            S.topology.properties.forEach(p=>{
-              // Add property itself if no zones or as parent option
-              if((p.zones||[]).length===0){
-                opts.push('<option value="'+p.name+'" '+(t.logement===p.name?'selected':'')+'>'+p.name+'</option>');
-              }
-              (p.zones||[]).forEach(z=>{
-                if((z.subZones||[]).length>0){
-                  (z.subZones||[]).forEach(s=>{
-                    opts.push('<option value="'+p.name+' — '+z.name+' — '+s.name+'" '+(t.logement===(p.name+' — '+z.name+' — '+s.name)?'selected':'')+'>'+p.name+' › '+z.name+' › '+s.name+'</option>');
-                  });
-                } else {
-                  opts.push('<option value="'+p.name+' — '+z.name+'" '+(t.logement===(p.name+' — '+z.name)?'selected':'')+'>'+p.name+' › '+z.name+'</option>');
-                }
-              });
-            });
-            return opts.join('');
+            const pName=(t.logement||'').split(' — ')[0];
+            const p=S.topology.properties.find(x=>x.name===pName);
+            if(!p)return '';
+            const zName=(t.logement||'').split(' — ')[1]||'';
+            return (p.zones||[]).map(z=>`<option value="${z.name}" ${z.name===zName?'selected':''}>${z.name}</option>`).join('');
           })()}
         </select>
       </div>
+      <input type="hidden" id="m-tlog" value="${t.logement||''}">
     </div>
     <div class="g2c">
       <div class="form-group"><label>Email (pour quittances)</label><input id="m-temail" type="email" value="${t.email||''}" placeholder="locataire@email.fr"></div>
@@ -5758,67 +5694,7 @@ async function saveModal(){
     }
   }
 
-  if(m.type==='add-facture'||m.type==='edit-facture'){
-    const f=m.facture||{};
-    const rngOpts=S.topology.properties.map(p=>`<option value="${p.name}" ${f.bien===p.name?'selected':''}>${p.name}</option>`).join('');
-    const woOpts=S.workOrders.filter(w=>w.status==='open'||w.id===f.wo_id).map(w=>`<option value="${w.id}" ${f.wo_id===w.id?'selected':''}>${w.title} (${w.date||'—'})</option>`).join('');
-    html=`${mhd(m.type==='add-facture'?'Nouvelle facture':'Modifier facture — '+f.fournisseur)}
-    <div class="g2c">
-      <div class="form-group"><label>Fournisseur *</label><input id="fac-four" value="${f.fournisseur||''}" placeholder="Ex: Plomberie Martin, EDF..."></div>
-      <div class="form-group"><label>Date *</label><input id="fac-date" type="date" value="${f.date||new Date().toISOString().slice(0,10)}"></div>
-    </div>
-    <div class="g2c">
-      <div class="form-group"><label>Catégorie</label>
-        <select id="fac-cat">
-          ${['Travaux/Artisan','Matériaux','Énergie','Téléphone/Internet','Assurance','Abonnement','Autre'].map(c=>`<option value="${c}" ${f.categorie===c?'selected':''}>${c}</option>`).join('')}
-        </select>
-      </div>
-      <div class="form-group"><label>Compte</label>
-        <select id="fac-compte">
-          <option value="savadur" ${(f.compte||'savadur')==='savadur'?'selected':''}>🏢 J&A SAVADUR (savadur56)</option>
-          <option value="perso" ${f.compte==='perso'?'selected':''}>🏠 Personnel (antoinejosse56)</option>
-        </select>
-      </div>
-    </div>
-    <div class="g2c">
-      <div class="form-group"><label>Bien / Propriété</label>
-        <select id="fac-bien">
-          <option value="">— Non rattaché —</option>
-          ${rngOpts}
-        </select>
-      </div>
-      <div class="form-group"><label>BT lié (optionnel)</label>
-        <select id="fac-wo">
-          <option value="">— Aucun BT —</option>
-          ${woOpts}
-        </select>
-      </div>
-    </div>
-    <div class="g2c">
-      <div class="form-group"><label>Montant HT (€)</label><input id="fac-ht" type="number" step="0.01" value="${f.montant_ht||0}" oninput="(function(){const ht=parseFloat(document.getElementById('fac-ht').value)||0;const tva=parseFloat(document.getElementById('fac-tva').value)||0;document.getElementById('fac-ttc').value=Math.round((ht*(1+tva/100))*100)/100;})()"></div>
-      <div class="form-group"><label>TVA (%)</label>
-        <select id="fac-tva" onchange="(function(){const ht=parseFloat(document.getElementById('fac-ht').value)||0;const tva=parseFloat(document.getElementById('fac-tva').value)||0;document.getElementById('fac-ttc').value=Math.round((ht*(1+tva/100))*100)/100;})()">
-          <option value="0" ${(f.taux_tva||0)===0?'selected':''}>0% (exonéré)</option>
-          <option value="5.5" ${f.taux_tva===5.5?'selected':''}>5,5%</option>
-          <option value="10" ${f.taux_tva===10?'selected':''}>10%</option>
-          <option value="20" ${(f.taux_tva||0)===20?'selected':''}>20%</option>
-        </select>
-      </div>
-    </div>
-    <div class="form-group"><label>Montant TTC (€) *</label><input id="fac-ttc" type="number" step="0.01" value="${f.montant_ttc||0}"></div>
-    <div class="form-group"><label>Description / N° facture</label><input id="fac-desc" value="${f.description||''}" placeholder="Ex: Facture n°2024-001, Réparation toiture appt 3..."></div>
-    <div class="form-group"><label>🔗 Lien Drive (PDF de la facture)</label>
-      <div style="display:flex;gap:6px">
-        <input id="fac-url" value="${f.url_drive||''}" placeholder="https://drive.google.com/..." style="flex:1">
-        <button type="button" class="btn btn-sm" onclick="openDrivePicker(f=>{document.getElementById('fac-url').value=f.url;},(document.getElementById('fac-bien')?.value||document.getElementById('fac-compte')?.value==='savadur'?'dubail':''))">📁</button>
-      </div>
-    </div>
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-      <input type="checkbox" id="fac-rapproche" ${f.rapproche?'checked':''}>
-      <label for="fac-rapproche" style="font-size:13px;cursor:pointer">✅ Rapprochée (correspond à un débit bancaire)</label>
-    </div>
-    ${mf}`;
-  }
+  
 
   if(m.type==='add-facture'||m.type==='edit-facture'){
     const montantTTC=parseFloat(q('fac-ttc')?.value)||0;
@@ -5837,6 +5713,37 @@ async function saveModal(){
       montant_ttc:montantTTC,
       description:q('fac-desc').value||null,
       url_drive:q('fac-url').value||null,
+      rapproche:q('fac-rapproche')?.checked||false
+    };
+    if(m.type==='add-facture'){
+      const {data,error}=await sb.from('factures').insert(rec).select().single();
+      if(error){alert('Erreur : '+error.message);return;}
+      if(data)S.factures=[data,...S.factures];
+    } else {
+      const {error}=await sb.from('factures').update(rec).eq('id',m.facture.id);
+      if(error){alert('Erreur : '+error.message);return;}
+      Object.assign(m.facture,rec);
+    }
+  }
+
+  if(m.type==='add-facture'||m.type==='edit-facture'){
+    const fourn=q('fac-four')?.value.trim();
+    if(!fourn)return alert('Fournisseur requis');
+    const ttc=parseFloat(q('fac-ttc')?.value);
+    if(!ttc)return alert('Montant TTC requis');
+    const rec={
+      fournisseur:fourn,
+      date:q('fac-date')?.value,
+      categorie:q('fac-cat')?.value||null,
+      compte:q('fac-compte')?.value||'savadur',
+      bien:q('fac-bien')?.value||null,
+      wo_id:q('fac-wo')?.value||null,
+      montant_ht:parseFloat(q('fac-ht')?.value)||0,
+      taux_tva:parseFloat(q('fac-tva')?.value)||0,
+      montant_ttc:ttc,
+      description:q('fac-desc')?.value||null,
+      numero:q('fac-num')?.value||null,
+      url_drive:q('fac-url')?.value||null,
       rapproche:q('fac-rapproche')?.checked||false
     };
     if(m.type==='add-facture'){
@@ -6345,7 +6252,9 @@ async function saveModal(){
 
   if(m.type==='add-tenant'||m.type==='edit-tenant'){
     const nom=q('m-tnom').value.trim();if(!nom)return alert('Nom requis');
-    const logement=q('m-tlog').value;if(!logement)return alert('Logement requis');
+    const prop=q('m-tprop')?.value||'';if(!prop)return alert('Bien immobilier requis');
+    const zone=q('m-tzone')?.value||'';
+    const logement=zone?prop+' — '+zone:prop;
     const rec={
       nom,logement,
       email:q('m-temail').value||'',
@@ -7775,8 +7684,9 @@ async function checkAndSendAlerts() {
     if (!d) return;
     const due = new Date(d);
     const days = Math.ceil((due - today) / 86400000);
+    const alertDays = mt.alert_days||30;
     const key = 'mt_' + mt.id + '_' + d;
-    if (days >= 0 && days <= 30 && !alerted[key]) {
+    if (days >= 0 && days <= alertDays && !alerted[key] && mt.alert_days) {
       toAlert.push({mt, days, key});
     }
   });
