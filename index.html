@@ -264,7 +264,6 @@ async function loadAll() {
     S.rangements = rng.error ? [] : (rng.data || []);
     S.famille = fam.error ? [] : (fam.data || []);
     S.consommables = conso.error ? [] : (conso.data || []);
-    S.factures = fact?.error ? [] : (fact?.data || []);
     S.factures = facturesRes?.error ? [] : (facturesRes?.data || []);
     const loadedTopo = topo.data?.[0]?.data;
     S.topoId = topo.data?.[0]?.id;
