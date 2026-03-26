@@ -266,8 +266,27 @@ async function loadAll() {
     S.consommables = conso.error ? [] : (conso.data || []);
     S.factures = fact?.error ? [] : (fact?.data || []);
     S.factures = facturesRes?.error ? [] : (facturesRes?.data || []);
-    S.topology = topo.data?.[0]?.data || {properties: []};
+    const loadedTopo = topo.data?.[0]?.data;
     S.topoId = topo.data?.[0]?.id;
+    if(loadedTopo?.properties?.length){
+      // Valid data loaded — save backup in localStorage
+      S.topology = loadedTopo;
+      try{localStorage.setItem('gmao_topo_backup', JSON.stringify({data:loadedTopo,id:S.topoId,ts:new Date().toISOString()}));}catch(e){}
+    } else {
+      // Empty from Supabase — try localStorage backup before giving up
+      try{
+        const bk=JSON.parse(localStorage.getItem('gmao_topo_backup')||'null');
+        if(bk?.data?.properties?.length){
+          console.warn('Topologie vide depuis Supabase — restauration depuis backup localStorage du '+bk.ts);
+          S.topology = bk.data;
+          S.topoId = bk.id;
+          // Restore to Supabase immediately
+          if(S.topoId) await sb.from('topology').update({data:S.topology,updated_at:new Date().toISOString()}).eq('id',S.topoId);
+        } else {
+          S.topology = loadedTopo || {properties:[]};
+        }
+      }catch(e){S.topology = loadedTopo || {properties:[]};}
+    }
     if (S.topology.properties.length > 0) S.topoState.propId = S.topology.properties[0].id;
     S.topoState.zoneId=null;S.topoState.subZoneId=null;S.topoState.tradeId=null;
   } catch(e) {
@@ -4810,6 +4829,9 @@ function findTopoNode(id){
 }
 
 async function saveTopoToDB(){
+  // Safety guard: never overwrite with empty data
+  if(!S.topoId){console.warn('saveTopoToDB: topoId manquant, sauvegarde annulée');return;}
+  if(!S.topology?.properties?.length){console.warn('saveTopoToDB: topology vide, sauvegarde annulée');return;}
   await sb.from('topology').update({data: S.topology, updated_at: new Date().toISOString()}).eq('id', S.topoId);
 }
 
