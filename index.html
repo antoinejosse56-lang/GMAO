@@ -1950,7 +1950,7 @@ function renderFactures(){
           const wo=f.wo_id?S.workOrders.find(w=>w.id===f.wo_id):null;
           return `<tr style="background:var(--red-bg)">
             <td style="font-size:12px;white-space:nowrap">${dateLabel(f.date)}</td>
-            <td style="font-weight:500;font-size:13px">${f.fournisseur||'—'}</td>
+            <td style="font-weight:500;font-size:13px">${f.fournisseur||'—'} ${f.drive_url?`<a href="${f.drive_url}" target="_blank" style="font-size:10px;text-decoration:none;background:var(--bg2);border:0.5px solid var(--border);border-radius:4px;padding:1px 5px">📄 PJ</a>`:''}</td>
             <td style="font-size:12px;color:var(--text2)">${f.description||'—'}</td>
             <td><span class="badge bblue" style="font-size:10px">${f.categorie||'—'}</span></td>
             <td style="font-size:11px;color:var(--text2)">${f.bien||'—'}</td>
@@ -1982,7 +1982,7 @@ function renderFactures(){
       ${facts.map(f=>{
         const wo=f.wo_id?S.workOrders.find(w=>w.id===f.wo_id):null;
         const rapBg=f.rapproche?'':'background:var(--amber-bg)';
-        const driveIcon=f.drive_url?`<a href="${f.drive_url}" target="_blank" title="Voir le PDF" style="text-decoration:none">📄</a>`:'';
+        const driveIcon=f.drive_url?`<a href="${f.drive_url}" target="_blank" title="Voir la pièce jointe" style="text-decoration:none;background:var(--bg2);border:0.5px solid var(--border);border-radius:4px;padding:2px 6px;font-size:11px">📄 PJ</a>`:'';
         return `<tr style="${rapBg}">
           <td style="font-size:12px;white-space:nowrap">${dateLabel(f.date)}</td>
           <td style="font-weight:500;font-size:13px">${f.fournisseur||'—'} ${driveIcon}</td>
@@ -3493,8 +3493,8 @@ function renderMaintenance(){
         <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px">
           <div>
             <div style="font-size:13px;font-weight:500">${mt.name}</div>
-            <div style="font-size:11px;color:var(--text2)">${mt.bien||asset?.name||'—'}</div>
-            ${asset&&mt.bien?`<div style="font-size:10px;color:var(--text2)">🔧 ${asset.name}</div>`:''}
+            <div style="font-size:11px;color:var(--text2)">${[mt.bien,mt.zone_nom,mt.sub_nom].filter(Boolean).join(' › ')||asset?.name||'—'}</div>
+            ${asset?`<div style="font-size:10px;color:var(--text2)">🔧 ${asset.name}</div>`:''}
           </div>
           <span class="badge ${mt.type==='periodic'?'bteal':'bpurple'}">${mt.type==='periodic'?`/${mt.period_days}j`:'Date fixe'}</span>
         </div>
