@@ -3893,7 +3893,7 @@ function renderModal(){
       <div class="form-group"><label>Bien / Propriété</label>
         <select id="fac-bien">
           <option value="">— Général / Non lié —</option>
-          ${(()=>{const opts=[];S.topology.properties.forEach(p=>{opts.push('<option value="'+p.name+'">'+p.name+'</option>');(p.zones||[]).forEach(z=>{opts.push('<option value="'+p.name+' — '+z.name+'">  '+p.name+' › '+z.name+'</option>');(z.subZones||[]).forEach(s=>{opts.push('<option value="'+p.name+' — '+z.name+' — '+s.name+'">    '+p.name+' › '+z.name+' › '+s.name+'</option>');});});});return opts.join('');})()}
+          ${(()=>{const opts=[];S.topology.properties.forEach(p=>{opts.push('<option value="'+p.name+'">'+p.name+'</option>');(p.zones||[]).forEach(z=>{opts.push('<option value="'+p.name+' - '+z.name+'">&nbsp;&nbsp;'+p.name+' &rsaquo; '+z.name+'</option>');(z.subZones||[]).forEach(s=>{opts.push('<option value="'+p.name+' - '+z.name+' - '+s.name+'">&nbsp;&nbsp;&nbsp;&nbsp;'+p.name+' &rsaquo; '+z.name+' &rsaquo; '+s.name+'</option>');});});});return opts.join('');})()}
         </select>
       </div>
       <div class="form-group"><label>BT lié (optionnel)</label>
