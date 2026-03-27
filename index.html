@@ -3951,19 +3951,32 @@ function renderModal(){
       <input id="m-cemp-custom" value="${c.emplacement||''}" placeholder="Ex: Caisse rouge, Boîte électricité..." style="margin-top:6px">
     </div>
     <div class="form-group"><label>Description / Notes</label><input id="m-cdesc2" value="${c.description||''}"></div>
+    <div class="form-group"><label>🛒 Liens commande fournisseurs <span style="font-size:11px;color:var(--text2)">(un lien par ligne)</span></label>
+      <textarea id="m-clinks" rows="3" placeholder="https://www.amazon.fr/..." style="width:100%;padding:6px 8px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px;resize:vertical;box-sizing:border-box">${(c.order_links||[]).join('\n')}</textarea>
+    </div>
     <div class="sec" style="margin-top:8px;margin-bottom:6px">🔗 Affectation <span style="font-size:11px;color:var(--text2)">(optionnel)</span></div>
     <div class="form-group"><label>Type d'affectation</label>
       <select id="m-caffect-type" onchange="(function(){
         const t=document.getElementById('m-caffect-type').value;
+        document.getElementById('m-caffect-bien').style.display=t==='bien'?'block':'none';
         document.getElementById('m-caffect-asset').style.display=t==='asset'?'block':'none';
         document.getElementById('m-caffect-famille').style.display=t==='famille'?'block':'none';
         document.getElementById('m-caffect-libre').style.display=t==='libre'?'block':'none';
       })()">
         <option value="" ${!c.affect_type?'selected':''}>— Non affecté —</option>
-        <option value="asset" ${c.affect_type==='asset'?'selected':''}>🔧 Équipement</option>
+        <option value="bien" ${c.affect_type==='bien'?'selected':''}>🏠 Bien immobilier</option>
+        <option value="asset" ${c.affect_type==='asset'?'selected':''}>🔧 Équipement (d'un bien)</option>
         <option value="famille" ${c.affect_type==='famille'?'selected':''}>👤 Membre de la famille</option>
         <option value="libre" ${c.affect_type==='libre'?'selected':''}>✏ Libre (groupe, usage...)</option>
       </select>
+    </div>
+    <div id="m-caffect-bien" style="display:${c.affect_type==='bien'?'block':'none'}">
+      <div class="form-group"><label>Bien immobilier</label>
+        <select id="m-cbien">
+          <option value="">— Sélectionner —</option>
+          ${S.topology.properties.map(p=>`<option value="${p.name}" ${c.affect_label===p.name&&c.affect_type==='bien'?'selected':''}>${p.name}</option>`).join('')}
+        </select>
+      </div>
     </div>
     <div id="m-caffect-asset" style="display:${c.affect_type==='asset'?'block':'none'}">
       <div class="form-group"><label>Bien (pour filtrer les équipements)</label>
@@ -4472,20 +4485,37 @@ function renderModal(){
     html=`${mhd(m.type==='add-tenant'?'Nouveau locataire':'Modifier locataire — '+t.nom)}
     <div class="g2c">
       <div class="form-group"><label>Nom / Raison sociale *</label><input id="m-tnom" value="${t.nom||''}"></div>
-      <div class="form-group"><label>Bien immobilier *</label>
+      <div class="form-group"><label>Logement *</label>
         <select id="m-tprop" onchange="(function(){
-          const p=S.topology.properties.find(x=>x.name===document.getElementById('m-tprop').value);
+          const pname=document.getElementById('m-tprop').value;
+          const p=S.topology.properties.find(x=>x.name===pname);
           const zones=p?(p.zones||[]):[];
+          const wrap=document.getElementById('m-tzone-wrap');
           const sel=document.getElementById('m-tzone');
-          sel.innerHTML='<option value="">— Aucune zone —</option>'+zones.map(z=>'<option value="'+z.name+'">'+z.name+'</option>').join('');
-          sel.parentElement.style.display=zones.length?'':'none';
-          document.getElementById('m-tlog').value=(p?p.name:'');
+          if(zones.length){
+            sel.innerHTML='<option value="">— Aucune zone —</option>'+zones.map(z=>'<option value="'+z.name+'">'+z.name+'</option>').join('');
+            wrap.style.display='';
+          } else {
+            wrap.style.display='none';
+            sel.innerHTML='';
+          }
         })()">
           <option value="">— Sélectionner un bien —</option>
-          ${S.topology.properties.map(p=>`<option value="${p.name}" ${(t.logement||'').startsWith(p.name)?'selected':''}>${p.name}</option>`).join('')}
+          ${(()=>{
+            const allOpts=[];
+            S.topology.properties.forEach(p=>{
+              const pSelected=(t.logement||'').split(' — ')[0]===p.name;
+              allOpts.push('<option value="'+p.name+'" '+(pSelected?'selected':'')+'>'+p.name+'</option>');
+            });
+            return allOpts.join('');
+          })()}
         </select>
       </div>
-      <div class="form-group" id="m-tzone-wrap" style="display:${(()=>{const p=S.topology.properties.find(x=>(t.logement||'').startsWith(x.name));return p&&(p.zones||[]).length?'':'none';})()}">
+      <div class="form-group" id="m-tzone-wrap" style="display:${(()=>{
+        const pName=(t.logement||'').split(' — ')[0];
+        const p=S.topology.properties.find(x=>x.name===pName);
+        return p&&(p.zones||[]).length?'':'none';
+      })()}">
         <label>Zone / Appartement</label>
         <select id="m-tzone">
           <option value="">— Aucune zone —</option>
@@ -4494,11 +4524,10 @@ function renderModal(){
             const p=S.topology.properties.find(x=>x.name===pName);
             if(!p)return '';
             const zName=(t.logement||'').split(' — ')[1]||'';
-            return (p.zones||[]).map(z=>`<option value="${z.name}" ${z.name===zName?'selected':''}>${z.name}</option>`).join('');
+            return (p.zones||[]).map(z=>'<option value="'+z.name+'" '+(z.name===zName?'selected':'')+'>'+z.name+'</option>').join('');
           })()}
         </select>
       </div>
-      <input type="hidden" id="m-tlog" value="${t.logement||''}">
     </div>
     <div class="g2c">
       <div class="form-group"><label>Email (pour quittances)</label><input id="m-temail" type="email" value="${t.email||''}" placeholder="locataire@email.fr"></div>
@@ -5960,10 +5989,11 @@ async function saveModal(){
       stock:parseFloat(q('m-cstock').value)||0,unite:q('m-cunite2').value||'pièce(s)',
       stock_min:parseFloat(q('m-cstockmin').value)||0,prix_achat:parseFloat(q('m-cprix2').value)||0,
       emplacement,description:q('m-cdesc2').value||null,
+      order_links:q('m-clinks')?.value.trim().split('\n').map(l=>l.trim()).filter(Boolean)||[],
       affect_type:q('m-caffect-type')?.value||null,
       asset_id:q('m-casset')?.value||null,
       famille_id:q('m-cfamille')?.value||null,
-      affect_label:q('m-caffect-label')?.value||null,
+      affect_label:(q('m-caffect-type')?.value==='bien'?q('m-cbien')?.value:q('m-caffect-label')?.value)||null,
       asset_id:q('m-casset')?.value||null,
       affect_type:q('m-caffect-type')?.value||null,
       famille_id:q('m-cfamille')?.value||null,
@@ -6450,9 +6480,11 @@ async function saveModal(){
 
   if(m.type==='add-tenant'||m.type==='edit-tenant'){
     const nom=q('m-tnom')?.value.trim();if(!nom)return alert('Nom requis');
-    const prop=q('m-tprop')?.value||'';if(!prop)return alert('Bien immobilier requis');
+    const prop=q('m-tprop')?.value||'';
     const zone=q('m-tzone')?.value||'';
-    const logement=zone?prop+' — '+zone:prop;
+    // For edit: fall back to existing logement if prop not selected
+    const logement=prop?(zone?prop+' — '+zone:prop):(m.type==='edit-tenant'?m.tenant?.logement||'':'');
+    if(!logement)return alert('Logement requis');
     const rec={
       nom,logement,
       email:q('m-temail')?.value||'',
