@@ -5161,7 +5161,32 @@ if(m.type==='add-mt'){
     Object.assign(mt,rec);
   }
 
-  if(m.type==='add-cso'){
+
+  
+
+
+  if(m.type==='add-cso'||m.type==='edit-cso'){
+    const nom=q('m-cnom')?.value.trim();if(!nom)return alert('Désignation requise');
+    const empSel=q('m-cemp')?.value||'';
+    const empCustom=q('m-cemp-custom')?.value||'';
+    const emplacement=empSel&&empSel!==''?empSel:empCustom;
+    const rec={
+      nom,
+      categorie:q('m-ccat')?.value||null,
+      reference:q('m-cref')?.value||null,
+      stock:parseFloat(q('m-cstock')?.value)||0,
+      unite:q('m-cunite2')?.value||'pièce(s)',
+      stock_min:parseFloat(q('m-cstockmin')?.value)||0,
+      prix_achat:parseFloat(q('m-cprix2')?.value)||0,
+      emplacement:emplacement||null,
+      description:q('m-cdesc2')?.value||null,
+      order_links:(q('m-clinks')?.value||'').trim().split('\n').map(l=>l.trim()).filter(Boolean),
+      affect_type:q('m-caffect-type')?.value||null,
+      asset_id:q('m-casset')?.value||null,
+      famille_id:q('m-cfamille')?.value||null,
+      affect_label:(q('m-caffect-type')?.value==='bien'?q('m-cbien')?.value:q('m-caffect-label')?.value)||null,
+    };
+    if(m.type==='add-cso'){
       const {data,error}=await sb.from('consommables').insert(rec).select().single();
       if(error){alert('Erreur : '+error.message);return;}
       if(data)S.consommables.push(data);
@@ -5170,8 +5195,38 @@ if(m.type==='add-mt'){
       if(error){alert('Erreur : '+error.message);return;}
       Object.assign(m.cso,rec);
     }
-  
+  }
 
+  if(m.type==='add-facture'||m.type==='edit-facture'){
+    const fourn=q('fac-four')?.value.trim();
+    if(!fourn)return alert('Fournisseur requis');
+    const ttc=parseFloat(q('fac-ttc')?.value);
+    if(!ttc)return alert('Montant TTC requis');
+    const rec={
+      fournisseur:fourn,
+      date:q('fac-date')?.value,
+      categorie:q('fac-cat')?.value||null,
+      compte:q('fac-compte')?.value||'savadur',
+      bien:q('fac-bien')?.value||null,
+      wo_id:q('fac-wo')?.value||null,
+      montant_ht:parseFloat(q('fac-ht')?.value)||0,
+      taux_tva:parseFloat(q('fac-tva')?.value)||0,
+      montant_ttc:ttc,
+      description:q('fac-desc')?.value||null,
+      numero:q('fac-num')?.value||null,
+      url_drive:q('fac-url')?.value||null,
+      rapproche:q('fac-rapproche')?.checked||false
+    };
+    if(m.type==='add-facture'){
+      const {data,error}=await sb.from('factures').insert(rec).select().single();
+      if(error){alert('Erreur : '+error.message);return;}
+      if(data)S.factures=[data,...S.factures];
+    }else{
+      const {error}=await sb.from('factures').update(rec).eq('id',m.facture.id);
+      if(error){alert('Erreur : '+error.message);return;}
+      Object.assign(m.facture,rec);
+    }
+  }
 
   if(m.type==='adjust-cso'){
     const c=m.cso;
@@ -5497,11 +5552,7 @@ if(m.type==='add-mt'){
     ${mf}`;
   }
 
-  if(m.type==='add-tenant'){
-        const {data,error}=await sb.from('tenants').insert(rec).select().single();
-        if(error){alert('Erreur création : '+error.message);return;}
-        if(data)S.tenants.push(data);
-      } else {
+ else {
         if(!m.tenant?.id){alert('Erreur : ID locataire manquant');return;}
         const {error}=await sb.from('tenants').update(rec).eq('id',m.tenant.id);
         if(error){alert('Erreur modification : '+error.message);return;}
@@ -5514,7 +5565,7 @@ if(m.type==='add-mt'){
     const propVal=q('m-tprop')?.value||'';
     const zoneVal=q('m-tzone')?.value||'';
     const logement=propVal?(zoneVal?propVal+' — '+zoneVal:propVal):(m.type==='edit-tenant'?m.tenant?.logement||'':'');
-    if(!logement)return alert('Logement requis');
+    // logement is optional for existing tenants - just warn
     const rec={
       nom,logement,
       email:q('m-temail')?.value||'',
@@ -5538,7 +5589,7 @@ if(m.type==='add-mt'){
       if(error){alert('Erreur création : '+error.message);return;}
       if(data)S.tenants.push(data);
     } else {
-      if(!m.tenant?.id){alert('Erreur : ID locataire manquant');return;}
+      if(!m.tenant?.id){alert('ID locataire manquant');return;}
       const {error}=await sb.from('tenants').update(rec).eq('id',m.tenant.id);
       if(error){alert('Erreur modification : '+error.message);return;}
       Object.assign(m.tenant,rec);
@@ -6443,7 +6494,10 @@ function bindAll(){
   if(q('mov'))q('mov').onclick=e=>{if(e.target.id==='mov')closeModal();};
   if(q('mc'))q('mc').onclick=closeModal;
   if(q('mc2'))q('mc2').onclick=closeModal;
-  if(q('ms'))q('ms').onclick=saveModal;
+  if(q('ms'))q('ms').onclick=async()=>{
+    try{await saveModal();}
+    catch(e){console.error('saveModal error:',e);alert('Erreur sauvegarde : '+e.message);}
+  };
 
   // ============================================================
   // WORK ORDERS
