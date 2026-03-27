@@ -3491,7 +3491,11 @@ function renderMaintenance(){
       const user = S.users.find(u=>u.id===mt.assigned_to);
       return `<div class="card">
         <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px">
-          <div><div style="font-size:13px;font-weight:500">${mt.name}</div><div style="font-size:11px;color:var(--text2)">${asset?.name||'—'}</div></div>
+          <div>
+            <div style="font-size:13px;font-weight:500">${mt.name}</div>
+            <div style="font-size:11px;color:var(--text2)">${mt.bien||asset?.name||'—'}</div>
+            ${asset&&mt.bien?`<div style="font-size:10px;color:var(--text2)">🔧 ${asset.name}</div>`:''}
+          </div>
           <span class="badge ${mt.type==='periodic'?'bteal':'bpurple'}">${mt.type==='periodic'?`/${mt.period_days}j`:'Date fixe'}</span>
         </div>
         <div style="font-size:12px;color:var(--text2);margin-bottom:8px">${mt.description||''}</div>
@@ -3947,6 +3951,51 @@ function renderModal(){
       <input id="m-cemp-custom" value="${c.emplacement||''}" placeholder="Ex: Caisse rouge, Boîte électricité..." style="margin-top:6px">
     </div>
     <div class="form-group"><label>Description / Notes</label><input id="m-cdesc2" value="${c.description||''}"></div>
+    <div class="sec" style="margin-top:8px;margin-bottom:6px">🔗 Affectation <span style="font-size:11px;color:var(--text2)">(optionnel)</span></div>
+    <div class="form-group"><label>Type d'affectation</label>
+      <select id="m-caffect-type" onchange="(function(){
+        const t=document.getElementById('m-caffect-type').value;
+        document.getElementById('m-caffect-asset').style.display=t==='asset'?'block':'none';
+        document.getElementById('m-caffect-famille').style.display=t==='famille'?'block':'none';
+        document.getElementById('m-caffect-libre').style.display=t==='libre'?'block':'none';
+      })()">
+        <option value="" ${!c.affect_type?'selected':''}>— Non affecté —</option>
+        <option value="asset" ${c.affect_type==='asset'?'selected':''}>🔧 Équipement</option>
+        <option value="famille" ${c.affect_type==='famille'?'selected':''}>👤 Membre de la famille</option>
+        <option value="libre" ${c.affect_type==='libre'?'selected':''}>✏ Libre (groupe, usage...)</option>
+      </select>
+    </div>
+    <div id="m-caffect-asset" style="display:${c.affect_type==='asset'?'block':'none'}">
+      <div class="form-group"><label>Bien (pour filtrer les équipements)</label>
+        <select id="m-casset-bien" onchange="(function(){
+          const bien=this.value;
+          const assets=bien?S.assets.filter(a=>(a.location||'').includes(bien)||(a.topo_ref?.propName||'')===bien):S.assets;
+          document.getElementById('m-casset').innerHTML='<option value="">— Sélectionner —</option>'+assets.map(a=>'<option value="'+a.id+'">'+a.name+'</option>').join('');
+        })()">
+          <option value="">— Tous les biens —</option>
+          ${S.topology.properties.map(p=>`<option value="${p.name}">${p.name}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group"><label>Équipement</label>
+        <select id="m-casset">
+          <option value="">— Sélectionner —</option>
+          ${S.assets.map(a=>`<option value="${a.id}" ${c.asset_id===a.id?'selected':''}>${a.name}${a.location?' — '+a.location:''}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div id="m-caffect-famille" style="display:${c.affect_type==='famille'?'block':'none'}">
+      <div class="form-group"><label>Membre de la famille</label>
+        <select id="m-cfamille">
+          <option value="">— Sélectionner —</option>
+          ${(S.famille||[]).map(mb=>`<option value="${mb.id}" ${c.famille_id===mb.id?'selected':''}>${mb.prenom} ${mb.nom||''}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div id="m-caffect-libre" style="display:${c.affect_type==='libre'?'block':'none'}">
+      <div class="form-group"><label>Affecté à</label>
+        <input id="m-caffect-label" value="${c.affect_label||''}" placeholder="Ex: Antoine, Enfants, Affaires de ski...">
+      </div>
+    </div>
     ${mf}`;
   }
 
@@ -5865,6 +5914,7 @@ async function saveModal(){
     const rec={
       name:nom,
       asset_id:assetId,
+      bien:q('m-mbien')?.value||null,
       description:q('m-md')?.value||null,
       type,
       period_days:type==='periodic'?(parseInt(q('m-mperiod')?.value)||30):null,
@@ -5910,6 +5960,10 @@ async function saveModal(){
       stock:parseFloat(q('m-cstock').value)||0,unite:q('m-cunite2').value||'pièce(s)',
       stock_min:parseFloat(q('m-cstockmin').value)||0,prix_achat:parseFloat(q('m-cprix2').value)||0,
       emplacement,description:q('m-cdesc2').value||null,
+      affect_type:q('m-caffect-type')?.value||null,
+      asset_id:q('m-casset')?.value||null,
+      famille_id:q('m-cfamille')?.value||null,
+      affect_label:q('m-caffect-label')?.value||null,
       asset_id:q('m-casset')?.value||null,
       affect_type:q('m-caffect-type')?.value||null,
       famille_id:q('m-cfamille')?.value||null,
@@ -6395,13 +6449,13 @@ async function saveModal(){
   }
 
   if(m.type==='add-tenant'||m.type==='edit-tenant'){
-    const nom=q('m-tnom').value.trim();if(!nom)return alert('Nom requis');
+    const nom=q('m-tnom')?.value.trim();if(!nom)return alert('Nom requis');
     const prop=q('m-tprop')?.value||'';if(!prop)return alert('Bien immobilier requis');
     const zone=q('m-tzone')?.value||'';
     const logement=zone?prop+' — '+zone:prop;
     const rec={
       nom,logement,
-      email:q('m-temail').value||'',
+      email:q('m-temail')?.value||'',
       telephone:q('m-ttel')?.value||'',
       type_bail:q('m-tbail')?.value||'habitation',
       loyer_ref:parseFloat(q('m-tloy')?.value)||0,
@@ -6411,9 +6465,8 @@ async function saveModal(){
       caf:q('m-tcaf')?.value==='true'||false,
       actif:q('m-tact')?.value!=='false',
       bail_url:q('m-tbail-url')?.value||'',
-      assurance_url:q('m-tassur-url')?.value||'',
       edl_url:q('m-tedl-url')?.value||'',
-      assurance_url:q('m-tassur')?.value||'',
+      assurance_url:q('m-tassur-url')?.value||'',
       date_entree:q('m-tent')?.value||null,
       date_sortie:q('m-tsort')?.value||null,
       notes:q('m-tnotes')?.value||''
