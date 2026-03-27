@@ -4957,307 +4957,278 @@ async function saveTopoToDB(){
 }
 
 async function saveModal(){
-const m = S.modal;
   const q = id => document.getElementById(id);
-
-  if(m.type==='add-asset'){
-    const name=q('m-name').value.trim();if(!name)return alert('Nom requis');
-    const {data}=await sb.from('assets').insert({name,category:q('m-cat').value,type:q('m-type').value,location:q('m-loc').value,description:q('m-desc').value,status:q('m-status').value,next_maint:q('m-maint').value||null,documents:[],history:[]}).select().single();
-    if(data)S.assets.push(data);}
-
-  if(m.type==='edit-asset'){
-    const a=m.asset;const upd={name:q('m-name').value,category:q('m-cat').value,type:q('m-type').value,location:q('m-loc').value,description:q('m-desc').value,status:q('m-status').value,next_maint:q('m-maint').value||null};
-    await sb.from('assets').update(upd).eq('id',a.id);
-    Object.assign(a,upd);S.selectedAsset=a;}
+  const m = S.modal;
+  if(!m)return;
 
   if(m.type==='edit-wo'){
     const w=m.wo;
-    const title=q('m-wt').value.trim();if(!title)return alert('Titre requis');
-    const newNote=q('m-wjnote')?.value?.trim();
     const journal=w.journal||[];
-    if(newNote){
-      journal.push({
-        id:uid(),
-        date:new Date().toLocaleDateString('fr-FR')+' '+new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}),
-        by:S.currentUser?.name||'—',
-        note:newNote
+    const tr=w.topo_ref||{};
+    // Build asset options
+    const allAssets=isAdmin()?S.assets:accessAssets(S.currentUser);
+    const assetOpts=`<option value="">— Aucun équipement —</option>`
+      +['Équipement','Véhicule','Outillage'].flatMap(cat=>{
+        const items=allAssets.filter(a=>a.category===cat);
+        if(!items.length)return[];
+        return [`<optgroup label="${cat}">${items.map(a=>`<option value="${a.id}" ${w.asset_id===a.id?'selected':''}>${a.name}</option>`).join('')}</optgroup>`];
+      }).join('');
+    // Build topo options
+    const topoOpts=[];
+    S.topology.properties.forEach(p=>{
+      topoOpts.push(`<option value="prop_${p.id}" ${tr.propId===p.id&&!tr.zoneId?'selected':''}>🏠 ${p.name}</option>`);
+      (p.zones||[]).forEach(z=>{
+        topoOpts.push(`<option value="zone_${p.id}_${z.id}" ${tr.zoneId===z.id&&!tr.subId?'selected':''}>&nbsp;&nbsp;📁 ${p.name} › ${z.name}</option>`);
+        (z.subZones||[]).forEach(s=>{
+          topoOpts.push(`<option value="sub_${p.id}_${z.id}_${s.id}" ${tr.subId===s.id?'selected':''}>&nbsp;&nbsp;&nbsp;&nbsp;📂 ${p.name} › ${z.name} › ${s.name}</option>`);
+        });
       });
-    }
-    // Parse topo selection
-    const topoVal=q('m-wtopo')?.value||'';
-    let topoRef=w.topo_ref||null;
-    if(topoVal.startsWith('prop_')){
-      const pId=topoVal.replace('prop_','');
-      const p=S.topology.properties.find(x=>x.id===pId);
-      topoRef=p?{propId:pId,propName:p.name,zoneId:null,zoneName:'',subId:null,subName:''}:null;
-    } else if(topoVal.startsWith('zone_')){
-      const [,pId,zId]=topoVal.split('_');
-      const p=S.topology.properties.find(x=>x.id===pId);
-      const z=p?.zones?.find(x=>x.id===zId);
-      topoRef=z?{propId:pId,propName:p.name,zoneId:zId,zoneName:z.name,subId:null,subName:''}:null;
-    } else if(topoVal.startsWith('sub_')){
-      const [,pId,zId,sId]=topoVal.split('_');
-      const p=S.topology.properties.find(x=>x.id===pId);
-      const z=p?.zones?.find(x=>x.id===zId);
-      const s=z?.subZones?.find(x=>x.id===sId);
-      topoRef=s?{propId:pId,propName:p.name,zoneId:zId,zoneName:z.name,subId:sId,subName:s.name}:null;
-    } else if(topoVal===''){
-      topoRef=null;
-    }
-    const assetId=q('m-wasset')?.value||null;
-    const bySel2=q('m-wby-sel');
-    const byUser2=bySel2&&bySel2.value&&bySel2.value!=='__autre__'?bySel2.value:q('m-wby').value||w.by_user||'';
-    const clNoms2=[...document.querySelectorAll('.cl-item-nom')].map(el=>el.value.trim()).filter(Boolean);
-    const clQtes2=[...document.querySelectorAll('.cl-item-qte')].map(el=>parseFloat(el.value)||1);
-    const clUnites2=[...document.querySelectorAll('.cl-item-unite')].map(el=>el.value||'');
-    const checklist2=clNoms2.map((nom,i)=>({nom,qte:clQtes2[i],unite:clUnites2[i],fait:(w.checklist||[]).find(x=>x.nom===nom)?.fait||false}));
-    const upd={title,description:q('m-wd').value,category:q('m-wc').value,
-      status:q('m-wstatus').value,date:q('m-wdate').value,
-      cost:parseFloat(q('m-wcost').value)||0,
-      paid:q('m-wpaid')?.checked||false,
-      alert_days:q('m-walert-on')?.checked?(parseInt(q('m-walert-days')?.value)||7):w.alert_days||null,
-      by_user:byUser2,
-      asset_id:assetId||w.asset_id,topo_ref:topoRef,
-      journal,checklist:checklist2};
-    const {error}=await sb.from('work_orders').update(upd).eq('id',w.id);
-    if(error){alert('Erreur : '+error.message);return;}
-    Object.assign(w,upd);
-  }
+    });
+    html=`${mhd('Modifier — '+w.title)}
+    <div class="form-group"><label>Titre *</label><input id="m-wt" value="${w.title||''}"></div>
+    <div class="form-group"><label>Description</label><textarea id="m-wd" rows="2">${w.description||''}</textarea></div>
 
+    <div style="border-top:0.5px solid var(--border);margin:12px 0 10px"></div>
+    <div style="font-size:12px;font-weight:500;color:var(--text2);margin-bottom:8px">📍 Localisation</div>
+    <div class="g2c">
+      <div class="form-group"><label>Zone / Bien immobilier</label>
+        <select id="m-wtopo">
+          <option value="">— Aucune —</option>
+          ${topoOpts.join('')}
+        </select>
+      </div>
+      <div class="form-group"><label>Équipement</label>
+        <select id="m-wasset">${assetOpts}</select>
+      </div>
+    </div>
+
+    <div style="border-top:0.5px solid var(--border);margin:12px 0 10px"></div>
+    <div class="g2c">
+      <div class="form-group"><label>Catégorie</label><select id="m-wc">
+        ${['Réparation','Urgence','Amélioration','Entretien','Remplacement','Autre'].map(c=>`<option ${w.category===c?'selected':''}>${c}</option>`).join('')}
+      </select></div>
+      <div class="form-group"><label>Statut</label><select id="m-wstatus">
+        <option value="open" ${w.status==='open'?'selected':''}>En cours</option>
+        <option value="done" ${w.status==='done'?'selected':''}>Terminé</option>
+        <option value="pending" ${w.status==='pending'?'selected':''}>En attente</option>
+      </select></div>
+    </div>
+    <div class="g2c">
+      <div class="form-group"><label>Date</label><input id="m-wdate" type="date" value="${w.date||NOW}"></div>
+      <div class="form-group"><label>🔔 M'alerter</label>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <input type="checkbox" id="m-walert-on" ${w.alert_days?'checked':''} onchange="document.getElementById('m-walert-wrap').style.display=this.checked?'flex':'none'">
+          <label for="m-walert-on" style="font-size:12px;cursor:pointer">Envoyer une alerte email</label>
+          <span id="m-walert-wrap" style="display:${w.alert_days?'flex':'none'};align-items:center;gap:6px">
+            <input id="m-walert-days" type="number" min="1" max="90" value="${w.alert_days||7}" style="width:55px;padding:4px 6px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text)">
+            <span style="font-size:12px;color:var(--text2)">jours avant</span>
+          </span>
+        </div>
+      </div>
+      <div class="form-group"><label>Coût (€)</label><input id="m-wcost" type="number" value="${w.cost||0}"></div>
+    </div>
+    <div class="form-group" style="display:flex;align-items:center;gap:10px;padding:8px;background:var(--bg2);border-radius:var(--radius);margin-bottom:8px">
+      <input type="checkbox" id="m-wpaid" ${w.paid?'checked':''} style="width:16px;height:16px;cursor:pointer">
+      <label for="m-wpaid" style="cursor:pointer;font-weight:500;font-size:13px">💰 Dépense déjà réglée</label>
+    </div>
+    <div class="form-group"><label>Intervenant assigné</label>
+      <select id="m-wby-sel" onchange="const inp=document.getElementById('m-wby-custom');inp.style.display=this.value==='__autre__'?'':'none';">
+        <option value="">— Sélectionner —</option>
+        ${S.users.map(u=>`<option value="${u.name}|${u.email||''}" ${w.by_user===u.name?'selected':''}>${u.name}${u.email?' — '+u.email:''}</option>`).join('')}
+        <option value="__autre__" ${w.by_user&&!S.users.find(u=>u.name===w.by_user)?'selected':''}>✏ Autre...</option>
+      </select>
+      <input id="m-wby" value="${w.by_user||''}" placeholder="Nom intervenant..." style="margin-top:6px;display:${w.by_user&&!S.users.find(u=>u.name===w.by_user)?'':'none'}">
+      <input id="m-wby-custom" value="${w.by_user&&!S.users.find(u=>u.name===w.by_user)?w.by_user:''}" placeholder="Nom intervenant..." style="margin-top:6px;display:${w.by_user&&!S.users.find(u=>u.name===w.by_user)?'':'none'}">
+    </div>
+    <div class="g2c">
+      <div class="form-group"><label>Alerte email</label>
+        <select id="m-walert">
+          <option value="" ${!w.alert_pref?'selected':''}>Pas d'alerte</option>
+          <option value="at_creation" ${w.alert_pref==='at_creation'?'selected':''}>À la création</option>
+          <option value="1_before" ${w.alert_pref==='1_before'?'selected':''}>1 jour avant</option>
+          <option value="3_before" ${w.alert_pref==='3_before'?'selected':''}>3 jours avant</option>
+          <option value="7_before" ${w.alert_pref==='7_before'?'selected':''}>7 jours avant</option>
+        </select>
+      </div>
+      <div class="form-group"><label>Date d'échéance</label><input id="m-wdue" type="date" value="${w.due_date||''}"></div>
+    </div>
+
+    <div style="border-top:0.5px solid var(--border);margin:14px 0 10px"></div>
+    <div style="font-size:13px;font-weight:500;margin-bottom:8px">📋 Journal de suivi</div>
+
+    ${journal.length>0?`<div style="max-height:180px;overflow-y:auto;margin-bottom:10px;display:flex;flex-direction:column;gap:6px">
+      ${journal.slice().reverse().map(e=>`
+        <div style="background:var(--bg2);border-radius:var(--radius);padding:8px 10px;font-size:12px">
+          <div style="display:flex;justify-content:space-between;margin-bottom:3px">
+            <span style="font-weight:500;color:var(--text2)">${e.date}</span>
+            <span style="color:var(--text3)">${e.by||''}</span>
+          </div>
+          <div style="color:var(--text)">${e.note}</div>
+        </div>`).join('')}
+    </div>`:'<div style="font-size:12px;color:var(--text2);margin-bottom:10px">Aucune entrée pour l\'instant.</div>'}
+
+    <div style="background:var(--bg2);border-radius:var(--radius);padding:10px;border:0.5px solid var(--border2)">
+      <div style="font-size:12px;color:var(--text2);margin-bottom:6px">➕ Ajouter une entrée</div>
+      <textarea id="m-wjnote" rows="3" placeholder="Ex: Plombier intervenu, pièce commandée, travaux à 50%..." style="width:100%;padding:6px 8px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px;resize:vertical;box-sizing:border-box"></textarea>
+      <div style="margin-top:8px;display:flex;align-items:center;gap:8px">
+        <span style="font-size:11px;color:var(--text2)">Joindre un fichier Drive :</span>
+        <button type="button" class="btn btn-sm" onclick="openDrivePicker(f=>{const ta=document.getElementById('m-wjnote');ta.value=(ta.value?ta.value+'\n':'')+'📎 '+f.name+' : '+f.url;},(S.modal?.wo?.topo_ref?.propName||S.selectedAsset?.name||''))">
+          📁 Drive
+        </button>
+        <input id="m-wjfile-url" placeholder="ou coller un lien..." style="flex:1;padding:4px 8px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:11px">
+        <button type="button" class="btn btn-sm" onclick="const u=document.getElementById('m-wjfile-url').value.trim();if(u){const ta=document.getElementById('m-wjnote');ta.value=(ta.value?ta.value+'\n':'')+'📎 '+u;}">+ Lien</button>
+      </div>
+    </div>
+    ${mf}`;
+  }
   if(m.type==='add-wo'){
     const title=q('m-wt').value.trim();if(!title)return alert('Titre requis');
     const assetId=q('m-wa').value||null;
     const propId=q('m-wa-prop')?.value||null;
     const zoneId=q('m-wa-zone')?.value||null;
     const subId=q('m-wa-sub')?.value||null;
-    if(!assetId&&!propId){return alert('Veuillez sélectionner au moins un bien ou un équipement');}
-    // Build topo_ref
-    const prop=S.topology.properties.find(p=>p.id===propId);
-    const zone=prop?.zones?.find(z=>z.id===zoneId);
-    const sub=zone?.subZones?.find(s=>s.id===subId);
-    const topoRef=propId?{propId,propName:prop?.name||'',zoneId:zoneId||null,zoneName:zone?.name||'',subId:subId||null,subName:sub?.name||''}:null;
-    // Get intervenant
+    if(!assetId&&!propId)return alert('Sélectionnez un bien ou un équipement');
+    let topoRef=null;
+    if(propId){
+      const p=S.topology.properties.find(x=>x.id===propId);
+      const z=zoneId?p?.zones?.find(x=>x.id===zoneId):null;
+      const s=subId?z?.subZones?.find(x=>x.id===subId):null;
+      topoRef={propId,propName:p?.name||'',zoneId:zoneId||null,zoneName:z?.name||'',subId:subId||null,subName:s?.name||''};
+    }
     const bySel=q('m-wby-sel');
-    const byUser=bySel&&bySel.value&&bySel.value!=='__autre__'?bySel.value:q('m-wby').value||'';
-    // Build checklist
+    const byUser=bySel&&bySel.value&&bySel.value!=='__autre__'?bySel.value:q('m-wby')?.value||'';
     const clNoms=[...document.querySelectorAll('.cl-item-nom')].map(el=>el.value.trim()).filter(Boolean);
     const clQtes=[...document.querySelectorAll('.cl-item-qte')].map(el=>parseFloat(el.value)||1);
     const clUnites=[...document.querySelectorAll('.cl-item-unite')].map(el=>el.value||'');
     const checklist=clNoms.map((nom,i)=>({nom,qte:clQtes[i],unite:clUnites[i],fait:false}));
-    const {data}=await sb.from('work_orders').insert({title,description:q('m-wd').value,asset_id:assetId,topo_ref:topoRef,category:q('m-wc').value,date:q('m-wdate').value,status:'open',cost:parseFloat(q('m-wcost').value)||0,by_user:byUser,docs:[],checklist}).select().single();
-    // Send email to assigned user
-    if(data&&byUser){
-      const user=S.users.find(u=>u.name===byUser||u.email===byUser);
-      if(user?.email){
-        try{await sendBTAssignmentEmail(data,user);}catch(e){console.warn('Email BT:',e);}
-      }
-    }
-    if(data)S.workOrders.push(data);}
-
-  if(m.type==='add-history'){
-    const desc=q('m-hdesc').value.trim();if(!desc)return alert('Description requise');
-    const a=S.assets.find(x=>x.id===m.assetId);if(!a)return;
-    const h={id:uid(),type:q('m-ht').value,date:q('m-hd').value,desc,cost:parseFloat(q('m-hcost').value)||0,by:q('m-hby').value||'—'};
-    a.history=[...(a.history||[]),h];
-    await sb.from('assets').update({history:a.history}).eq('id',a.id);}
-
-  if(m.type==='add-doc'){
-    const name=q('m-dn').value.trim(),url=q('m-du').value.trim();if(!name||!url)return alert('Nom et URL requis');
-    const a=S.assets.find(x=>x.id===m.assetId);if(!a)return;
-    const d={id:uid(),name,url,type:q('m-dt').value,date:q('m-dd').value};
-    a.documents=[...(a.documents||[]),d];
-    await sb.from('assets').update({documents:a.documents}).eq('id',a.id);}
-
-
-
-
-
-  if(m.type==='add-membre-event'){
-    const titre=q('m-etitle').value.trim();if(!titre)return alert('Titre requis');
-    const mb=S.famille.find(x=>x.id===m.membreId);if(!mb)return;
-    const dateVal=q('m-edate').value;
-    const lieu=q('m-elieu').value;
-    const notes=q('m-enotes').value;
-    const evt={id:uid(),titre,type:q('m-etype').value,date:dateVal,lieu,notes,done:false};
-    if(!mb.events)mb.events=[];
-    mb.events.push(evt);
-    const {error}=await sb.from('famille').update({events:mb.events}).eq('id',mb.id);
+    const rec={
+      title,description:q('m-wd')?.value||'',category:q('m-wc')?.value||'Entretien',
+      status:'open',date:q('m-wdate')?.value||null,cost:parseFloat(q('m-wcost')?.value)||0,
+      paid:q('m-wpaid')?.checked||false,
+      alert_days:q('m-walert-on')?.checked?(parseInt(q('m-walert-days')?.value)||7):null,
+      by_user:byUser,asset_id:assetId||null,topo_ref:topoRef,journal:[],checklist
+    };
+    const {data,error}=await sb.from('work_orders').insert(rec).select().single();
     if(error){alert('Erreur : '+error.message);return;}
-    // Proposer ajout Google Agenda
-    const d=dateVal.replace(/-/g,'');
-    const gcalUrl='https://calendar.google.com/calendar/render?action=TEMPLATE'
-      +'&text='+encodeURIComponent('['+mb.prenom+'] '+titre)
-      +'&dates='+d+'T090000/'+d+'T100000'
-      +'&details='+encodeURIComponent((notes||'')+(lieu?'\nLieu: '+lieu:''))
-      +'&location='+encodeURIComponent(lieu||'')
-      +'&sf=true&output=xml';
-    if(confirm('✅ Événement enregistré !\n\nVoulez-vous l\'ajouter à Google Agenda ?')){
-      window.open(gcalUrl,'_blank');
-    }
+    if(data){S.workOrders.unshift(data);if(byUser){const u=S.users.find(x=>x.id===byUser);if(u?.email)await sendBTAssignmentEmail(data,u);}}
   }
-
+  if(m.type==='add-history'){html=`${mhd('Nouvelle intervention')}
+    <div class="g2c">
+      <div class="form-group"><label>Type</label><select id="m-ht"><option>Entretien</option><option>Réparation</option><option>Inspection</option><option>Travaux</option><option>Remplacement</option></select></div>
+      <div class="form-group"><label>Date</label><input id="m-hd" type="date" value="${NOW}"></div>
+    </div>
+    <div class="form-group"><label>Description *</label><textarea id="m-hdesc"></textarea></div>
+    <div class="g2c">
+      <div class="form-group"><label>Coût (€)</label><input id="m-hcost" type="number" placeholder="0"></div>
+      <div class="form-group"><label>Intervenant</label><input id="m-hby"></div>
+    </div>${mf}`;}
+  if(m.type==='add-doc'){html=`${mhd('Ajouter un document')}
+    <div class="form-group"><label>Nom *</label><input id="m-dn" placeholder="Ex: Devis couvreur 2024"></div>
+    <div class="g2c">
+      <div class="form-group"><label>Type</label><select id="m-dt"><option value="devis">Devis</option><option value="facture">Facture</option><option value="manuel">Manuel</option><option value="autre">Autre</option></select></div>
+      <div class="form-group"><label>Date</label><input id="m-dd" type="date" value="${NOW}"></div>
+    </div>
+    <div class="form-group"><label>Lien URL *</label><input id="m-du" placeholder="https://drive.google.com/..."></div>${mf}`;}
+  if(m.type==='add-membre-event'){
+    const mb=S.famille.find(x=>x.id===m.membreId)||{};
+    html=`${mhd('Événement — '+(mb.prenom||''))}
+    <div class="form-group"><label>Titre *</label><input id="m-etitle" placeholder="Ex: RDV médecin, Passeport, Vaccin..."></div>
+    <div class="g2c">
+      <div class="form-group"><label>Type</label><select id="m-etype">
+        ${['RDV médical','Document','Administratif','Scolaire','Autre'].map(t=>`<option>${t}</option>`).join('')}
+      </select></div>
+      <div class="form-group"><label>Date *</label><input id="m-edate" type="date" value="${NOW}"></div>
+    </div>
+    <div class="form-group"><label>Lieu / Médecin</label><input id="m-elieu" placeholder="Ex: Dr. Martin, Mairie..."></div>
+    <div class="form-group"><label>Notes</label><input id="m-enotes"></div>
+    ${mf}`;
+  }
   if(m.type==='add-membre-doc'){
-    const mb=S.famille.find(x=>x.id===m.membreId);if(!mb)return;
-    const doc={id:uid(),type:q('m-dtype').value,numero:q('m-dnum').value,
-      delivre:q('m-ddelivre').value||null,expiry:q('m-dexpiry').value||null,
-      notes:q('m-dnotes').value};
-    if(!mb.docs)mb.docs=[];
-    mb.docs.push(doc);
-    await sb.from('famille').update({docs:mb.docs}).eq('id',mb.id);
+    const mb=S.famille.find(x=>x.id===m.membreId)||{};
+    html=`${mhd('Document — '+(mb.prenom||''))}
+    <div class="form-group"><label>Type de document *</label><select id="m-dtype">
+      ${['Passeport','Carte nationale d\'identité','Permis de conduire','Carte Vitale','Mutuelle','Carte de séjour','Acte de naissance','Livret de famille','Autre'].map(t=>`<option>${t}</option>`).join('')}
+    </select></div>
+    <div class="form-group"><label>N° de document</label><input id="m-dnum" placeholder="Ex: 12AB34567"></div>
+    <div class="g2c">
+      <div class="form-group"><label>Date de délivrance</label><input id="m-ddelivre" type="date"></div>
+      <div class="form-group"><label>Date d'expiration</label><input id="m-dexpiry" type="date"></div>
+    </div>
+    <div class="form-group"><label>Notes</label><input id="m-dnotes"></div>
+    ${mf}`;
   }
-
-  if(m.type==='add-facture'){
-      const {data,error}=await sb.from('factures').insert(rec).select().single();
-      if(error){alert('Erreur : '+error.message);return;}
-      if(data)S.factures=[data,...S.factures];
-    } else {
-      const {error}=await sb.from('factures').update(rec).eq('id',m.facture.id);
-      if(error){alert('Erreur : '+error.message);return;}
-      Object.assign(m.facture,rec);
-    }
-  
-
-if(m.type==='add-mt'){
+  if(m.type==='edit-mt'){
+    const mt=m.mt||{};
+    html=`${mhd('Modifier — '+(mt.name||''))}
+    <div class="form-group"><label>Nom *</label><input id="m-mn" value="${mt.name||''}"></div>
+    <div class="form-group"><label>Description</label><textarea id="m-md">${mt.description||''}</textarea></div>
+    <div class="g2c">
+      <div class="form-group"><label>Priorité</label><select id="m-mprio">
+        ${['low','medium','high'].map(p=>`<option value="${p}" ${mt.priority===p?'selected':''}>${p==='low'?'Basse':p==='medium'?'Moyenne':'Haute'}</option>`).join('')}
+      </select></div>
+      <div class="form-group"><label>Intervenant</label>
+        <select id="m-muser">
+          <option value="">— Aucun —</option>
+          ${S.users.map(u=>`<option value="${u.id}" ${mt.assigned_to===u.id?'selected':''}>${u.name}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    ${mt.type==='periodic'?`<div class="g2c">
+      <div class="form-group"><label>Périodicité (jours)</label><input id="m-mperiod" type="number" value="${mt.period_days||30}"></div>
+      <div class="form-group"><label>Dernière réalisation</label><input id="m-mlast" type="date" value="${mt.last_done||''}"></div>
+    </div>`:''}
+    <div class="form-group"><label>Prochaine échéance</label><input id="m-mnext" type="date" value="${mt.next_due||mt.due_date||''}"></div>
+    <div class="form-group"><label>🔔 M'alerter par email</label>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
+        <input type="checkbox" id="m-mtalert-on" ${mt.alert_days?'checked':''} onchange="document.getElementById('m-mtalert-wrap').style.display=this.checked?'flex':'none'">
+        <label for="m-mtalert-on" style="font-size:12px;cursor:pointer">Envoyer une alerte avant l'échéance</label>
+        <span id="m-mtalert-wrap" style="display:${mt.alert_days?'flex':'none'};align-items:center;gap:6px">
+          <input id="m-mtalert-days" type="number" min="1" max="90" value="${mt.alert_days||30}" style="width:60px;padding:4px 6px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text)">
+          <span style="font-size:12px;color:var(--text2)">jours avant</span>
+        </span>
+      </div>
+    </div>
+    ${mf}`;
+  }
+  if(m.type==='add-mt'){
     const nom=q('m-mn')?.value.trim();if(!nom)return alert('Nom requis');
     const assetId=q('m-ma')?.value||null;
     const type=q('m-mtype')?.value||'periodic';
+    const period=parseInt(q('m-mperiod')?.value)||30;
+    const lastDone=q('m-mlast')?.value||null;
+    let nextDue=null;
+    if(type==='periodic'&&lastDone){const d=new Date(lastDone);d.setDate(d.getDate()+period);nextDue=d.toISOString().slice(0,10);}
+    else if(type==='date'){nextDue=q('m-mdue')?.value||null;}
     const rec={
-      name:nom,
-      asset_id:assetId,
-      bien:q('m-mbien')?.value||null,
-      description:q('m-md')?.value||null,
-      type,
-      period_days:type==='periodic'?(parseInt(q('m-mperiod')?.value)||30):null,
-      last_done:q('m-mlast')?.value||null,
-      next_due:type==='periodic'?q('m-mlast')?.value?(()=>{const d=new Date(q('m-mlast').value);d.setDate(d.getDate()+(parseInt(q('m-mperiod')?.value)||30));return d.toISOString().slice(0,10);})():new Date().toISOString().slice(0,10):null,
-      due_date:type==='date'?q('m-mdue')?.value||null:null,
-      priority:q('m-mprio')?.value||'medium',
-      assigned_to:q('m-muser')?.value||null,
-      auto_bt:q('m-mautobt')?.checked||false,
-      bt_category:q('m-mbtcat')?.value||null,
+      name:nom,asset_id:assetId,bien:q('m-mbien')?.value||null,
+      description:q('m-md')?.value||null,type,period_days:type==='periodic'?period:null,
+      last_done:lastDone,next_due:nextDue,due_date:type==='date'?nextDue:null,
+      priority:q('m-mprio')?.value||'medium',assigned_to:q('m-muser')?.value||null,
+      auto_bt:q('m-mautobt')?.checked||false,bt_category:q('m-mbtcat')?.value||null,
       alert_days:q('m-mtalert-on')?.checked?(parseInt(q('m-mtalert-days')?.value)||30):null,
     };
     const {data,error}=await sb.from('maintenance_templates').insert(rec).select().single();
     if(error){alert('Erreur : '+error.message);return;}
     if(data)S.maintenanceTemplates.push(data);
   }
-
-  if(m.type==='edit-mt'){
-    const mt=m.mt;if(!mt)return;
-    const nom=q('m-mn')?.value.trim();if(!nom)return alert('Nom requis');
-    const rec={
-      name:nom,
-      description:q('m-md')?.value||null,
-      priority:q('m-mprio')?.value||'medium',
-      assigned_to:q('m-muser')?.value||null,
-      period_days:mt.type==='periodic'?(parseInt(q('m-mperiod')?.value)||mt.period_days):mt.period_days,
-      last_done:q('m-mlast')?.value||mt.last_done,
-      next_due:q('m-mnext')?.value||mt.next_due,
-      alert_days:q('m-mtalert-on')?.checked?(parseInt(q('m-mtalert-days')?.value)||30):null,
-      auto_bt:q('m-mautobt')?.checked||false,
-    };
-    const {error}=await sb.from('maintenance_templates').update(rec).eq('id',mt.id);
-    if(error){alert('Erreur : '+error.message);return;}
-    Object.assign(mt,rec);
-  }
-
-
-  
-
-
-  if(m.type==='add-cso'||m.type==='edit-cso'){
-    const nom=q('m-cnom')?.value.trim();if(!nom)return alert('Désignation requise');
-    const empSel=q('m-cemp')?.value||'';
-    const empCustom=q('m-cemp-custom')?.value||'';
-    const emplacement=empSel&&empSel!==''?empSel:empCustom;
-    const rec={
-      nom,
-      categorie:q('m-ccat')?.value||null,
-      reference:q('m-cref')?.value||null,
-      stock:parseFloat(q('m-cstock')?.value)||0,
-      unite:q('m-cunite2')?.value||'pièce(s)',
-      stock_min:parseFloat(q('m-cstockmin')?.value)||0,
-      prix_achat:parseFloat(q('m-cprix2')?.value)||0,
-      emplacement:emplacement||null,
-      description:q('m-cdesc2')?.value||null,
-      order_links:(q('m-clinks')?.value||'').trim().split('\n').map(l=>l.trim()).filter(Boolean),
-      affect_type:q('m-caffect-type')?.value||null,
-      asset_id:q('m-casset')?.value||null,
-      famille_id:q('m-cfamille')?.value||null,
-      affect_label:(q('m-caffect-type')?.value==='bien'?q('m-cbien')?.value:q('m-caffect-label')?.value)||null,
-    };
-    if(m.type==='add-cso'){
-      const {data,error}=await sb.from('consommables').insert(rec).select().single();
-      if(error){alert('Erreur : '+error.message);return;}
-      if(data)S.consommables.push(data);
-    }else{
-      const {error}=await sb.from('consommables').update(rec).eq('id',m.cso.id);
-      if(error){alert('Erreur : '+error.message);return;}
-      Object.assign(m.cso,rec);
-    }
-  }
-
-  if(m.type==='add-facture'||m.type==='edit-facture'){
-    const fourn=q('fac-four')?.value.trim();
-    if(!fourn)return alert('Fournisseur requis');
-    const ttc=parseFloat(q('fac-ttc')?.value);
-    if(!ttc)return alert('Montant TTC requis');
-    const rec={
-      fournisseur:fourn,
-      date:q('fac-date')?.value,
-      categorie:q('fac-cat')?.value||null,
-      compte:q('fac-compte')?.value||'savadur',
-      bien:q('fac-bien')?.value||null,
-      wo_id:q('fac-wo')?.value||null,
-      montant_ht:parseFloat(q('fac-ht')?.value)||0,
-      taux_tva:parseFloat(q('fac-tva')?.value)||0,
-      montant_ttc:ttc,
-      description:q('fac-desc')?.value||null,
-      numero:q('fac-num')?.value||null,
-      url_drive:q('fac-url')?.value||null,
-      rapproche:q('fac-rapproche')?.checked||false
-    };
-    if(m.type==='add-facture'){
-      const {data,error}=await sb.from('factures').insert(rec).select().single();
-      if(error){alert('Erreur : '+error.message);return;}
-      if(data)S.factures=[data,...S.factures];
-    }else{
-      const {error}=await sb.from('factures').update(rec).eq('id',m.facture.id);
-      if(error){alert('Erreur : '+error.message);return;}
-      Object.assign(m.facture,rec);
-    }
-  }
-
   if(m.type==='adjust-cso'){
     const c=m.cso;
-    const op=q('m-cadj-op').value;
-    const qty=parseFloat(q('m-cadj-qty').value)||0;
-    const note=q('m-cadj-note').value;
-    let newStock=c.stock||0;
-    if(op==='add') newStock+=qty;
-    else if(op==='sub') newStock=Math.max(0,newStock-qty);
-    else newStock=qty;
-    newStock=Math.round(newStock*100)/100;
-    // Log movement
-    const mvt={date:new Date().toISOString().slice(0,10),op,qty,note,by:S.currentUser?.name||'',stock_apres:newStock};
-    const {error}=await sb.from('consommables').update({stock:newStock}).eq('id',c.id);
-    if(error){alert('Erreur : '+error.message);return;}
-    c.stock=newStock;
-    alert(`✓ Stock mis à jour : ${newStock} ${c.unite||'unité(s)'}`);
-  }
-
-  if(m.type==='add-rng'||m.type==='edit-rng'){
-    const nom=q('m-rn')?.value.trim();if(!nom)return alert('Nom requis');
-    const rec={nom,description:q('m-rd')?.value||null,location:q('m-rl')?.value||null};
-    if(m.type==='add-rng'){
-      const {data,error}=await sb.from('rangements').insert(rec).select().single();
-      if(error){alert('Erreur : '+error.message);return;}
-      if(data)S.rangements.push(data);
-    }else{
-      const {error}=await sb.from('rangements').update(rec).eq('id',m.rng.id);
-      if(error){alert('Erreur : '+error.message);return;}
-      Object.assign(m.rng,rec);
-    }
+    html=`${mhd('Ajuster stock — '+c.nom)}
+    <div style="background:var(--bg2);padding:10px 12px;border-radius:var(--radius);margin-bottom:12px;font-size:13px">
+      Stock actuel : <b>${c.stock||0} ${c.unite||'unité(s)'}</b>
+    </div>
+    <div class="g2c">
+      <div class="form-group"><label>Opération</label>
+        <select id="m-cadj-op">
+          <option value="add">+ Entrée (réapprovisionnement)</option>
+          <option value="sub">- Sortie (utilisation)</option>
+          <option value="set">= Définir exactement</option>
+        </select>
+      </div>
+      <div class="form-group"><label>Quantité</label><input id="m-cadj-qty" type="number" min="0" step="0.1" value="1" autofocus></div>
+    </div>
+    <div class="form-group"><label>Motif</label><input id="m-cadj-note" placeholder="Ex: BT #123, Réapprovisionnement..."></div>
+    ${mf}`;
   }
   if(m.type==='add-tool'){
     const name=q('m-tn').value.trim();if(!name)return alert('Nom requis');
@@ -5266,7 +5237,6 @@ if(m.type==='add-mt'){
     const location=locSel?(locSel.value==='__autre__'?locCustom?.value||'':locSel.value):locCustom?.value||'';
     const {data}=await sb.from('tools').insert({name,category:q('m-tc').value,status:q('m-ts').value,location,description:q('m-tdesc').value,notes:q('m-tnotes').value}).select().single();
     if(data)S.tools.push(data);}
-
   if(m.type==='edit-tool'){
     const t=m.tool;
     const locSel2=q('m-tl');
@@ -5274,61 +5244,20 @@ if(m.type==='add-mt'){
     const location2=locSel2?(locSel2.value==='__autre__'?locCustom2?.value||'':locSel2.value):locCustom2?.value||'';
     const upd={name:q('m-tn').value,category:q('m-tc').value,status:q('m-ts').value,location:location2,description:q('m-tdesc').value,notes:q('m-tnotes').value};
     await sb.from('tools').update(upd).eq('id',t.id);Object.assign(t,upd);}
-
-  if(m.type==='add-user'){
-    const name=q('m-un').value.trim(),email=q('m-ue').value.trim(),pass=q('m-up').value;if(!name||!email||!pass)return alert('Champs requis');
-    const checked=[...document.querySelectorAll('.ac:checked')].map(c=>c.value);
-    const vtabs=[...document.querySelectorAll('.utab:checked')].map(c=>c.value);
-    const prof=q('m-uprof')?.value||'custom';
-    const initials=name.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2);
-    const {data}=await sb.from('users').insert({name,email,password:pass,role:q('m-ur').value,assets:checked,visible_assets:checked,visible_tabs:vtabs,profile:prof,initials}).select().single();
-    if(data)S.users.push(data);}
-
-  if(m.type==='edit-user'){
-    const u=m.user;
-    const checked=[...document.querySelectorAll('.ac:checked')].map(c=>c.value);
-    const vtabs=[...document.querySelectorAll('.utab:checked')].map(c=>c.value);
-    const prof=q('m-uprof')?.value||'custom';
-    const upd={name:q('m-un').value,email:q('m-ue').value,role:q('m-ur').value,
-      assets:checked,visible_assets:checked,visible_tabs:vtabs,profile:prof};
-    const np=q('m-up').value;if(np)upd.password=np;
-    upd.initials=upd.name.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2);
-    await sb.from('users').update(upd).eq('id',u.id);
-    Object.assign(u,upd);if(u.id===S.currentUser?.id)S.currentUser=u;}
-
   if(m.type==='link-asset'){
-    const chosen = q('m-link-asset').value;
-    let assetId = chosen;
-    if(!assetId){
-      // Auto-create
-      const {data:ad}=await sb.from('assets').insert({name:m.nodeName,category:'Immobilier',type:m.nodeType||'Bien immobilier',location:m.nodeName,description:m.nodeName,status:'ok',documents:[],history:[]}).select().single();
-      if(ad){S.assets.push(ad);assetId=ad.id;}
-    }
-    // Update the node in topology
-    const prop=S.topology.properties.find(p=>p.id===m.nodeId);
-    if(prop){prop.assetId=assetId;await saveTopoToDB();closeModal();return;}
-    for(const p of S.topology.properties){
-      const zone=p.zones?.find(z=>z.id===m.nodeId);
-      if(zone){zone.assetId=assetId;await saveTopoToDB();closeModal();return;}
-      for(const z of (p.zones||[])){
-        const sub=z.subZones?.find(s=>s.id===m.nodeId);
-        if(sub){sub.assetId=assetId;await saveTopoToDB();closeModal();return;}
-      }
-    }
+    const immAssets = S.assets.filter(a=>a.category==='Immobilier'||!a.category);
+    html=`${mhd('Lier un équipement — '+m.nodeName)}
+    <div style="font-size:12px;color:var(--text2);margin-bottom:12px">Sélectionnez un équipement existant à associer à ce nœud, ou créez-en un nouveau automatiquement.</div>
+    <div class="form-group"><label>Équipement existant</label>
+      <select id="m-link-asset">
+        <option value="">— Créer automatiquement —</option>
+        ${S.assets.map(a=>`<option value="${a.id}">${a.name} (${a.category||'—'})</option>`).join('')}
+      </select>
+    </div>
+    ${mf}`;
   }
-
-  if(m.type==='add-prop'){
-    const name=q('m-pn').value.trim();if(!name)return alert('Nom requis');
-    // Créer l'équipement associé
-    const {data:assetData}=await sb.from('assets').insert({name,category:'Immobilier',type:'Bien immobilier',location:name,description:'Bien immobilier — '+name,status:'ok',documents:[],history:[]}).select().single();
-    if(assetData)S.assets.push(assetData);
-    const np={id:uid(),name,zones:[],assetId:assetData?.id||null};
-    S.topology.properties=[...(S.topology.properties||[]),np];
-    S.topoState.propId=np.id;S.topoState.zoneId=null;S.topoState.subZoneId=null;S.topoState.tradeId=null;
-    await saveTopoToDB();}
-
-
-
+  if(m.type==='add-prop'){html=`${mhd('Nouveau bien')}
+    <div class="form-group"><label>Nom *</label><input id="m-pn" placeholder="Ex: Immeuble 26 rue Dubail..."></div>${mf}`;}
   if(m.type==='edl-form'){
     const t=m.tenant||{};
     const today=new Date().toLocaleDateString('fr-FR');
@@ -5424,7 +5353,6 @@ if(m.type==='add-mt'){
     </div>
     ${mf}`;
   }
-
   if(m.type==='bail-form'){
     const t=m.tenant||{};
     const bail=m.bail||{
@@ -5551,52 +5479,6 @@ if(m.type==='add-mt'){
     </div>
     ${mf}`;
   }
-
- else {
-        if(!m.tenant?.id){alert('Erreur : ID locataire manquant');return;}
-        const {error}=await sb.from('tenants').update(rec).eq('id',m.tenant.id);
-        if(error){alert('Erreur modification : '+error.message);return;}
-        Object.assign(m.tenant,rec);
-      }
-
-  if(m.type==='add-tenant'||m.type==='edit-tenant'){
-    const nom=q('m-tnom')?.value?.trim();
-    if(!nom)return alert('Nom requis');
-    const propVal=q('m-tprop')?.value||'';
-    const zoneVal=q('m-tzone')?.value||'';
-    const logement=propVal?(zoneVal?propVal+' — '+zoneVal:propVal):(m.type==='edit-tenant'?m.tenant?.logement||'':'');
-    // logement is optional for existing tenants - just warn
-    const rec={
-      nom,logement,
-      email:q('m-temail')?.value||'',
-      telephone:q('m-ttel')?.value||'',
-      type_bail:q('m-tbail')?.value||'habitation',
-      loyer_ref:parseFloat(q('m-tloy')?.value)||0,
-      charges:parseFloat(q('m-tch')?.value)||0,
-      caution:parseFloat(q('m-tcau')?.value)||0,
-      dette:parseFloat(q('m-tdet')?.value)||0,
-      caf:q('m-tcaf')?.value==='true',
-      actif:q('m-tact')?.value!=='false',
-      bail_url:q('m-tbail-url')?.value||'',
-      edl_url:q('m-tedl-url')?.value||'',
-      assurance_url:q('m-tassur-url')?.value||'',
-      date_entree:q('m-tent')?.value||null,
-      date_sortie:q('m-tsort')?.value||null,
-      notes:q('m-tnotes')?.value||''
-    };
-    if(m.type==='add-tenant'){
-      const {data,error}=await sb.from('tenants').insert(rec).select().single();
-      if(error){alert('Erreur création : '+error.message);return;}
-      if(data)S.tenants.push(data);
-    } else {
-      if(!m.tenant?.id){alert('ID locataire manquant');return;}
-      const {error}=await sb.from('tenants').update(rec).eq('id',m.tenant.id);
-      if(error){alert('Erreur modification : '+error.message);return;}
-      Object.assign(m.tenant,rec);
-    }
-  }
-
-
   if(m.type==='edit-tenant-old'){
     const logs = S.locatif?.logements||[];
     const log = logs.find(l=>l.id===m.logId);
@@ -5611,232 +5493,354 @@ if(m.type==='add-mt'){
       log.notes=q('m-ten-notes').value;
     }
   }
-
   if(m.type==='add-water'){
-    const wr={
-      logement_id:q('m-wat-log').value,
-      logement_name:(S.locatif?.logements||[]).find(l=>l.id===q('m-wat-log').value)?.name||'',
-      year:parseInt(q('m-wat-year').value)||new Date().getFullYear(),
-      period:q('m-wat-period').value,
-      ancien_index:parseFloat(q('m-wat-old').value)||0,
-      nouvel_index:parseFloat(q('m-wat-new').value)||0,
-      consommation:Math.round((parseFloat(q('m-wat-new').value)-parseFloat(q('m-wat-old').value))*1000)/1000,
-      prix_unitaire:parseFloat(q('m-wat-prix').value)||0,
-      montant:parseFloat(q('m-wat-mnt').value)||0,
-      date_paiement:q('m-wat-date').value||null,
-      paid:!!q('m-wat-date').value
+    html=`${mhd('Nouveau relevé eau')}
+    <div class="form-group"><label>Logement *</label><select id="m-wat-log">
+      ${(S.locatif?.logements||[]).map(l=>`<option value="${l.id}">${l.name}</option>`).join('')}
+    </select></div>
+    <div class="g2c">
+      <div class="form-group"><label>Année</label><input id="m-wat-year" type="number" value="${new Date().getFullYear()}"></div>
+      <div class="form-group"><label>Période</label><select id="m-wat-period"><option>Janvier</option><option>Mars</option><option>Juin</option><option>Décembre</option></select></div>
+    </div>
+    <div class="g2c">
+      <div class="form-group"><label>Ancien index (m³)</label><input id="m-wat-old" type="number" step="0.001"></div>
+      <div class="form-group"><label>Nouvel index (m³)</label><input id="m-wat-new" type="number" step="0.001"></div>
+    </div>
+    <div class="g2c">
+      <div class="form-group"><label>Prix/m³ (€)</label><input id="m-wat-prix" type="number" step="0.0001"></div>
+      <div class="form-group"><label>Montant facturé (€)</label><input id="m-wat-mnt" type="number" step="0.01"></div>
+    </div>
+    <div class="form-group"><label>Date paiement</label><input id="m-wat-date" type="date"></div>
+    ${mf}`;
+  }
+  if(m.type==='add-releve'){
+    const cpt = S.compteurs.find(c=>c.id===m.cptId)||{};
+    const lastRel = S.releves.filter(r=>r.compteur_id===m.cptId).sort((a,b)=>new Date(b.date)-new Date(a.date))[0];
+    const tenant = cpt.tenant_id?S.tenants.find(t=>t.id===cpt.tenant_id):null;
+    html=`${mhd('Nouveau relevé — '+(cpt.name||''))}
+    <div class="form-group"><label>Compteur</label><select id="m-rcpt">
+      ${S.compteurs.map(c=>`<option value="${c.id}" ${c.id===m.cptId?'selected':''}>${c.name}${c.tenant_id?(()=>{const t=S.tenants.find(x=>x.id===c.tenant_id);return t?' — '+t.nom:'';})():''}</option>`).join('')}
+    </select></div>
+    ${tenant?`<div style="background:var(--bg2);padding:8px 12px;border-radius:var(--radius);font-size:12px;margin-bottom:10px">
+      👤 Locataire : <b>${tenant.nom}</b> — ${tenant.logement||''} ${tenant.email?'📧 '+tenant.email:'⚠ Pas d\'email'}
+    </div>`:''}
+    <div class="form-group"><label>Date du relevé *</label><input id="m-rdate" type="date" value="${NOW}"></div>
+    <div style="background:var(--bg2);padding:10px 12px;border-radius:var(--radius);margin-bottom:10px;font-size:12px">
+      Dernier relevé : <b>${lastRel?lastRel.nouvel_index+' '+(cpt.unite||'m³')+' le '+dateLabel(lastRel.date):'index initial = '+(cpt.index_initial||0)}</b>
+    </div>
+    <div class="g2c">
+      <div class="form-group"><label>Ancien index (auto)</label><input id="m-rold" type="number" step="0.001" value="${lastRel?.nouvel_index||cpt.index_initial||0}" readonly style="background:var(--bg2)"></div>
+      <div class="form-group"><label>Nouvel index *</label><input id="m-rnew" type="number" step="0.001" placeholder="Ex: 285.30" autofocus></div>
+    </div>
+    <div class="g2c">
+      <div class="form-group"><label>Prix unitaire (€/${cpt.unite||'m³'})</label><input id="m-rprix" type="number" step="0.001" value="${cpt.prix_unitaire||lastRel?.prix_unitaire||0}" placeholder="Ex: 3.50"></div>
+      <div class="form-group"><label>Notes</label><input id="m-rnotes" placeholder="Remarques..."></div>
+    </div>
+    ${tenant?.email?`<div style="background:#e8f5e9;padding:8px 12px;border-radius:var(--radius);font-size:12px;margin-top:8px">
+      📧 Une facture eau sera générée et envoyée à <b>${tenant.email}</b> à la validation.
+    </div>`:''}
+    ${mf}`;
+  }
+  if(m.type==='add-revenue'){
+    const rec={
+      description:q('m-revdesc')?.value||'',montant:parseFloat(q('m-revmnt')?.value)||0,
+      date:q('m-revdate')?.value||null,categorie:q('m-revcat')?.value||'Loyer',
+      bien:q('m-revbien')?.value||''
     };
-    if(!S.locatif.waterReadings)S.locatif.waterReadings=[];
-    S.locatif.waterReadings.push(wr);
+    const {data,error}=await sb.from('revenues').insert(rec).select().single();
+    if(error){alert('Erreur : '+error.message);return;}
+    if(data)S.revenues=(S.revenues||[]).concat(data);
+  }
+  if(m.type==='add-zone'){html=`${mhd('Nouvelle zone')}
+    <div class="form-group"><label>Nom *</label><input id="m-zn" placeholder="Ex: Appart 1er gauche, RDC, Cave..."></div>${mf}`;}
+  if(m.type==='add-subzone'){html=`${mhd('Nouvelle sous-zone')}
+    <div class="form-group"><label>Nom *</label><input id="m-szn" placeholder="Ex: Cuisine, Salle de bain, Chambre..."></div>${mf}`;}
+  if(m.type==='add-trade'){html=`${mhd('Nouveau corps de métier')}
+    <div class="form-group"><label>Nom *</label><input id="m-ttn" placeholder="Ex: Plomberie, Électricité..."></div>
+    <div class="form-group"><label>Icône (emoji)</label><input id="m-tti" placeholder="🔧"></div>${mf}`;}
+  if(m.type==='add-topo-item'){html=`${mhd('Nouvel élément')}
+    <div class="form-group"><label>Nom *</label><input id="m-tin" placeholder="Ex: Compteur d'eau, Tableau 63A..."></div>
+    <div class="form-group"><label>Notes</label><input id="m-tinotes" placeholder="Marque, date, installation..."></div>${mf}`;}
+  if(m.type==='add-wo-doc'){html=`${mhd('Joindre un document au bon de travaux')}
+    <div class="form-group"><label>Nom du document *</label><input id="m-wdn" placeholder="Ex: Devis plombier, Facture électricien..."></div>
+    <div class="g2c">
+      <div class="form-group"><label>Type</label><select id="m-wdt">
+        <option value="devis">Devis</option>
+        <option value="facture">Facture</option>
+        <option value="photo">Photo / Constat</option>
+        <option value="autre">Autre</option>
+      </select></div>
+      <div class="form-group"><label>Date</label><input id="m-wdd" type="date" value="${NOW}"></div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:flex-end;margin-bottom:10px">
+      <div class="form-group" style="flex:1;margin:0"><label>Lien URL</label><input id="m-wdu" placeholder="https://drive.google.com/..."></div>
+      <button type="button" class="btn btn-p" onclick="openDrivePicker(f=>{document.getElementById('m-wdu').value=f.url;document.getElementById('m-wdn').value=document.getElementById('m-wdn').value||f.name;},(S.modal?.woId&&S.workOrders.find(w=>w.id===S.modal.woId)?.topo_ref?.propName||''))" style="white-space:nowrap;flex-shrink:0">
+        📁 Choisir depuis Drive
+      </button>
+    </div>
+    ${mf}`;}
+  if(m.type==='edit-cg'){
+    const cg=m.asset.carte_grise||{};
+    html=`${mhd('Carte grise — '+m.asset.name)}
+    <div style="font-size:12px;color:var(--text2);margin-bottom:12px">Renseignez les champs de votre certificat d'immatriculation (les codes entre parenthèses correspondent aux cases officielles).</div>
+    <div class="g2c">
+      <div class="form-group"><label>(A) Immatriculation</label><input id="cg-immat" value="${cg.immat||''}" placeholder="AA-123-BB"></div>
+      <div class="form-group"><label>(B) Date 1ère immatriculation</label><input id="cg-date1" type="date" value="${cg.date_1ere_immat||''}"></div>
+    </div>
+    <div class="form-group"><label>(C.1) Titulaire</label><input id="cg-titulaire" value="${cg.titulaire||''}" placeholder="Nom Prénom"></div>
+    <div class="form-group"><label>(C.4.2) Adresse</label><input id="cg-adresse" value="${cg.adresse||''}" placeholder="Adresse complète"></div>
+    <div class="g2c">
+      <div class="form-group"><label>(D.1) Marque</label><input id="cg-marque" value="${cg.marque||''}" placeholder="Ex: RENAULT"></div>
+      <div class="form-group"><label>(D.3) Dénomination commerciale</label><input id="cg-denom" value="${cg.denomination||''}" placeholder="Ex: TRAFIC"></div>
+    </div>
+    <div class="g2c">
+      <div class="form-group"><label>(D.2) Type / Variante / Version</label><input id="cg-type" value="${cg.type_variante||''}"></div>
+      <div class="form-group"><label>(E) N° identification VIN</label><input id="cg-vin" value="${cg.vin||''}" placeholder="17 caractères"></div>
+    </div>
+    <div class="g2c">
+      <div class="form-group"><label>(F.1) Masse max. technique (kg)</label><input id="cg-mmr" type="number" value="${cg.masse_max||''}"></div>
+      <div class="form-group"><label>(F.2) Masse en charge max. (kg)</label><input id="cg-mmc" type="number" value="${cg.masse_charge||''}"></div>
+    </div>
+    <div class="form-group"><label>(G) Masse en service (kg)</label><input id="cg-ms" type="number" value="${cg.masse_service||''}"></div>
+    <div class="g2c">
+      <div class="form-group"><label>(P.1) Cylindrée (cm³)</label><input id="cg-cyl" type="number" value="${cg.cylindree||''}"></div>
+      <div class="form-group"><label>(P.2) Puissance nette max. (kW)</label><input id="cg-pkw" type="number" value="${cg.puissance_kw||''}"></div>
+    </div>
+    <div class="g2c">
+      <div class="form-group"><label>(P.3) Carburant / Énergie</label><select id="cg-carb">
+        ${['','Essence','Diesel','Électrique','Hybride essence','Hybride diesel','GPL','GNV','Hydrogène'].map(v=>`<option ${cg.carburant===v?'selected':''}>${v}</option>`).join('')}
+      </select></div>
+      <div class="form-group"><label>(P.6) Puissance admin. (CV)</label><input id="cg-pcv" type="number" value="${cg.puissance_cv||''}"></div>
+    </div>
+    <div class="g2c">
+      <div class="form-group"><label>(J) Catégorie véhicule</label><select id="cg-cat">
+        ${['','M1 (VP)','M2','M3','N1 (VU ≤3,5t)','N2','N3','L1e','L2e','L3e','L4e','L5e','O1','O2','O3','O4'].map(v=>`<option ${cg.categorie===v?'selected':''}>${v}</option>`).join('')}
+      </select></div>
+      <div class="form-group"><label>(J.3) Usage</label><select id="cg-usage">
+        ${['','Particulier','Commerce','Société','Location','Taxi','Ambulance','Enseignement','Agricole','Compétition'].map(v=>`<option ${cg.usage===v?'selected':''}>${v}</option>`).join('')}
+      </select></div>
+    </div>
+    <div class="g2c">
+      <div class="form-group"><label>(J.1) Carrosserie CE</label><input id="cg-carce" value="${cg.carrosserie_ce||''}" placeholder="Ex: AC, BB, BE..."></div>
+      <div class="form-group"><label>(J.2) Carrosserie nationale</label><input id="cg-carnat" value="${cg.carrosserie_nat||''}" placeholder="Ex: BERLINE, BREAK..."></div>
+    </div>
+    <div class="g2c">
+      <div class="form-group"><label>(S.1) Places assises</label><input id="cg-pass" type="number" value="${cg.places_assises||''}"></div>
+      <div class="form-group"><label>(S.2) Places debout</label><input id="cg-pdeb" type="number" value="${cg.places_debout||''}"></div>
+    </div>
+    <div class="g2c">
+      <div class="form-group"><label>(R) Couleur</label><input id="cg-coul" value="${cg.couleur||''}" placeholder="Ex: GRIS"></div>
+      <div class="form-group"><label>(V.9) Classe environnementale</label><select id="cg-env">
+        ${['','Euro 1','Euro 2','Euro 3','Euro 4','Euro 5','Euro 5a','Euro 5b','Euro 6','Euro 6b','Euro 6c','Euro 6d','Euro 6d-temp'].map(v=>`<option ${cg.classe_env===v?'selected':''}>${v}</option>`).join('')}
+      </select></div>
+    </div>
+    <div class="g2c">
+      <div class="form-group"><label>(U.1) Niveau sonore dB(A)</label><input id="cg-son" type="number" value="${cg.niveau_sonore||''}"></div>
+      <div class="form-group"><label>(U.2) Régime moteur (tr/min)</label><input id="cg-rpm" type="number" value="${cg.regime_moteur||''}"></div>
+    </div>
+    <div class="g2c">
+      <div class="form-group"><label>(V.7) Émissions CO₂ (g/km)</label><input id="cg-co2" type="number" value="${cg.co2||''}"></div>
+      <div class="form-group"><label>(X.1) Date contrôle technique</label><input id="cg-ct" type="date" value="${cg.date_ct||''}"></div>
+    </div>
+    <div class="form-group"><label>(Z) Mentions particulières / Remarques</label><textarea id="cg-rem">${cg.remarques||''}</textarea></div>
+    ${mf}`;
+  }
+  if(m.type==='saisie-loyer'){
+    const t=m.tenant||{};
+    const p=m.existing||{};
+    const isComm=t.type_bail==='commercial';
+    const loyerRef=t.loyer_ref||0;
+    const chargesRef=t.charges||0;
+    const totalTTC=isComm?(loyerRef+chargesRef)*1.2:(loyerRef+chargesRef);
+    html=`${mhd('Saisir loyer — '+t.nom+' — '+m.mois+' '+m.annee)}
+    <div style="background:var(--bg2);padding:10px;border-radius:var(--radius);margin-bottom:14px;font-size:13px">
+      <b>${t.logement||''}</b>
+      ${isComm?`— Loyer HT : <b>${new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(loyerRef)}</b>
+       → TTC : <b>${new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(loyerRef*1.2)}</b>
+       ${chargesRef>0?`| Charges HT : <b>${new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(chargesRef)}</b> → TTC : <b>${new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(chargesRef*1.2)}</b>`:''}
+       | <b>Total TTC : ${new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(totalTTC)}</b>`
+      :`— Loyer réf. : <b>${new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(loyerRef)}</b>
+       ${chargesRef>0?`+ Charges : <b>${new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(chargesRef)}</b>`:''}
+       | <b>Total : ${new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(loyerRef+chargesRef)}</b>`}
+    </div>
+
+    <div style="border:0.5px solid var(--border2);border-radius:var(--radius);padding:12px;margin-bottom:12px">
+      <div class="sec" style="margin-bottom:10px">🏦 Virement locataire</div>
+      <div class="g2c">
+        <div class="form-group"><label>Montant reçu (€)</label><input id="m-sl-loc" type="number" step="0.01" value="${p.locataire_part||p.loyer||0}" placeholder="0.00"></div>
+        <div class="form-group"><label>Date de réception</label><input id="m-sl-date" type="date" value="${p.date_loc||''}"></div>
+      </div>
+    </div>
+
+    <div style="border:0.5px solid var(--border2);border-radius:var(--radius);padding:12px;margin-bottom:12px">
+      <div class="sec" style="margin-bottom:10px">🏢 Virement CAF</div>
+      <div class="g2c">
+        <div class="form-group"><label>Montant CAF (€)</label><input id="m-sl-caf" type="number" step="0.01" value="${p.caf||0}" placeholder="0.00"></div>
+        <div class="form-group"><label>Date de réception CAF</label><input id="m-sl-date-caf" type="date" value="${p.date_caf||''}"></div>
+      </div>
+    </div>
+
+    <div class="form-group"><label>Payé intégralement ?</label><select id="m-sl-paye">
+      <option value="true" ${p.paye?'selected':''}>Oui — loyer soldé</option>
+      <option value="partial" ${!p.paye&&(p.locataire_part>0||p.caf>0)?'selected':''}>Partiel — en cours</option>
+      <option value="false" ${!p.paye&&!(p.locataire_part>0||p.caf>0)?'selected':''}>Non — rien reçu</option>
+    </select></div>
+    <div class="form-group"><label>Notes (internes, non imprimées)</label><input id="m-sl-notes" value="${p.notes||''}"></div>
+    <div class="form-group"><label>Commentaire sur la quittance/facture <span style="color:var(--text2);font-size:11px">(apparaîtra sur le document)</span></label>
+      <input id="m-sl-comment" value="${p.commentaire||''}" placeholder="Ex: Paiement reçu par virement, Solde partiel — reste dû...">
+    </div>
+    ${mf}`;
+  }
+  if(m.type==='add-asset'||m.type==='edit-asset'){
+    const nom=q('m-asn')?.value.trim();if(!nom)return alert('Nom requis');
+    const rec={name:nom,category:q('m-asc')?.value,status:q('m-ass')?.value||'ok',
+      location:q('m-asl')?.value||null,description:q('m-asd')?.value||null,
+      serial:q('m-aser')?.value||null,brand:q('m-abr')?.value||null,
+      purchase_date:q('m-apd')?.value||null,notes:q('m-asn2')?.value||null};
+    if(m.type==='add-asset'){
+      const {data,error}=await sb.from('assets').insert(rec).select().single();
+      if(error){alert('Erreur : '+error.message);return;}
+      if(data)S.assets.push(data);
+    }else{
+      const {error}=await sb.from('assets').update(rec).eq('id',m.asset.id);
+      if(error){alert('Erreur : '+error.message);return;}
+      Object.assign(m.asset,rec);
+    }
   }
 
-  
+  if(m.type==='add-user'||m.type==='edit-user'){
+    const name=q('m-un')?.value.trim();if(!name)return alert('Nom requis');
+    const email=q('m-ue')?.value.trim();if(!email)return alert('Email requis');
+    const role=q('m-ur')?.value||'lecteur';
+    const profile=q('m-uprofile')?.value||'custom';
+    const tabEls=[...document.querySelectorAll('.utab-cb:checked')];
+    const assetEls=[...document.querySelectorAll('.uasset-cb:checked')];
+    const rec={name,email,role,profile,
+      visible_tabs:tabEls.map(e=>e.value),
+      visible_assets:assetEls.map(e=>e.value)};
+    if(m.type==='add-user'){
+      const pwd=q('m-upwd')?.value;if(!pwd)return alert('Mot de passe requis');
+      const {data,error}=await sb.from('users').insert({...rec,password:pwd,initials:name.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2)}).select().single();
+      if(error){alert('Erreur : '+error.message);return;}
+      if(data)S.users.push(data);
+    }else{
+      const pwd=q('m-upwd')?.value;
+      const upd=pwd?{...rec,password:pwd}:rec;
+      const {error}=await sb.from('users').update(upd).eq('id',m.user.id);
+      if(error){alert('Erreur : '+error.message);return;}
+      Object.assign(m.user,rec);
+    }
+  }
 
+  if(m.type==='add-facture'||m.type==='edit-facture'){
+    const fourn=q('fac-four')?.value.trim();if(!fourn)return alert('Fournisseur requis');
+    const ttc=parseFloat(q('fac-ttc')?.value);if(!ttc)return alert('Montant TTC requis');
+    const rec={fournisseur:fourn,date:q('fac-date')?.value,
+      categorie:q('fac-cat')?.value||null,compte:q('fac-compte')?.value||'savadur',
+      bien:q('fac-bien')?.value||null,wo_id:q('fac-wo')?.value||null,
+      montant_ht:parseFloat(q('fac-ht')?.value)||0,taux_tva:parseFloat(q('fac-tva')?.value)||0,
+      montant_ttc:ttc,description:q('fac-desc')?.value||null,
+      numero:q('fac-num')?.value||null,url_drive:q('fac-url')?.value||null,
+      rapproche:q('fac-rapproche')?.checked||false};
+    if(m.type==='add-facture'){
+      const {data,error}=await sb.from('factures').insert(rec).select().single();
+      if(error){alert('Erreur : '+error.message);return;}
+      if(data)S.factures=[data,...S.factures];
+    }else{
+      const {error}=await sb.from('factures').update(rec).eq('id',m.facture.id);
+      if(error){alert('Erreur : '+error.message);return;}
+      Object.assign(m.facture,rec);
+    }
+  }
 
+  if(m.type==='add-cso'||m.type==='edit-cso'){
+    const nom=q('m-cnom')?.value.trim();if(!nom)return alert('Désignation requise');
+    const empSel=q('m-cemp')?.value||'';
+    const empCustom=q('m-cemp-custom')?.value||'';
+    const emplacement=empSel&&empSel!==''?empSel:empCustom;
+    const rec={nom,categorie:q('m-ccat')?.value||null,reference:q('m-cref')?.value||null,
+      stock:parseFloat(q('m-cstock')?.value)||0,unite:q('m-cunite2')?.value||'pièce(s)',
+      stock_min:parseFloat(q('m-cstockmin')?.value)||0,
+      prix_achat:parseFloat(q('m-cprix2')?.value)||0,
+      emplacement:emplacement||null,description:q('m-cdesc2')?.value||null,
+      order_links:(q('m-clinks')?.value||'').trim().split('\n').map(l=>l.trim()).filter(Boolean),
+      affect_type:q('m-caffect-type')?.value||null,
+      asset_id:q('m-casset')?.value||null,
+      famille_id:q('m-cfamille')?.value||null,
+      affect_label:(q('m-caffect-type')?.value==='bien'?q('m-cbien')?.value:q('m-caffect-label')?.value)||null};
+    if(m.type==='add-cso'){
+      const {data,error}=await sb.from('consommables').insert(rec).select().single();
+      if(error){alert('Erreur : '+error.message);return;}
+      if(data)S.consommables.push(data);
+    }else{
+      const {error}=await sb.from('consommables').update(rec).eq('id',m.cso.id);
+      if(error){alert('Erreur : '+error.message);return;}
+      Object.assign(m.cso,rec);
+    }
+  }
 
+  if(m.type==='add-rng'||m.type==='edit-rng'){
+    const nom=q('m-rn')?.value.trim();if(!nom)return alert('Nom requis');
+    const rec={nom,description:q('m-rd')?.value||null,location:q('m-rl')?.value||null};
+    if(m.type==='add-rng'){
+      const {data,error}=await sb.from('rangements').insert(rec).select().single();
+      if(error){alert('Erreur : '+error.message);return;}
+      if(data)S.rangements.push(data);
+    }else{
+      const {error}=await sb.from('rangements').update(rec).eq('id',m.rng.id);
+      if(error){alert('Erreur : '+error.message);return;}
+      Object.assign(m.rng,rec);
+    }
+  }
 
-  if(m.type==='add-cpt'){
+  if(m.type==='add-tenant'||m.type==='edit-tenant'){
+    const nom=q('m-tnom')?.value?.trim();if(!nom)return alert('Nom requis');
+    const propVal=q('m-tprop')?.value||'';
+    const zoneVal=q('m-tzone')?.value||'';
+    const logement=propVal?(zoneVal?propVal+' — '+zoneVal:propVal):(m.type==='edit-tenant'?m.tenant?.logement||'':'');
+    const rec={nom,logement,email:q('m-temail')?.value||'',
+      telephone:q('m-ttel')?.value||'',type_bail:q('m-tbail')?.value||'habitation',
+      loyer_ref:parseFloat(q('m-tloy')?.value)||0,charges:parseFloat(q('m-tch')?.value)||0,
+      caution:parseFloat(q('m-tcau')?.value)||0,dette:parseFloat(q('m-tdet')?.value)||0,
+      caf:q('m-tcaf')?.value==='true',actif:q('m-tact')?.value!=='false',
+      bail_url:q('m-tbail-url')?.value||'',edl_url:q('m-tedl-url')?.value||'',
+      assurance_url:q('m-tassur-url')?.value||'',
+      date_entree:q('m-tent')?.value||null,date_sortie:q('m-tsort')?.value||null,
+      notes:q('m-tnotes')?.value||''};
+    if(m.type==='add-tenant'){
+      const {data,error}=await sb.from('tenants').insert(rec).select().single();
+      if(error){alert('Erreur création : '+error.message);return;}
+      if(data)S.tenants.push(data);
+    }else{
+      if(!m.tenant?.id){alert('ID locataire manquant');return;}
+      const {error}=await sb.from('tenants').update(rec).eq('id',m.tenant.id);
+      if(error){alert('Erreur modification : '+error.message);return;}
+      Object.assign(m.tenant,rec);
+    }
+  }
+
+  if(m.type==='add-cpt'||m.type==='edit-cpt'){
+    const nom=q('m-cptn')?.value.trim();if(!nom)return alert('Nom requis');
+    const rec={nom,tenant_id:q('m-cptten')?.value||null,
+      logement:q('m-cptlog')?.value||null,
+      prix_unitaire:parseFloat(q('m-cptprix')?.value)||0,
+      index_initial:parseFloat(q('m-cptidx')?.value)||0,
+      notes:q('m-cptnotes')?.value||null};
+    if(m.type==='add-cpt'){
       const {data,error}=await sb.from('compteurs').insert(rec).select().single();
       if(error){alert('Erreur : '+error.message);return;}
       if(data)S.compteurs.push(data);
-    } else {
+    }else{
       const {error}=await sb.from('compteurs').update(rec).eq('id',m.cpt.id);
       if(error){alert('Erreur : '+error.message);return;}
       Object.assign(m.cpt,rec);
-    }
-  
-
-  if(m.type==='add-releve'){
-    const cptId=q('m-rcpt').value;
-    const newIdx=parseFloat(q('m-rnew').value);
-    if(!newIdx&&newIdx!==0)return alert('Nouvel index requis');
-    const ancIdx=parseFloat(q('m-rold').value)||0;
-    const prix=parseFloat(q('m-rprix').value)||0;
-    const conso=Math.round((newIdx-ancIdx)*1000)/1000;
-    const montant=Math.round(conso*prix*100)/100;
-    const {data,error}=await sb.from('releves').insert({
-      compteur_id:cptId,date:q('m-rdate').value,
-      ancien_index:ancIdx,nouvel_index:newIdx,
-      prix_unitaire:prix,notes:q('m-rnotes').value,
-      paye:false,facture_envoyee:false
-    }).select().single();
-    if(error){alert('Erreur: '+error.message);return;}
-    if(data){
-      S.releves.unshift(data);
-      // Auto-send facture eau if tenant has email
-      const cpt=S.compteurs.find(c=>c.id===cptId);
-      const tenant=cpt?.tenant_id?S.tenants.find(t=>t.id===cpt.tenant_id):null;
-      if(tenant?.email&&montant>0){
-        try{
-          await sendFactureEau(data,cpt,tenant,conso,montant,prix);
-          await sb.from('releves').update({facture_envoyee:true}).eq('id',data.id);
-          data.facture_envoyee=true;
-          alert('✓ Relevé enregistré et facture envoyée à '+tenant.email);
-        }catch(e){
-          alert('✓ Relevé enregistré\n⚠ Facture non envoyée : '+e.message);
-        }
-      } else {
-        alert('✓ Relevé enregistré — Consommation : '+conso+' m³ — Montant : '+montant+'€'+(tenant&&!tenant.email?' (pas d\'email locataire)':''));
-      }
-    }
-  }
-
-  if(m.type==='add-revenue'){
-    const propId=q('m-rev-prop').value;if(!propId)return alert('Veuillez sélectionner un bien');
-    const amount=parseFloat(q('m-rev-amount').value);if(!amount)return alert('Montant requis');
-    const prop=S.topology.properties.find(p=>p.id===propId);
-    const zoneId=q('m-rev-zone')?.value||null;
-    const subId=q('m-rev-sub')?.value||null;
-    const {data}=await sb.from('revenues').insert({
-      prop_id:propId,prop_name:prop?.name||'',
-      zone_id:zoneId||null,sub_id:subId||null,
-      type:q('m-rev-type').value,
-      amount,charges:parseFloat(q('m-rev-charges').value)||0,
-      notes:q('m-rev-notes').value
-    }).select().single();
-    if(data){
-      // Map to frontend format
-      data.propId=data.prop_id;data.zoneId=data.zone_id;data.subId=data.sub_id;
-      S.revenues.push(data);
-    }
-  }
-
-  if(m.type==='add-zone'){
-    const name=q('m-zn').value.trim();if(!name)return alert('Nom requis');
-    const prop=S.topology.properties.find(p=>p.id===m.propId);if(!prop)return;
-    if(!prop.zones)prop.zones=[];
-    // Créer l'équipement associé
-    const {data:assetData}=await sb.from('assets').insert({name,category:'Immobilier',type:'Zone',location:prop.name,description:'Zone — '+name+' ('+prop.name+')',status:'ok',documents:[],history:[]}).select().single();
-    if(assetData)S.assets.push(assetData);
-    const nz={id:uid(),name,subZones:[],trades:[],assetId:assetData?.id||null};prop.zones.push(nz);
-    S.topoState.zoneId=nz.id;S.topoState.expanded[nz.id]=true;
-    await saveTopoToDB();}
-
-  if(m.type==='add-subzone'){
-    const name=q('m-szn').value.trim();if(!name)return alert('Nom requis');
-    const prop=S.topology.properties.find(p=>p.id===S.topoState.propId);
-    const zone=prop?.zones?.find(z=>z.id===m.zoneId);if(!zone)return;
-    if(!zone.subZones)zone.subZones=[];
-    // Créer l'équipement associé
-    const {data:assetData}=await sb.from('assets').insert({name,category:'Immobilier',type:'Sous-zone',location:prop.name+' › '+zone.name,description:'Sous-zone — '+name+' ('+zone.name+')',status:'ok',documents:[],history:[]}).select().single();
-    if(assetData)S.assets.push(assetData);
-    const ns={id:uid(),name,trades:[],assetId:assetData?.id||null};zone.subZones.push(ns);
-    S.topoState.subZoneId=ns.id;S.topoState.expanded[zone.id]=true;S.topoState.expanded[ns.id]=true;
-    await saveTopoToDB();}
-
-  if(m.type==='add-trade'){
-    const name=q('m-ttn').value.trim();if(!name)return alert('Nom requis');
-    const prop=S.topology.properties.find(p=>p.id===S.topoState.propId);
-    const zone=prop?.zones?.find(z=>z.id===m.zoneId);if(!zone)return;
-    const nt={id:uid(),name,icon:q('m-tti').value||'🔧',items:[]};
-    if(m.subZoneId){
-      const sub=zone.subZones?.find(s=>s.id===m.subZoneId);if(!sub)return;
-      if(!sub.trades)sub.trades=[];sub.trades.push(nt);
-      S.topoState.tradeId=nt.id;S.topoState.expanded[m.subZoneId]=true;
-    }else{
-      if(!zone.trades)zone.trades=[];zone.trades.push(nt);
-      S.topoState.tradeId=nt.id;S.topoState.expanded[m.zoneId]=true;
-    }
-    await saveTopoToDB();}
-
-  if(m.type==='add-topo-item'){
-    const name=q('m-tin').value.trim();if(!name)return alert('Nom requis');
-    const ts=S.topoState;
-    const prop=S.topology.properties.find(p=>p.id===ts.propId);
-    const zone=prop?.zones?.find(z=>z.id===ts.zoneId);
-    let trade=null;
-    if(ts.subZoneId){const sub=zone?.subZones?.find(s=>s.id===ts.subZoneId);trade=sub?.trades?.find(t=>t.id===ts.tradeId);}
-    else{trade=zone?.trades?.find(t=>t.id===ts.tradeId);}
-    if(!trade)return;
-    if(!trade.items)trade.items=[];
-    trade.items.push({id:uid(),name,notes:q('m-tinotes').value});
-    await saveTopoToDB();}
-
-  if(m.type==='add-wo-doc'){
-    const name=document.getElementById('m-wdn').value.trim();
-    const url=document.getElementById('m-wdu').value.trim();
-    if(!name||!url)return alert('Nom et URL requis');
-    const wo=S.workOrders.find(x=>x.id===m.woId);if(!wo)return;
-    const d={id:uid(),name,url,type:document.getElementById('m-wdt').value,date:document.getElementById('m-wdd').value};
-    wo.docs=[...(wo.docs||[]),d];
-    await sb.from('work_orders').update({docs:wo.docs}).eq('id',wo.id);
-  }
-
-  if(m.type==='edit-cg'){
-    const a=m.asset;
-    a.carte_grise={
-      immat:document.getElementById('cg-immat').value,
-      date_1ere_immat:document.getElementById('cg-date1').value,
-      titulaire:document.getElementById('cg-titulaire').value,
-      adresse:document.getElementById('cg-adresse').value,
-      marque:document.getElementById('cg-marque').value,
-      denomination:document.getElementById('cg-denom').value,
-      type_variante:document.getElementById('cg-type').value,
-      vin:document.getElementById('cg-vin').value,
-      masse_max:document.getElementById('cg-mmr').value,
-      masse_charge:document.getElementById('cg-mmc').value,
-      masse_service:document.getElementById('cg-ms').value,
-      cylindree:document.getElementById('cg-cyl').value,
-      puissance_kw:document.getElementById('cg-pkw').value,
-      carburant:document.getElementById('cg-carb').value,
-      puissance_cv:document.getElementById('cg-pcv').value,
-      categorie:document.getElementById('cg-cat').value,
-      usage:document.getElementById('cg-usage').value,
-      carrosserie_ce:document.getElementById('cg-carce').value,
-      carrosserie_nat:document.getElementById('cg-carnat').value,
-      places_assises:document.getElementById('cg-pass').value,
-      places_debout:document.getElementById('cg-pdeb').value,
-      couleur:document.getElementById('cg-coul').value,
-      classe_env:document.getElementById('cg-env').value,
-      niveau_sonore:document.getElementById('cg-son').value,
-      regime_moteur:document.getElementById('cg-rpm').value,
-      co2:document.getElementById('cg-co2').value,
-      date_ct:document.getElementById('cg-ct').value,
-      remarques:document.getElementById('cg-rem').value,
-    };
-    await sb.from('assets').update({carte_grise:a.carte_grise}).eq('id',a.id);
-    S.selectedAsset=a;
-  }
-
-  if(m.type==='saisie-loyer'){
-    const locPart=parseFloat(q('m-sl-loc')?.value)||0;
-    const dateLoc=q('m-sl-date').value||null;
-    const caf=parseFloat(q('m-sl-caf')?.value)||0;
-    const dateCaf=q('m-sl-date-caf')?.value||null;
-    const payeVal=q('m-sl-paye').value;
-    const paye=payeVal==='true';
-    const notes=q('m-sl-notes').value;
-    const montant=locPart+caf;
-    const moisNum=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'].indexOf(m.mois)+1;
-    let payment=m.existing;
-    const rec={loyer:montant,date_loc:dateLoc,date_caf:dateCaf,paye,caf,locataire_part:locPart,notes};
-    if(m.existing){
-      const {error}=await sb.from('rent_payments').update(rec).eq('id',m.existing.id);
-      if(error){alert('Erreur : '+error.message);return;}
-      Object.assign(m.existing,rec);
-    }else{
-      const {data,error}=await sb.from('rent_payments').insert({tenant_id:m.tenantId,annee:m.annee,mois:m.mois,mois_num:moisNum,...rec,quittance_envoyee:false}).select().single();
-      if(error){alert('Erreur : '+error.message);return;}
-      if(data){S.rentPayments.push(data);payment=data;}
-    }
-    if(paye&&m.tenant?.email&&payment){
-      try{
-        const r2 = await autoSendQuittance(m.tenant,payment,m.mois,m.annee,q('m-sl-comment')?.value||payment.commentaire||'');
-        alert('✓ Enregistré !\n\n📄 Document ouvert pour impression/PDF.\n📧 Copie envoyée sur '+ALERT_EMAIL+' (à transférer à '+m.tenant.email+')');
-      }catch(e){
-        console.error('Email err:',e);
-        alert('✓ Enregistré\n\n📄 '+e.message);
-      }
-    }else if(paye&&!m.tenant?.email){
-      alert('✓ Enregistré — aucun email renseigné pour ce locataire.');
-    }else{
-      alert('✓ Enregistré');
     }
   }
 
   closeModal();
   render();
 }
+
 
 function bindAll(){
   const q = id => document.getElementById(id);
