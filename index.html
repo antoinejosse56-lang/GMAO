@@ -3892,8 +3892,8 @@ function renderModal(){
     <div class="g2c">
       <div class="form-group"><label>Bien / Propriété</label>
         <select id="fac-bien">
-          <option value="">— Non rattaché —</option>
-          ${rngOpts}
+          <option value="">— Général / Non lié —</option>
+          ${(()=>{const opts=[];S.topology.properties.forEach(p=>{opts.push('<option value="'+p.name+'">'+p.name+'</option>');(p.zones||[]).forEach(z=>{opts.push('<option value="'+p.name+' — '+z.name+'">  '+p.name+' › '+z.name+'</option>');(z.subZones||[]).forEach(s=>{opts.push('<option value="'+p.name+' — '+z.name+' — '+s.name+'">    '+p.name+' › '+z.name+' › '+s.name+'</option>');});});});return opts.join('');})()}
         </select>
       </div>
       <div class="form-group"><label>BT lié (optionnel)</label>
@@ -4508,7 +4508,7 @@ function renderModal(){
           ${(()=>{
             const allOpts=[];
             S.topology.properties.forEach(p=>{
-              const pSelected=(t.logement||'').split(' — ')[0]===p.name;
+              const pSelected=(()=>{const l=t.logement||'';const sep=l.includes(' — ')?' — ':' - ';return l.split(sep)[0];})()=== p.name;
               allOpts.push('<option value="'+p.name+'" '+(pSelected?'selected':'')+'>'+p.name+'</option>');
             });
             return allOpts.join('');
@@ -4527,7 +4527,7 @@ function renderModal(){
             const pName=(t.logement||'').split(' — ')[0];
             const p=S.topology.properties.find(x=>x.name===pName);
             if(!p)return '';
-            const zName=(t.logement||'').split(' — ')[1]||'';
+            const sep2=(t.logement||'').includes(' — ')?' — ':' - ';const zName=(t.logement||'').split(sep2)[1]||'';
             return (p.zones||[]).map(z=>'<option value="'+z.name+'" '+(z.name===zName?'selected':'')+'>'+z.name+'</option>').join('');
           })()}
         </select>
@@ -4963,123 +4963,32 @@ async function saveModal(){
 
   if(m.type==='edit-wo'){
     const w=m.wo;
-    const journal=w.journal||[];
-    const tr=w.topo_ref||{};
-    // Build asset options
-    const allAssets=isAdmin()?S.assets:accessAssets(S.currentUser);
-    const assetOpts=`<option value="">— Aucun équipement —</option>`
-      +['Équipement','Véhicule','Outillage'].flatMap(cat=>{
-        const items=allAssets.filter(a=>a.category===cat);
-        if(!items.length)return[];
-        return [`<optgroup label="${cat}">${items.map(a=>`<option value="${a.id}" ${w.asset_id===a.id?'selected':''}>${a.name}</option>`).join('')}</optgroup>`];
-      }).join('');
-    // Build topo options
-    const topoOpts=[];
-    S.topology.properties.forEach(p=>{
-      topoOpts.push(`<option value="prop_${p.id}" ${tr.propId===p.id&&!tr.zoneId?'selected':''}>🏠 ${p.name}</option>`);
-      (p.zones||[]).forEach(z=>{
-        topoOpts.push(`<option value="zone_${p.id}_${z.id}" ${tr.zoneId===z.id&&!tr.subId?'selected':''}>&nbsp;&nbsp;📁 ${p.name} › ${z.name}</option>`);
-        (z.subZones||[]).forEach(s=>{
-          topoOpts.push(`<option value="sub_${p.id}_${z.id}_${s.id}" ${tr.subId===s.id?'selected':''}>&nbsp;&nbsp;&nbsp;&nbsp;📂 ${p.name} › ${z.name} › ${s.name}</option>`);
-        });
-      });
-    });
-    html=`${mhd('Modifier — '+w.title)}
-    <div class="form-group"><label>Titre *</label><input id="m-wt" value="${w.title||''}"></div>
-    <div class="form-group"><label>Description</label><textarea id="m-wd" rows="2">${w.description||''}</textarea></div>
-
-    <div style="border-top:0.5px solid var(--border);margin:12px 0 10px"></div>
-    <div style="font-size:12px;font-weight:500;color:var(--text2);margin-bottom:8px">📍 Localisation</div>
-    <div class="g2c">
-      <div class="form-group"><label>Zone / Bien immobilier</label>
-        <select id="m-wtopo">
-          <option value="">— Aucune —</option>
-          ${topoOpts.join('')}
-        </select>
-      </div>
-      <div class="form-group"><label>Équipement</label>
-        <select id="m-wasset">${assetOpts}</select>
-      </div>
-    </div>
-
-    <div style="border-top:0.5px solid var(--border);margin:12px 0 10px"></div>
-    <div class="g2c">
-      <div class="form-group"><label>Catégorie</label><select id="m-wc">
-        ${['Réparation','Urgence','Amélioration','Entretien','Remplacement','Autre'].map(c=>`<option ${w.category===c?'selected':''}>${c}</option>`).join('')}
-      </select></div>
-      <div class="form-group"><label>Statut</label><select id="m-wstatus">
-        <option value="open" ${w.status==='open'?'selected':''}>En cours</option>
-        <option value="done" ${w.status==='done'?'selected':''}>Terminé</option>
-        <option value="pending" ${w.status==='pending'?'selected':''}>En attente</option>
-      </select></div>
-    </div>
-    <div class="g2c">
-      <div class="form-group"><label>Date</label><input id="m-wdate" type="date" value="${w.date||NOW}"></div>
-      <div class="form-group"><label>🔔 M'alerter</label>
-        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-          <input type="checkbox" id="m-walert-on" ${w.alert_days?'checked':''} onchange="document.getElementById('m-walert-wrap').style.display=this.checked?'flex':'none'">
-          <label for="m-walert-on" style="font-size:12px;cursor:pointer">Envoyer une alerte email</label>
-          <span id="m-walert-wrap" style="display:${w.alert_days?'flex':'none'};align-items:center;gap:6px">
-            <input id="m-walert-days" type="number" min="1" max="90" value="${w.alert_days||7}" style="width:55px;padding:4px 6px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text)">
-            <span style="font-size:12px;color:var(--text2)">jours avant</span>
-          </span>
-        </div>
-      </div>
-      <div class="form-group"><label>Coût (€)</label><input id="m-wcost" type="number" value="${w.cost||0}"></div>
-    </div>
-    <div class="form-group" style="display:flex;align-items:center;gap:10px;padding:8px;background:var(--bg2);border-radius:var(--radius);margin-bottom:8px">
-      <input type="checkbox" id="m-wpaid" ${w.paid?'checked':''} style="width:16px;height:16px;cursor:pointer">
-      <label for="m-wpaid" style="cursor:pointer;font-weight:500;font-size:13px">💰 Dépense déjà réglée</label>
-    </div>
-    <div class="form-group"><label>Intervenant assigné</label>
-      <select id="m-wby-sel" onchange="const inp=document.getElementById('m-wby-custom');inp.style.display=this.value==='__autre__'?'':'none';">
-        <option value="">— Sélectionner —</option>
-        ${S.users.map(u=>`<option value="${u.name}|${u.email||''}" ${w.by_user===u.name?'selected':''}>${u.name}${u.email?' — '+u.email:''}</option>`).join('')}
-        <option value="__autre__" ${w.by_user&&!S.users.find(u=>u.name===w.by_user)?'selected':''}>✏ Autre...</option>
-      </select>
-      <input id="m-wby" value="${w.by_user||''}" placeholder="Nom intervenant..." style="margin-top:6px;display:${w.by_user&&!S.users.find(u=>u.name===w.by_user)?'':'none'}">
-      <input id="m-wby-custom" value="${w.by_user&&!S.users.find(u=>u.name===w.by_user)?w.by_user:''}" placeholder="Nom intervenant..." style="margin-top:6px;display:${w.by_user&&!S.users.find(u=>u.name===w.by_user)?'':'none'}">
-    </div>
-    <div class="g2c">
-      <div class="form-group"><label>Alerte email</label>
-        <select id="m-walert">
-          <option value="" ${!w.alert_pref?'selected':''}>Pas d'alerte</option>
-          <option value="at_creation" ${w.alert_pref==='at_creation'?'selected':''}>À la création</option>
-          <option value="1_before" ${w.alert_pref==='1_before'?'selected':''}>1 jour avant</option>
-          <option value="3_before" ${w.alert_pref==='3_before'?'selected':''}>3 jours avant</option>
-          <option value="7_before" ${w.alert_pref==='7_before'?'selected':''}>7 jours avant</option>
-        </select>
-      </div>
-      <div class="form-group"><label>Date d'échéance</label><input id="m-wdue" type="date" value="${w.due_date||''}"></div>
-    </div>
-
-    <div style="border-top:0.5px solid var(--border);margin:14px 0 10px"></div>
-    <div style="font-size:13px;font-weight:500;margin-bottom:8px">📋 Journal de suivi</div>
-
-    ${journal.length>0?`<div style="max-height:180px;overflow-y:auto;margin-bottom:10px;display:flex;flex-direction:column;gap:6px">
-      ${journal.slice().reverse().map(e=>`
-        <div style="background:var(--bg2);border-radius:var(--radius);padding:8px 10px;font-size:12px">
-          <div style="display:flex;justify-content:space-between;margin-bottom:3px">
-            <span style="font-weight:500;color:var(--text2)">${e.date}</span>
-            <span style="color:var(--text3)">${e.by||''}</span>
-          </div>
-          <div style="color:var(--text)">${e.note}</div>
-        </div>`).join('')}
-    </div>`:'<div style="font-size:12px;color:var(--text2);margin-bottom:10px">Aucune entrée pour l\'instant.</div>'}
-
-    <div style="background:var(--bg2);border-radius:var(--radius);padding:10px;border:0.5px solid var(--border2)">
-      <div style="font-size:12px;color:var(--text2);margin-bottom:6px">➕ Ajouter une entrée</div>
-      <textarea id="m-wjnote" rows="3" placeholder="Ex: Plombier intervenu, pièce commandée, travaux à 50%..." style="width:100%;padding:6px 8px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px;resize:vertical;box-sizing:border-box"></textarea>
-      <div style="margin-top:8px;display:flex;align-items:center;gap:8px">
-        <span style="font-size:11px;color:var(--text2)">Joindre un fichier Drive :</span>
-        <button type="button" class="btn btn-sm" onclick="openDrivePicker(f=>{const ta=document.getElementById('m-wjnote');ta.value=(ta.value?ta.value+'\n':'')+'📎 '+f.name+' : '+f.url;},(S.modal?.wo?.topo_ref?.propName||S.selectedAsset?.name||''))">
-          📁 Drive
-        </button>
-        <input id="m-wjfile-url" placeholder="ou coller un lien..." style="flex:1;padding:4px 8px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:11px">
-        <button type="button" class="btn btn-sm" onclick="const u=document.getElementById('m-wjfile-url').value.trim();if(u){const ta=document.getElementById('m-wjnote');ta.value=(ta.value?ta.value+'\n':'')+'📎 '+u;}">+ Lien</button>
-      </div>
-    </div>
-    ${mf}`;
+    const title=q('m-wt')?.value.trim();if(!title)return alert('Titre requis');
+    const newNote=q('m-wjnote')?.value?.trim();
+    const journal=[...(w.journal||[])];
+    if(newNote){journal.push({id:uid(),date:new Date().toLocaleDateString('fr-FR')+' '+new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}),by:S.currentUser?.name||'—',note:newNote});}
+    const topoVal=q('m-wtopo')?.value||'';
+    let topoRef=w.topo_ref||null;
+    if(topoVal.startsWith('prop_')){const pId=topoVal.replace('prop_','');const p=S.topology.properties.find(x=>x.id===pId);topoRef=p?{propId:pId,propName:p.name,zoneId:null,zoneName:'',subId:null,subName:''}:null;}
+    else if(topoVal.startsWith('zone_')){const [,pId,zId]=topoVal.split('_');const p=S.topology.properties.find(x=>x.id===pId);const z=p?.zones?.find(x=>x.id===zId);topoRef=z?{propId:pId,propName:p.name,zoneId:zId,zoneName:z.name,subId:null,subName:''}:null;}
+    else if(topoVal.startsWith('sub_')){const [,pId,zId,sId]=topoVal.split('_');const p=S.topology.properties.find(x=>x.id===pId);const z=p?.zones?.find(x=>x.id===zId);const s=z?.subZones?.find(x=>x.id===sId);topoRef=s?{propId:pId,propName:p.name,zoneId:zId,zoneName:z.name,subId:sId,subName:s.name}:null;}
+    else if(topoVal===''){topoRef=null;}
+    const assetId=q('m-wasset')?.value||null;
+    const bySel=q('m-wby-sel');
+    const byUser=bySel&&bySel.value&&bySel.value!=='__autre__'?bySel.value:q('m-wby')?.value||w.by_user||'';
+    const clNoms=[...document.querySelectorAll('.cl-item-nom')].map(el=>el.value.trim()).filter(Boolean);
+    const clQtes=[...document.querySelectorAll('.cl-item-qte')].map(el=>parseFloat(el.value)||1);
+    const clUnites=[...document.querySelectorAll('.cl-item-unite')].map(el=>el.value||'');
+    const checklist=clNoms.map((nom,i)=>({nom,qte:clQtes[i],unite:clUnites[i],fait:(w.checklist||[]).find(x=>x.nom===nom)?.fait||false}));
+    const upd={title,description:q('m-wd')?.value,category:q('m-wc')?.value,
+      status:q('m-wstatus')?.value,date:q('m-wdate')?.value,
+      cost:parseFloat(q('m-wcost')?.value)||0,
+      paid:q('m-wpaid')?.checked||false,
+      alert_days:q('m-walert-on')?.checked?(parseInt(q('m-walert-days')?.value)||7):(w.alert_days||null),
+      by_user:byUser,asset_id:assetId||w.asset_id,topo_ref:topoRef,journal,checklist};
+    const {error}=await sb.from('work_orders').update(upd).eq('id',w.id);
+    if(error){alert('Erreur : '+error.message);return;}
+    Object.assign(w,upd);
   }
   if(m.type==='add-wo'){
     const title=q('m-wt').value.trim();if(!title)return alert('Titre requis');
@@ -5738,7 +5647,7 @@ async function saveModal(){
     const rec={fournisseur:fourn,date:q('fac-date')?.value,
       categorie:q('fac-cat')?.value||null,compte:q('fac-compte')?.value||'savadur',
       bien:q('fac-bien')?.value||null,wo_id:q('fac-wo')?.value||null,
-      montant_ht:parseFloat(q('fac-ht')?.value)||0,taux_tva:parseFloat(q('fac-tva')?.value)||0,
+      montant_ht:parseFloat(q('fac-ht')?.value)||0,tva_pct:parseFloat(q('fac-tva')?.value)||0,
       montant_ttc:ttc,description:q('fac-desc')?.value||null,
       numero:q('fac-num')?.value||null,url_drive:q('fac-url')?.value||null,
       rapproche:q('fac-rapproche')?.checked||false};
