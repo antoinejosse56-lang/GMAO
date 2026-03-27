@@ -1838,7 +1838,7 @@ function renderFactures(){
             <input type="checkbox" data-rapproche-facture="${f.id}" ${f.rapproche?'checked':''} style="width:16px;height:16px;cursor:pointer">
           </td>
           <td style="white-space:nowrap">
-            ${f.url_drive?`<a href="${f.url_drive}" target="_blank" class="btn btn-sm">📄</a>`:''}
+            ${f.url_drive?`<a href="${f.drive_url}" target="_blank" class="btn btn-sm">📄</a>`:''}
             ${isAdmin()?`<button class="btn btn-sm" data-edit-facture="${f.id}">✎</button>`:''}
             ${isAdmin()?`<button class="btn btn-sm btn-d" data-del-facture="${f.id}">✕</button>`:''}
           </td>
@@ -1867,7 +1867,7 @@ function renderFactures(){
           <div style="font-weight:700;color:var(--red);font-size:15px">${fmt(f.montant_ttc)}</div>
           <div style="font-size:10px;color:var(--text2)">${f.compte==='savadur'?'SAVADUR':'Perso'}</div>
         </div>
-        ${f.url_drive?`<a href="${f.url_drive}" target="_blank" class="btn btn-sm" title="Voir la facture">📄</a>`:'<div style="width:32px"></div>'}
+        ${f.url_drive?`<a href="${f.drive_url}" target="_blank" class="btn btn-sm" title="Voir la facture">📄</a>`:'<div style="width:32px"></div>'}
       </div>`).join('')}
       ${filtered.length===0?'<div style="text-align:center;padding:20px;color:var(--text2)">Aucune facture pour cette période.</div>':''}
     </div>`;
@@ -4184,7 +4184,50 @@ function renderModal(){
 
   if(m.type==='add-mt'){html=`${mhd("Nouvelle gamme d'entretien")}
     <div class="form-group"><label>Nom *</label><input id="m-mn"></div>
-    <div class="form-group"><label>Équipement *</label><select id="m-ma">${S.assets.map(a=>`<option value="${a.id}">${a.name}</option>`).join('')}</select></div>
+    <div class="g2c">
+      <div class="form-group"><label>Bien (optionnel)</label>
+        <select id="m-mbien" onchange="(function(){
+          const pname=this.value;
+          const p=S.topology.properties.find(x=>x.name===pname);
+          const zones=p?(p.zones||[]):[];
+          const zsel=document.getElementById('m-mzone');
+          zsel.innerHTML='<option value="">— Aucune zone —</option>'+zones.map(z=>'<option value="'+z.id+'|'+z.name+'">'+z.name+'</option>').join('');
+          document.getElementById('m-mzone-wrap').style.display=zones.length?'':'none';
+          document.getElementById('m-msub-wrap').style.display='none';
+          const assets=pname?S.assets.filter(a=>(a.topo_ref?.propName||a.location||'').includes(pname)):S.assets;
+          document.getElementById('m-ma').innerHTML='<option value="">— Aucun équipement —</option>'+assets.map(a=>'<option value="'+a.id+'">'+a.name+'</option>').join('');
+        }).call(this)">
+          <option value="">— Tous les biens —</option>
+          ${S.topology.properties.map(p=>`<option value="${p.name}">${p.name}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group"><label>Équipement (optionnel)</label>
+        <select id="m-ma">
+          <option value="">— Aucun équipement —</option>
+          ${S.assets.map(a=>`<option value="${a.id}">${a.name}${a.location?' — '+a.location:''}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div class="g2c" id="m-mzone-wrap" style="display:none">
+      <div class="form-group"><label>Zone</label>
+        <select id="m-mzone" onchange="(function(){
+          const pname=document.getElementById('m-mbien').value;
+          const p=S.topology.properties.find(x=>x.name===pname);
+          const [zId,zName]=this.value.split('|');
+          const z=p?.zones?.find(x=>x.id===zId);
+          const subs=z?(z.subZones||[]):[];
+          document.getElementById('m-msub').innerHTML='<option value="">— Aucune sous-zone —</option>'+subs.map(s=>'<option value="'+s.id+'|'+s.name+'">'+s.name+'</option>').join('');
+          document.getElementById('m-msub-wrap').style.display=subs.length?'':'none';
+        }).call(this)">
+          <option value="">— Aucune zone —</option>
+        </select>
+      </div>
+      <div class="form-group" id="m-msub-wrap" style="display:none"><label>Sous-zone</label>
+        <select id="m-msub">
+          <option value="">— Aucune sous-zone —</option>
+        </select>
+      </div>
+    </div>
     <div class="form-group"><label>Description</label><textarea id="m-md"></textarea></div>
     <div class="form-group"><label>Type</label><select id="m-mtype" onchange="document.getElementById('mt-p').style.display=this.value==='periodic'?'':'none';document.getElementById('mt-d').style.display=this.value==='date'?'':'none'">
       <option value="periodic">Périodique (récurrent)</option><option value="date">Date fixe</option></select></div>
@@ -5649,7 +5692,7 @@ async function saveModal(){
       bien:q('fac-bien')?.value||null,wo_id:q('fac-wo')?.value||null,
       montant_ht:parseFloat(q('fac-ht')?.value)||0,tva_pct:parseFloat(q('fac-tva')?.value)||0,
       montant_ttc:ttc,description:q('fac-desc')?.value||null,
-      numero:q('fac-num')?.value||null,url_drive:q('fac-url')?.value||null,
+      numero:q('fac-num')?.value||null,drive_url:q('fac-url')?.value||null,
       rapproche:q('fac-rapproche')?.checked||false};
     if(m.type==='add-facture'){
       const {data,error}=await sb.from('factures').insert(rec).select().single();
