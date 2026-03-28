@@ -3509,6 +3509,7 @@ function renderMaintenance(){
           ${mt.auto_bt?`<span class="badge bteal" title="Génère un BT automatiquement">⚙ Auto-BT</span>`:''}
           ${canEdit()?`<button class="btn btn-sm btn-p" data-done-mt="${mt.id}">✓ Réalisé</button>`:''}
           ${canEdit()?`<button class="btn btn-sm" data-edit-mt="${mt.id}">✎</button> `:''}${isAdmin()?`<button class="btn btn-d btn-sm" data-del-mt="${mt.id}">✕</button>`:''}
+          <a class="btn btn-sm" href="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent('https://antoinejosse56-lang.github.io/GMAO/?action=done&mt='+mt.id)}" target="_blank" title="Télécharger QR Code" style="text-decoration:none">⬡ QR</a>
         </div>
       </div>`;
     }).join('')}
@@ -7704,7 +7705,157 @@ function exportFacturesExcel(){
 }
 
 
-loadAll().then(async()=>{render();setTimeout(()=>checkAndSendAlerts(),3000);});
+// ============================================================
+// QR CODE QUICK-ACTION — Validation gamme sans connexion
+// ============================================================
+function renderQRConfirm(mtId){
+  const mt=S.maintenanceTemplates.find(x=>x.id===mtId);
+  const asset=mt?S.assets.find(a=>a.id===mt.asset_id):null;
+  const root=document.getElementById('root');
+  if(!root)return;
+  if(!mt){
+    root.innerHTML=`<div style="display:flex;align-items:center;justify-content:center;height:100vh;background:#f5f5f3;font-family:Arial,sans-serif">
+      <div style="text-align:center;padding:40px;background:#fff;border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,.08);max-width:360px;width:90%">
+        <div style="font-size:48px">❌</div>
+        <div style="font-size:18px;font-weight:600;margin:16px 0 8px">Gamme introuvable</div>
+        <div style="color:#888;margin-bottom:24px">Le QR code est peut-être périmé.</div>
+        <a href="/" style="background:#1D9E75;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">Ouvrir GMAO Pro</a>
+      </div>
+    </div>`;
+    return;
+  }
+  const nextDue=mt.type==='periodic'?mt.next_due:mt.due_date;
+  const daysLeft=nextDue?Math.ceil((new Date(nextDue)-new Date())/86400000):null;
+  const overdue=daysLeft!==null&&daysLeft<0;
+  root.innerHTML=`<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;background:#f5f5f3;font-family:Arial,sans-serif;padding:20px;box-sizing:border-box">
+    <div style="background:#fff;border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,.08);max-width:400px;width:100%;overflow:hidden">
+      <div style="background:#1D9E75;padding:24px;text-align:center">
+        <div style="font-size:40px">✅</div>
+        <div style="color:#fff;font-size:20px;font-weight:700;margin-top:8px">Validation rapide</div>
+        <div style="color:rgba(255,255,255,.8);font-size:13px;margin-top:4px">GMAO Pro</div>
+      </div>
+      <div style="padding:24px">
+        <div style="font-size:18px;font-weight:600;margin-bottom:4px">${mt.name}</div>
+        <div style="color:#888;font-size:13px;margin-bottom:16px">${asset?'🔧 '+asset.name:(mt.bien||'')}</div>
+        ${mt.description?`<div style="background:#f5f5f3;border-radius:8px;padding:12px;font-size:13px;color:#555;margin-bottom:16px">${mt.description}</div>`:''}
+        ${nextDue?`<div style="background:${overdue?'#FDEDEC':'#E8F5E9'};border-radius:8px;padding:10px 14px;font-size:13px;margin-bottom:20px">
+          ${overdue?'⚠ En retard de '+(-daysLeft)+' jour(s)':'📅 Échéance dans '+daysLeft+' jour(s)'}
+          — ${new Date(nextDue).toLocaleDateString('fr-FR')}
+        </div>`:''}
+        <div style="margin-bottom:16px">
+          <label style="display:block;font-size:13px;font-weight:500;margin-bottom:6px">Réalisé par (optionnel)</label>
+          <input id="qr-by" placeholder="Votre nom ou société" style="width:100%;padding:10px 12px;border:1px solid #ddd;border-radius:8px;font-size:14px;box-sizing:border-box">
+        </div>
+        <div style="margin-bottom:20px">
+          <label style="display:block;font-size:13px;font-weight:500;margin-bottom:6px">Note / Observation (optionnel)</label>
+          <textarea id="qr-note" placeholder="Ex: RAS, vitres nettoyées, nettoyage complet effectué..." rows="3" style="width:100%;padding:10px 12px;border:1px solid #ddd;border-radius:8px;font-size:14px;box-sizing:border-box;resize:vertical"></textarea>
+        </div>
+        <div style="margin-bottom:16px">
+          <label style="display:block;font-size:13px;font-weight:500;margin-bottom:6px">🔐 Code PIN *</label>
+          <input id="qr-pin" type="password" inputmode="numeric" placeholder="Code PIN à 4 chiffres" maxlength="6"
+            style="width:100%;padding:10px 12px;border:1px solid #ddd;border-radius:8px;font-size:18px;box-sizing:border-box;text-align:center;letter-spacing:8px">
+          <div id="qr-pin-error" style="color:#E24B4A;font-size:12px;margin-top:4px;display:none">Code PIN incorrect</div>
+        </div>
+        <button onclick="handleQRDone('${mtId}')" style="width:100%;background:#1D9E75;color:#fff;border:none;padding:14px;border-radius:10px;font-size:16px;font-weight:700;cursor:pointer;margin-bottom:12px">
+          ✓ Confirmer — C'est fait !
+        </button>
+        <a href="/" style="display:block;text-align:center;color:#888;font-size:13px;text-decoration:none">Annuler — Retour à GMAO Pro</a>
+      </div>
+    </div>
+  </div>`;
+}
+
+async function handleQRDone(mtId){
+  const mt=S.maintenanceTemplates.find(x=>x.id===mtId);
+  if(!mt)return alert('Gamme introuvable');
+  
+  // Check PIN
+  const pin=document.getElementById('qr-pin')?.value.trim();
+  const pinError=document.getElementById('qr-pin-error');
+  // Get PIN from app_config or use default 1234
+  const configPin=(await sb.from('app_config').select('value').eq('key','qr_pin').single())?.data?.value||'1234';
+  if(!pin){if(pinError)pinError.style.display='';pinError.textContent='Code PIN requis';return;}
+  if(pin!==configPin){
+    if(pinError){pinError.style.display='';pinError.textContent='Code PIN incorrect — réessayez';}
+    document.getElementById('qr-pin').value='';
+    document.getElementById('qr-pin').focus();
+    return;
+  }
+  if(pinError)pinError.style.display='none';
+  
+  const by=document.getElementById('qr-by')?.value.trim()||'QR Code';
+  const note=document.getElementById('qr-note')?.value.trim()||'';
+  const today=new Date().toISOString().split('T')[0];
+  
+  // Calculate next due date
+  let nextDue=null;
+  if(mt.type==='periodic'&&mt.period_days){
+    const d=new Date();d.setDate(d.getDate()+mt.period_days);
+    nextDue=d.toISOString().split('T')[0];
+  }
+  
+  // Update in Supabase
+  const upd={last_done:today};
+  if(nextDue)upd.next_due=nextDue;
+  const {error}=await sb.from('maintenance_templates').update(upd).eq('id',mtId);
+  if(error){alert('Erreur : '+error.message);return;}
+  Object.assign(mt,upd);
+  
+  // Add journal entry if work_orders exist for this mt
+  // Send confirmation email to admin
+  try{
+    if(BREVO_API_KEY){
+      const asset=S.assets.find(a=>a.id===mt.asset_id);
+      const html=`<div style="font-family:sans-serif;max-width:500px;margin:0 auto">
+        <div style="background:#1D9E75;padding:20px;border-radius:8px 8px 0 0">
+          <h2 style="color:#fff;margin:0">✅ Gamme validée via QR Code</h2>
+        </div>
+        <div style="background:#fff;padding:20px;border:1px solid #e5e5e0;border-top:none;border-radius:0 0 8px 8px">
+          <p><strong>Gamme :</strong> ${mt.name}</p>
+          <p><strong>Équipement :</strong> ${asset?.name||mt.bien||'—'}</p>
+          <p><strong>Réalisé par :</strong> ${by}</p>
+          <p><strong>Date :</strong> ${new Date().toLocaleDateString('fr-FR')}</p>
+          ${note?`<p><strong>Observation :</strong> ${note}</p>`:''}
+          ${nextDue?`<p><strong>Prochaine échéance :</strong> ${new Date(nextDue).toLocaleDateString('fr-FR')}</p>`:''}
+        </div>
+      </div>`;
+      await fetch('https://api.brevo.com/v3/smtp/email',{
+        method:'POST',
+        headers:{'api-key':BREVO_API_KEY,'Content-Type':'application/json'},
+        body:JSON.stringify({sender:{name:'GMAO Pro',email:'antoinejosse56@gmail.com'},
+          to:[{email:'antoinejosse56@gmail.com',name:'Antoine JOSSE'}],
+          subject:`✅ ${mt.name} — Validé par ${by}`,htmlContent:html})
+      });
+    }
+  }catch(e){console.warn('Email QR confirmation failed:',e.message);}
+  
+  // Show success page
+  const root=document.getElementById('root');
+  root.innerHTML=`<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;background:#f5f5f3;font-family:Arial,sans-serif;padding:20px">
+    <div style="text-align:center;background:#fff;border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,.08);padding:40px;max-width:360px;width:100%">
+      <div style="font-size:64px">✅</div>
+      <div style="font-size:22px;font-weight:700;color:#1D9E75;margin:16px 0 8px">C'est enregistré !</div>
+      <div style="color:#555;margin-bottom:8px"><strong>${mt.name}</strong></div>
+      <div style="color:#888;font-size:13px;margin-bottom:24px">Validé le ${new Date().toLocaleDateString('fr-FR')} par ${by}</div>
+      ${nextDue?`<div style="background:#E8F5E9;border-radius:8px;padding:10px;font-size:13px;color:#2e7d32;margin-bottom:24px">📅 Prochaine échéance : ${new Date(nextDue).toLocaleDateString('fr-FR')}</div>`:''}
+      <a href="/" style="background:#1D9E75;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px">Retour à GMAO Pro</a>
+    </div>
+  </div>`;
+}
+
+
+loadAll().then(async()=>{
+  // Handle QR code quick-action URL params
+  const urlParams=new URLSearchParams(window.location.search);
+  const qrAction=urlParams.get('action');
+  const qrMtId=urlParams.get('mt');
+  if(qrAction==='done'&&qrMtId){
+    renderQRConfirm(qrMtId);
+    return;
+  }
+  render();
+  setTimeout(()=>checkAndSendAlerts(),3000);
+});
 </script>
 </body>
 </html>
