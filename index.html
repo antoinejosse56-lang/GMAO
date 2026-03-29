@@ -5325,11 +5325,7 @@ async function saveModal(){
     }
   }
 
-  if(m.type==='add-asset'){
-      const {data,error}=await sb.from('assets').insert(rec).select().single();
-      if(error){alert('Erreur : '+error.message);return;}
-      if(data)S.assets.push(data);
-    }
+
 
   if(m.type==='add-user'){
       const pwd=q('m-upwd')?.value;if(!pwd)return alert('Mot de passe requis');
@@ -5338,39 +5334,146 @@ async function saveModal(){
       if(data)S.users.push(data);
     }
 
-  if(m.type==='add-facture'){
-      const {data,error}=await sb.from('factures').insert(rec).select().single();
-      if(error){alert('Erreur : '+error.message);return;}
-      if(data)S.factures=[data,...S.factures];
-    }
 
-  if(m.type==='add-cso'){
-      const {data,error}=await sb.from('consommables').insert(rec).select().single();
-      if(error){alert('Erreur : '+error.message);return;}
-      if(data)S.consommables.push(data);
-    }
 
-  if(m.type==='add-rng'){
-      const {data,error}=await sb.from('rangements').insert(rec).select().single();
-      if(error){alert('Erreur : '+error.message);return;}
-      if(data)S.rangements.push(data);
-    }
 
-  if(m.type==='add-tenant'){
-      const {data,error}=await sb.from('tenants').insert(rec).select().single();
-      if(error){alert('Erreur création : '+error.message);return;}
-      if(data)S.tenants.push(data);
-    }
 
-  if(m.type==='add-cpt'){
-      const {data,error}=await sb.from('compteurs').insert(rec).select().single();
-      if(error){alert('Erreur : '+error.message);return;}
-      if(data)S.compteurs.push(data);
-    }
+
+
+
+
+
 
   if(m.type==='adjust-cso'){
     const c=m.cso;
     
+  }
+
+
+  if(m.type==='add-asset'||m.type==='edit-asset'){
+    const nom=q('m-asn')?.value.trim();if(!nom)return alert('Nom requis');
+    const rec={name:nom,category:q('m-asc')?.value||null,status:q('m-ass')?.value||'ok',
+      location:q('m-asl')?.value||null,description:q('m-asd')?.value||null,
+      serial:q('m-aser')?.value||null,brand:q('m-abr')?.value||null,
+      purchase_date:q('m-apd')?.value||null,notes:q('m-asn2')?.value||null};
+    if(m.type==='add-asset'){
+      const {data,error}=await sb.from('assets').insert(rec).select().single();
+      if(error){alert('Erreur : '+error.message);return;}
+      if(data)S.assets.push(data);
+    }else{
+      const {error}=await sb.from('assets').update(rec).eq('id',m.asset.id);
+      if(error){alert('Erreur : '+error.message);return;}
+      Object.assign(m.asset,rec);
+    }
+  }
+
+  if(m.type==='add-facture'||m.type==='edit-facture'){
+    const fourn=q('fac-four')?.value.trim();if(!fourn)return alert('Fournisseur requis');
+    const ttc=parseFloat(q('fac-ttc')?.value);if(!ttc)return alert('Montant TTC requis');
+    const rec={fournisseur:fourn,date:q('fac-date')?.value||null,
+      categorie:q('fac-cat')?.value||null,compte:q('fac-compte')?.value||'savadur',
+      bien:q('fac-bien')?.value||null,wo_id:q('fac-wo')?.value||null,
+      montant_ht:parseFloat(q('fac-ht')?.value)||0,
+      tva_pct:parseFloat(q('fac-tva')?.value)||0,
+      montant_ttc:ttc,description:q('fac-desc')?.value||null,
+      numero:q('fac-num')?.value||null,drive_url:q('fac-url')?.value||null,
+      rapproche:q('fac-rapproche')?.checked||false};
+    if(m.type==='add-facture'){
+      const {data,error}=await sb.from('factures').insert(rec).select().single();
+      if(error){alert('Erreur : '+error.message);return;}
+      if(data)S.factures=[data,...(S.factures||[])];
+    }else{
+      const {error}=await sb.from('factures').update(rec).eq('id',m.facture.id);
+      if(error){alert('Erreur : '+error.message);return;}
+      Object.assign(m.facture,rec);
+    }
+  }
+
+  if(m.type==='add-cso'||m.type==='edit-cso'){
+    const nom=q('m-cnom')?.value.trim();if(!nom)return alert('Désignation requise');
+    const empSel=q('m-cemp')?.value||'';
+    const empCustom=q('m-cemp-custom')?.value||'';
+    const emplacement=empSel&&empSel!==''?empSel:empCustom;
+    const rec={nom,categorie:q('m-ccat')?.value||null,reference:q('m-cref')?.value||null,
+      stock:parseFloat(q('m-cstock')?.value)||0,
+      unite:q('m-cunite2')?.value||'pièce(s)',
+      stock_min:parseFloat(q('m-cstockmin')?.value)||0,
+      prix_achat:parseFloat(q('m-cprix2')?.value)||0,
+      emplacement:emplacement||null,description:q('m-cdesc2')?.value||null,
+      order_links:(q('m-clinks')?.value||'').trim().split('\n').map(l=>l.trim()).filter(Boolean),
+      affect_type:q('m-caffect-type')?.value||null,
+      asset_id:q('m-casset')?.value||null,
+      famille_id:q('m-cfamille')?.value||null,
+      affect_label:(q('m-caffect-type')?.value==='bien'?q('m-cbien')?.value:q('m-caffect-label')?.value)||null};
+    if(m.type==='add-cso'){
+      const {data,error}=await sb.from('consommables').insert(rec).select().single();
+      if(error){alert('Erreur : '+error.message);return;}
+      if(data)S.consommables.push(data);
+    }else{
+      const {error}=await sb.from('consommables').update(rec).eq('id',m.cso.id);
+      if(error){alert('Erreur : '+error.message);return;}
+      Object.assign(m.cso,rec);
+    }
+  }
+
+  if(m.type==='add-rng'||m.type==='edit-rng'){
+    const nom=q('m-rn')?.value.trim();if(!nom)return alert('Nom requis');
+    const rec={nom,description:q('m-rd')?.value||null,location:q('m-rl')?.value||null};
+    if(m.type==='add-rng'){
+      const {data,error}=await sb.from('rangements').insert(rec).select().single();
+      if(error){alert('Erreur : '+error.message);return;}
+      if(data)S.rangements.push(data);
+    }else{
+      const {error}=await sb.from('rangements').update(rec).eq('id',m.rng.id);
+      if(error){alert('Erreur : '+error.message);return;}
+      Object.assign(m.rng,rec);
+    }
+  }
+
+  if(m.type==='add-tenant'||m.type==='edit-tenant'){
+    const nom=q('m-tnom')?.value?.trim();if(!nom)return alert('Nom requis');
+    const propVal=q('m-tprop')?.value||'';
+    const zoneVal=q('m-tzone')?.value||'';
+    const logement=propVal?(zoneVal?propVal+' — '+zoneVal:propVal):(m.type==='edit-tenant'?m.tenant?.logement||'':'');
+    const rec={nom,logement,
+      email:q('m-temail')?.value||'',telephone:q('m-ttel')?.value||'',
+      type_bail:q('m-tbail')?.value||'habitation',
+      loyer_ref:parseFloat(q('m-tloy')?.value)||0,
+      charges:parseFloat(q('m-tch')?.value)||0,
+      caution:parseFloat(q('m-tcau')?.value)||0,
+      dette:parseFloat(q('m-tdet')?.value)||0,
+      caf:q('m-tcaf')?.value==='true',actif:q('m-tact')?.value!=='false',
+      bail_url:q('m-tbail-url')?.value||'',edl_url:q('m-tedl-url')?.value||'',
+      assurance_url:q('m-tassur-url')?.value||'',
+      date_entree:q('m-tent')?.value||null,date_sortie:q('m-tsort')?.value||null,
+      notes:q('m-tnotes')?.value||''};
+    if(m.type==='add-tenant'){
+      const {data,error}=await sb.from('tenants').insert(rec).select().single();
+      if(error){alert('Erreur : '+error.message);return;}
+      if(data)S.tenants.push(data);
+    }else{
+      const {error}=await sb.from('tenants').update(rec).eq('id',m.tenant.id);
+      if(error){alert('Erreur : '+error.message);return;}
+      Object.assign(m.tenant,rec);
+    }
+  }
+
+  if(m.type==='add-cpt'||m.type==='edit-cpt'){
+    const nom=q('m-cptn')?.value.trim();if(!nom)return alert('Nom requis');
+    const rec={nom,tenant_id:q('m-cptten')?.value||null,
+      logement:q('m-cptlog')?.value||null,
+      prix_unitaire:parseFloat(q('m-cptprix')?.value)||0,
+      index_initial:parseFloat(q('m-cptidx')?.value)||0,
+      notes:q('m-cptnotes')?.value||null};
+    if(m.type==='add-cpt'){
+      const {data,error}=await sb.from('compteurs').insert(rec).select().single();
+      if(error){alert('Erreur : '+error.message);return;}
+      if(data)S.compteurs.push(data);
+    }else{
+      const {error}=await sb.from('compteurs').update(rec).eq('id',m.cpt.id);
+      if(error){alert('Erreur : '+error.message);return;}
+      Object.assign(m.cpt,rec);
+    }
   }
 
   closeModal();
@@ -6825,17 +6928,15 @@ async function autoSendQuittance(tenant,payment,mois,annee,commentaire=''){
   fetch('https://api.brevo.com/v3/smtp/email',{
     method:'POST',
     headers:{'api-key':BREVO_API_KEY,'Content-Type':'application/json','Accept':'application/json'},
-    body:JSON.stringify({sender:{name:FROM_NAME,email:FROM_EMAIL},to:[{email:'savadur56@gmail.com',name:'J&A SAVADUR'},{email:ALERT_EMAIL,name:'Admin GMAO'}],subject:copySubject,htmlContent:emailHtml})
+    body:JSON.stringify({sender:{name:FROM_NAME,email:FROM_EMAIL},to:isDubailQ?[{email:'savadur56@gmail.com',name:'J&A SAVADUR'},{email:ALERT_EMAIL,name:'Antoine JOSSE'}]:[{email:ALERT_EMAIL,name:'Antoine JOSSE'}],subject:copySubject,htmlContent:emailHtml})
   }).catch(e=>console.warn('Copie archive failed:',e.message));
-  // Open print preview
+  // Open print preview via blob URL (avoids popup blocker)
   try{
-    const w=window.open('','_blank');
-    if(w){
-      // Add auto-print script to the HTML before writing
-      const htmlWithPrint=emailHtml.replace('</body>','<script>window.onload=function(){setTimeout(function(){window.print();},600);};<\/script></body>');
-      w.document.write(htmlWithPrint);w.document.close();
-    }
-    else{
+    const htmlWithPrint=emailHtml.replace('</body>','<script>window.onload=function(){setTimeout(function(){window.print();},600);};<\/script></body>');
+    const blob=new Blob([htmlWithPrint],{type:'text/html;charset=utf-8'});
+    const blobUrl=URL.createObjectURL(blob);
+    const w=window.open(blobUrl,'_blank');
+    if(!w){
       // Fallback: data URI
       const url='data:text/html;charset=utf-8,'+encodeURIComponent(emailHtml);
       window.location.href=url;
