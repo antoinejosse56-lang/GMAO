@@ -2,9 +2,13 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <meta name="color-scheme" content="light">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro</title>
+<meta name="version" content="v4.0-20260329">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -5051,6 +5055,7 @@ async function saveModal(){
   const m = S.modal;
   if(!m)return;
 
+
   if(m.type==='edit-wo'){
     const w=m.wo;
     const title=q('m-wt')?.value.trim();if(!title)return alert('Titre requis');
@@ -5080,6 +5085,7 @@ async function saveModal(){
     if(error){alert('Erreur : '+error.message);return;}
     Object.assign(w,upd);
   }
+
   if(m.type==='add-wo'){
     const title=q('m-wt').value.trim();if(!title)return alert('Titre requis');
     const assetId=q('m-wa').value||null;
@@ -5111,37 +5117,16 @@ async function saveModal(){
     if(error){alert('Erreur : '+error.message);return;}
     if(data){S.workOrders.unshift(data);if(byUser){const u=S.users.find(x=>x.id===byUser);if(u?.email)await sendBTAssignmentEmail(data,u);}}
   }
-  if(m.type==='add-history'){html=`${mhd('Nouvelle intervention')}
-    <div class="g2c">
-      <div class="form-group"><label>Type</label><select id="m-ht"><option>Entretien</option><option>Réparation</option><option>Inspection</option><option>Travaux</option><option>Remplacement</option></select></div>
-      <div class="form-group"><label>Date</label><input id="m-hd" type="date" value="${NOW}"></div>
-    </div>
-    <div class="form-group"><label>Description *</label><textarea id="m-hdesc"></textarea></div>
-    <div class="g2c">
-      <div class="form-group"><label>Coût (€)</label><input id="m-hcost" type="number" placeholder="0"></div>
-      <div class="form-group"><label>Intervenant</label><input id="m-hby"></div>
-    </div>${mf}`;}
-  if(m.type==='add-doc'){html=`${mhd('Ajouter un document')}
-    <div class="form-group"><label>Nom *</label><input id="m-dn" placeholder="Ex: Devis couvreur 2024"></div>
-    <div class="g2c">
-      <div class="form-group"><label>Type</label><select id="m-dt"><option value="devis">Devis</option><option value="facture">Facture</option><option value="manuel">Manuel</option><option value="autre">Autre</option></select></div>
-      <div class="form-group"><label>Date</label><input id="m-dd" type="date" value="${NOW}"></div>
-    </div>
-    <div class="form-group"><label>Lien URL *</label><input id="m-du" placeholder="https://drive.google.com/..."></div>${mf}`;}
+
   if(m.type==='add-membre-event'){
-    const mb=S.famille.find(x=>x.id===m.membreId)||{};
-    html=`${mhd('Événement — '+(mb.prenom||''))}
-    <div class="form-group"><label>Titre *</label><input id="m-etitle" placeholder="Ex: RDV médecin, Passeport, Vaccin..."></div>
-    <div class="g2c">
-      <div class="form-group"><label>Type</label><select id="m-etype">
-        ${['RDV médical','Document','Administratif','Scolaire','Autre'].map(t=>`<option>${t}</option>`).join('')}
-      </select></div>
-      <div class="form-group"><label>Date *</label><input id="m-edate" type="date" value="${NOW}"></div>
-    </div>
-    <div class="form-group"><label>Lieu / Médecin</label><input id="m-elieu" placeholder="Ex: Dr. Martin, Mairie..."></div>
-    <div class="form-group"><label>Notes</label><input id="m-enotes"></div>
-    ${mf}`;
+    const mb=S.famille.find(x=>x.id===m.membreId);if(!mb)return;
+    const titre=q('m-etitle')?.value.trim();if(!titre)return alert('Titre requis');
+    const evt={id:uid(),titre,date:q('m-edate')?.value||null,type:q('m-etype')?.value||'Autre',notes:q('m-enotes')?.value||''};
+    if(!mb.events)mb.events=[];mb.events.push(evt);
+    const {error}=await sb.from('famille').update({events:mb.events}).eq('id',mb.id);
+    if(error){alert('Erreur : '+error.message);mb.events.pop();return;}
   }
+
   if(m.type==='add-membre-doc'){
     const mb=S.famille.find(x=>x.id===m.membreId);
     if(!mb)return;
@@ -5160,39 +5145,25 @@ async function saveModal(){
     const {error}=await sb.from('famille').update({documents:mb.documents}).eq('id',mb.id);
     if(error){alert('Erreur : '+error.message);mb.documents.pop();return;}
   }
+
   if(m.type==='edit-mt'){
-    const mt=m.mt||{};
-    html=`${mhd('Modifier — '+(mt.name||''))}
-    <div class="form-group"><label>Nom *</label><input id="m-mn" value="${mt.name||''}"></div>
-    <div class="form-group"><label>Description</label><textarea id="m-md">${mt.description||''}</textarea></div>
-    <div class="g2c">
-      <div class="form-group"><label>Priorité</label><select id="m-mprio">
-        ${['low','medium','high'].map(p=>`<option value="${p}" ${mt.priority===p?'selected':''}>${p==='low'?'Basse':p==='medium'?'Moyenne':'Haute'}</option>`).join('')}
-      </select></div>
-      <div class="form-group"><label>Intervenant</label>
-        <select id="m-muser">
-          <option value="">— Aucun —</option>
-          ${S.users.map(u=>`<option value="${u.id}" ${mt.assigned_to===u.id?'selected':''}>${u.name}</option>`).join('')}
-        </select>
-      </div>
-    </div>
-    ${mt.type==='periodic'?`<div class="g2c">
-      <div class="form-group"><label>Périodicité (jours)</label><input id="m-mperiod" type="number" value="${mt.period_days||30}"></div>
-      <div class="form-group"><label>Dernière réalisation</label><input id="m-mlast" type="date" value="${mt.last_done||''}"></div>
-    </div>`:''}
-    <div class="form-group"><label>Prochaine échéance</label><input id="m-mnext" type="date" value="${mt.next_due||mt.due_date||''}"></div>
-    <div class="form-group"><label>🔔 M'alerter par email</label>
-      <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
-        <input type="checkbox" id="m-mtalert-on" ${mt.alert_days?'checked':''} onchange="document.getElementById('m-mtalert-wrap').style.display=this.checked?'flex':'none'">
-        <label for="m-mtalert-on" style="font-size:12px;cursor:pointer">Envoyer une alerte avant l'échéance</label>
-        <span id="m-mtalert-wrap" style="display:${mt.alert_days?'flex':'none'};align-items:center;gap:6px">
-          <input id="m-mtalert-days" type="number" min="1" max="90" value="${mt.alert_days||30}" style="width:60px;padding:4px 6px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text)">
-          <span style="font-size:12px;color:var(--text2)">jours avant</span>
-        </span>
-      </div>
-    </div>
-    ${mf}`;
+    const mt=m.mt;if(!mt)return;
+    const nom=q('m-mn')?.value.trim();if(!nom)return alert('Nom requis');
+    const rec={
+      name:nom,description:q('m-md')?.value||null,
+      priority:q('m-mprio')?.value||'medium',
+      assigned_to:q('m-muser')?.value||null,
+      period_days:mt.type==='periodic'?(parseInt(q('m-mperiod')?.value)||mt.period_days):mt.period_days,
+      last_done:q('m-mlast')?.value||mt.last_done,
+      next_due:q('m-mnext')?.value||mt.next_due,
+      alert_days:q('m-mtalert-on')?.checked?(parseInt(q('m-mtalert-days')?.value)||30):null,
+      auto_bt:q('m-mautobt')?.checked||false,
+    };
+    const {error}=await sb.from('maintenance_templates').update(rec).eq('id',mt.id);
+    if(error){alert('Erreur : '+error.message);return;}
+    Object.assign(mt,rec);
   }
+
   if(m.type==='add-mt'){
     const nom=q('m-mn')?.value.trim();if(!nom)return alert('Nom requis');
     const assetId=q('m-ma')?.value||null;
@@ -5214,25 +5185,7 @@ async function saveModal(){
     if(error){alert('Erreur : '+error.message);return;}
     if(data)S.maintenanceTemplates.push(data);
   }
-  if(m.type==='adjust-cso'){
-    const c=m.cso;
-    html=`${mhd('Ajuster stock — '+c.nom)}
-    <div style="background:var(--bg2);padding:10px 12px;border-radius:var(--radius);margin-bottom:12px;font-size:13px">
-      Stock actuel : <b>${c.stock||0} ${c.unite||'unité(s)'}</b>
-    </div>
-    <div class="g2c">
-      <div class="form-group"><label>Opération</label>
-        <select id="m-cadj-op">
-          <option value="add">+ Entrée (réapprovisionnement)</option>
-          <option value="sub">- Sortie (utilisation)</option>
-          <option value="set">= Définir exactement</option>
-        </select>
-      </div>
-      <div class="form-group"><label>Quantité</label><input id="m-cadj-qty" type="number" min="0" step="0.1" value="1" autofocus></div>
-    </div>
-    <div class="form-group"><label>Motif</label><input id="m-cadj-note" placeholder="Ex: BT #123, Réapprovisionnement..."></div>
-    ${mf}`;
-  }
+
   if(m.type==='add-tool'){
     const name=q('m-tn').value.trim();if(!name)return alert('Nom requis');
     const locSel=q('m-tl');
@@ -5240,6 +5193,7 @@ async function saveModal(){
     const location=locSel?(locSel.value==='__autre__'?locCustom?.value||'':locSel.value):locCustom?.value||'';
     const {data}=await sb.from('tools').insert({name,category:q('m-tc').value,status:q('m-ts').value,location,description:q('m-tdesc').value,notes:q('m-tnotes').value}).select().single();
     if(data)S.tools.push(data);}
+
   if(m.type==='edit-tool'){
     const t=m.tool;
     const locSel2=q('m-tl');
@@ -5247,20 +5201,26 @@ async function saveModal(){
     const location2=locSel2?(locSel2.value==='__autre__'?locCustom2?.value||'':locSel2.value):locCustom2?.value||'';
     const upd={name:q('m-tn').value,category:q('m-tc').value,status:q('m-ts').value,location:location2,description:q('m-tdesc').value,notes:q('m-tnotes').value};
     await sb.from('tools').update(upd).eq('id',t.id);Object.assign(t,upd);}
+
   if(m.type==='link-asset'){
-    const immAssets = S.assets.filter(a=>a.category==='Immobilier'||!a.category);
-    html=`${mhd('Lier un équipement — '+m.nodeName)}
-    <div style="font-size:12px;color:var(--text2);margin-bottom:12px">Sélectionnez un équipement existant à associer à ce nœud, ou créez-en un nouveau automatiquement.</div>
-    <div class="form-group"><label>Équipement existant</label>
-      <select id="m-link-asset">
-        <option value="">— Créer automatiquement —</option>
-        ${S.assets.map(a=>`<option value="${a.id}">${a.name} (${a.category||'—'})</option>`).join('')}
-      </select>
-    </div>
-    ${mf}`;
+    const assetId=q('m-link-asset')?.value;
+    const nodeId=m.nodeId;
+    if(!nodeId)return;
+    function findAndUpdate(nodes){
+      for(const p of (S.topology.properties||[])){
+        if(p.id===nodeId){p.assetId=assetId;return true;}
+        for(const z of (p.zones||[])){
+          if(z.id===nodeId){z.assetId=assetId;return true;}
+          for(const s of (z.subZones||[])){
+            if(s.id===nodeId){s.assetId=assetId;return true;}
+          }
+        }
+      }
+    }
+    findAndUpdate();
+    await saveTopoToDB();
   }
-  if(m.type==='add-prop'){html=`${mhd('Nouveau bien')}
-    <div class="form-group"><label>Nom *</label><input id="m-pn" placeholder="Ex: Immeuble 26 rue Dubail..."></div>${mf}`;}
+
   if(m.type==='edl-form'){
     const t=m.tenant||{};
     const today=new Date().toLocaleDateString('fr-FR');
@@ -5285,203 +5245,10 @@ async function saveModal(){
       </tr>`;
     }).join('');
 
-    html=`${mhd((EDL_TYPE==='entree'?'📋 État des lieux ENTRÉE':'📋 État des lieux SORTIE')+(t.nom?' — '+t.nom:''))}
-    <div style="display:flex;gap:8px;margin-bottom:12px">
-      <button type="button" class="btn btn-sm ${EDL_TYPE==='entree'?'btn-p':''}" onclick="S.modal.edlType='entree';render()">Entrée</button>
-      <button type="button" class="btn btn-sm ${EDL_TYPE==='sortie'?'btn-p':''}" onclick="S.modal.edlType='sortie';render()">Sortie</button>
-    </div>
-    <div class="g2c">
-      <div class="form-group"><label>Date</label><input id="edl-date" type="date" value="${new Date().toISOString().slice(0,10)}"></div>
-      <div class="form-group"><label>Logement</label><input id="edl-log" value="${t.logement||''}" readonly style="background:var(--bg2)"></div>
-    </div>
-    <div class="g2c">
-      <div class="form-group"><label>Locataire</label><input id="edl-loc" value="${t.nom||''}" readonly style="background:var(--bg2)"></div>
-      <div class="form-group"><label>Bailleur</label><input id="edl-bail" value="J&A SAVADUR — Antoine JOSSE" readonly style="background:var(--bg2)"></div>
-    </div>
-
-    <div class="sec" style="margin:10px 0 6px">🚰 Compteurs</div>
-    <div class="g2c">
-      <div class="form-group"><label>Index eau (m³)</label><input id="edl-eau" type="number" step="0.001" value="${existingEdl.index_eau||''}" placeholder="Ex: 142.350"></div>
-      <div class="form-group"><label>N° de compteur</label><input id="edl-cpt" value="${existingEdl.num_cpt||''}" placeholder="Ex: 123456"></div>
-    </div>
-
-    <div class="sec" style="margin:10px 0 6px">🔑 Inventaire des clefs</div>
-    <div class="g3c" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px">
-      <div class="form-group"><label>Badges immeuble</label><input id="edl-badge" type="number" min="0" value="${existingEdl.cles_badge||0}"></div>
-      <div class="form-group"><label>Clés appartement</label><input id="edl-clef" type="number" min="0" value="${existingEdl.cles_appart||0}"></div>
-      <div class="form-group"><label>Clés boîte aux lettres</label><input id="edl-bal" type="number" min="0" value="${existingEdl.cles_bal||0}"></div>
-    </div>
-
-    <div class="sec" style="margin:10px 0 6px">🏠 État des pièces</div>
-    <div style="overflow-x:auto;margin-bottom:12px">
-      <table style="width:100%;border-collapse:collapse">
-        <thead><tr style="background:var(--bg2)">
-          <th style="padding:8px;text-align:left;font-size:11px">Pièce</th>
-          <th style="padding:8px;text-align:left;font-size:11px;min-width:130px">État général</th>
-          <th style="padding:8px;text-align:left;font-size:11px;min-width:160px">Observations</th>
-        </tr></thead>
-        <tbody>${pieceRows}</tbody>
-      </table>
-    </div>
-
-    <div class="form-group"><label>Équipements cuisine</label>
-      <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:4px">
-        ${['Plaque de cuisson','Hotte aspirante','Réfrigérateur','Lave-vaisselle','Micro-ondes'].map((eq,i)=>
-          `<label style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer">
-            <input type="checkbox" id="edl_eq_${i}" ${existingEdl['eq_'+i]?'checked':''}> ${eq}
-          </label>`).join('')}
-      </div>
-    </div>
-
-    <div class="form-group"><label>📝 Observations générales et annotations libres</label>
-      <textarea id="edl-notes" rows="4" placeholder="Remarques générales, réserves, travaux à prévoir..." style="width:100%;padding:8px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px;resize:vertical">${existingEdl.notes||''}</textarea>
-    </div>
-
-    <div class="sec" style="margin:10px 0 6px">✍ Signatures</div>
-    <div class="g2c">
-      <div class="form-group">
-        <label>Bailleur — J&A SAVADUR</label>
-        <canvas id="sig-bailleur" width="240" height="80" style="border:0.5px solid var(--border2);border-radius:var(--radius);background:#fff;cursor:crosshair;display:block;touch-action:none"></canvas>
-        <button type="button" class="btn btn-sm" style="margin-top:4px" onclick="clearSig('sig-bailleur')">↺ Effacer</button>
-      </div>
-      <div class="form-group">
-        <label>Locataire — ${t.nom||'Locataire'}</label>
-        <canvas id="sig-locataire" width="240" height="80" style="border:0.5px solid var(--border2);border-radius:var(--radius);background:#fff;cursor:crosshair;display:block;touch-action:none"></canvas>
-        <button type="button" class="btn btn-sm" style="margin-top:4px" onclick="clearSig('sig-locataire')">↺ Effacer</button>
-      </div>
-    </div>
-
-    <div style="display:flex;gap:8px;margin-top:8px">
-      <button type="button" class="btn btn-sm" id="btn-print-edl" style="flex:1">🖨 Imprimer / PDF</button>
-    </div>
-    ${mf}`;
   }
-  if(m.type==='bail-form'){
-    const t=m.tenant||{};
-    const bail=m.bail||{
-      type_bail:t.type_bail||'habitation',
-      loyer_ref:t.loyer_ref||0,
-      charges:t.charges||0,
-      caution:t.caution||0,
-      date_entree:t.date_entree||'',
-      duree:t.type_bail==='commercial'?'9 ans':'3 ans',
-    };
-    const diagDocs=[
-      {key:'dpe',label:'DPE — Diagnostic de performance énergétique'},
-      {key:'elec',label:'Diagnostic électrique'},
-      {key:'gaz',label:'Diagnostic gaz'},
-      {key:'plomb',label:"Constat de risque d'exposition au plomb (CREP)"},
-      {key:'amiante',label:'Diagnostic amiante'},
-      {key:'erp',label:'État des risques et pollutions (ERP)'},
-      {key:'bruit',label:'Information bruit / zone aéroportuaire'},
-      {key:'surface',label:'Mesurage loi Carrez / Boutin'},
-    ];
-    html=`${mhd('📝 Générer le bail'+(t.nom?' — '+t.nom:''))}
-    <div style="display:flex;gap:8px;margin-bottom:12px">
-      <button type="button" class="btn btn-sm ${bail.type_bail!=='commercial'?'btn-p':''}" onclick="S.modal.bail={...S.modal.bail,type_bail:'habitation'};render()">Habitation (loi Alur)</button>
-      <button type="button" class="btn btn-sm ${bail.type_bail==='commercial'?'btn-p':''}" onclick="S.modal.bail={...S.modal.bail,type_bail:'commercial'};render()">Commercial</button>
-    </div>
 
-    <div class="sec" style="margin-bottom:8px">🏠 Le logement</div>
-    <div class="g2c">
-      <div class="form-group"><label>Adresse complète *</label><input id="bail-adresse" value="${bail.adresse||t.logement||'26 rue Général Dubail'}" placeholder="N° appt, 26 rue Général Dubail, 56100 Lorient"></div>
-      <div class="form-group"><label>N° appartement / désignation</label><input id="bail-appt" value="${bail.appt||''}" placeholder="Ex: Appt 12, RDC gauche..."></div>
-    </div>
-    <div class="g2c">
-      <div class="form-group"><label>Type de logement</label><input id="bail-type" value="${bail.type_logement||'T3 — Appartement vide'}" placeholder="T3, T2, Studio..."></div>
-      <div class="form-group"><label>Surface habitable (m²)</label><input id="bail-surface" type="number" value="${bail.surface||''}"></div>
-    </div>
-    <div class="g2c">
-      <div class="form-group"><label>Étage</label><input id="bail-etage" value="${bail.etage||''}" placeholder="2ème étage, RDC..."></div>
-      <div class="form-group"><label>Cave / Parking inclus</label><input id="bail-annexes" value="${bail.annexes||''}" placeholder="Cave n°3, aucun..."></div>
-    </div>
 
-    <div class="sec" style="margin-top:12px;margin-bottom:8px">🏢 Le bailleur</div>
-    <div class="g2c">
-      <div class="form-group"><label>Nom / Raison sociale *</label><input id="bail-bailleur-nom" value="${bail.bailleur_nom||'J&A SAVADUR'}" placeholder="J&A SAVADUR"></div>
-      <div class="form-group"><label>Représentant</label><input id="bail-bailleur-rep" value="${bail.bailleur_rep||'Antoine JOSSE, Gérant'}" placeholder="Nom, qualité"></div>
-    </div>
-    <div class="form-group"><label>Adresse bailleur</label><input id="bail-bailleur-adr" value="${bail.bailleur_adr||'29 rue Vice-Amiral Bouvet, 56100 Lorient'}" placeholder="Adresse complète"></div>
 
-    <div class="sec" style="margin-top:12px;margin-bottom:8px">👤 Le locataire</div>
-    <div class="g2c">
-      <div class="form-group"><label>Nom complet *</label><input id="bail-loc-nom" value="${bail.loc_nom||t.nom||''}" placeholder="Nom Prénom"></div>
-      <div class="form-group"><label>Date de naissance</label><input id="bail-loc-nais" type="date" value="${bail.loc_nais||''}"></div>
-    </div>
-    <div class="g2c">
-      <div class="form-group"><label>Lieu de naissance</label><input id="bail-loc-lieu-nais" value="${bail.loc_lieu_nais||''}" placeholder="Ville, Pays"></div>
-      <div class="form-group"><label>Nationalité</label><input id="bail-loc-natio" value="${bail.loc_natio||'Française'}" placeholder="Française"></div>
-    </div>
-    <div class="g2c">
-      <div class="form-group"><label>Email</label><input id="bail-loc-email" type="email" value="${bail.loc_email||t.email||''}" placeholder="locataire@email.fr"></div>
-      <div class="form-group"><label>Téléphone</label><input id="bail-loc-tel" value="${bail.loc_tel||t.telephone||''}" placeholder="06..."></div>
-    </div>
-    <div class="form-group"><label>Adresse actuelle</label><input id="bail-loc-adr" value="${bail.loc_adr||''}" placeholder="Adresse actuelle avant entrée dans les lieux"></div>
-
-    <div class="sec" style="margin-top:12px;margin-bottom:8px">👥 Le garant (si applicable)</div>
-    <div class="g2c">
-      <div class="form-group"><label>Nom complet</label><input id="bail-gar-nom" value="${bail.gar_nom||t.garant||''}" placeholder="Nom Prénom"></div>
-      <div class="form-group"><label>Lien avec le locataire</label><input id="bail-gar-lien" value="${bail.gar_lien||''}" placeholder="Parent, conjoint..."></div>
-    </div>
-    <div class="form-group"><label>Adresse du garant</label><input id="bail-gar-adr" value="${bail.gar_adr||''}" placeholder="Adresse complète"></div>
-
-    <div class="sec" style="margin-top:12px;margin-bottom:8px">💰 Conditions financières</div>
-    <div class="g2c">
-      <div class="form-group"><label>Loyer mensuel (€ ${bail.type_bail==='commercial'?'HT':'charges non comprises'})</label><input id="bail-loyer" type="number" value="${bail.loyer_ref||t.loyer_ref||0}"></div>
-      <div class="form-group"><label>Charges mensuelles (€)</label><input id="bail-charges" type="number" value="${bail.charges||t.charges||0}"></div>
-    </div>
-    <div class="g2c">
-      <div class="form-group"><label>Dépôt de garantie (€)</label><input id="bail-caution" type="number" value="${bail.caution||t.caution||0}"></div>
-      <div class="form-group"><label>Modalités de paiement</label><input id="bail-paiement" value="${bail.paiement||'Virement bancaire, le 5 de chaque mois'}" placeholder="Modalités"></div>
-    </div>
-
-    <div class="sec" style="margin-top:12px;margin-bottom:8px">📅 Durée et date</div>
-    <div class="g2c">
-      <div class="form-group"><label>Date d'entrée *</label><input id="bail-date-entree" type="date" value="${bail.date_entree||t.date_entree||''}"></div>
-      <div class="form-group"><label>Durée du bail</label><input id="bail-duree" value="${bail.duree||'3 ans'}" placeholder="3 ans, 9 ans..."></div>
-    </div>
-    <div class="form-group"><label>Lieu de signature</label><input id="bail-lieu-sig" value="${bail.lieu_sig||'Lorient'}" placeholder="Ville"></div>
-
-    <div class="sec" style="margin-top:12px;margin-bottom:8px">📎 Annexes et diagnostics <span style="font-size:11px;color:var(--text2)">(coller les liens Drive/URL de vos PDFs)</span></div>
-    ${diagDocs.map(d=>`<div class="form-group" style="margin-bottom:6px">
-      <label style="font-size:11px">${d.label}</label>
-      <div style="display:flex;gap:6px">
-        <input id="bail-diag-${d.key}-url" value="${(bail['diag_'+d.key]?.url)||''}" placeholder="URL Drive ou laisser vide" style="flex:1">
-        <input id="bail-diag-${d.key}-date" type="date" value="${(bail['diag_'+d.key]?.date)||''}" style="width:130px" title="Date de validité">
-      </div>
-    </div>`).join('')}
-
-    <div class="sec" style="margin-top:12px;margin-bottom:8px">✍ Paraphe et signature</div>
-    <p style="font-size:12px;color:var(--text2);margin-bottom:8px">Le paraphe sera reproduit automatiquement sur toutes les sections du bail. La signature sera apposée à la fin du document.</p>
-    <div class="g2c">
-      <div class="form-group">
-        <label>Paraphe du bailleur <span style="font-size:10px;color:var(--text2)">(sera reproduit sur chaque section)</span></label>
-        <canvas id="bail-paraphe-bailleur" width="200" height="60" style="border:0.5px solid var(--border2);border-radius:var(--radius);background:#fff;cursor:crosshair;display:block;touch-action:none"></canvas>
-        <button type="button" class="btn btn-sm" style="margin-top:4px" onclick="clearSig('bail-paraphe-bailleur')">↺ Effacer</button>
-      </div>
-      <div class="form-group">
-        <label>Paraphe du locataire</label>
-        <canvas id="bail-paraphe-locataire" width="200" height="60" style="border:0.5px solid var(--border2);border-radius:var(--radius);background:#fff;cursor:crosshair;display:block;touch-action:none"></canvas>
-        <button type="button" class="btn btn-sm" style="margin-top:4px" onclick="clearSig('bail-paraphe-locataire')">↺ Effacer</button>
-      </div>
-    </div>
-    <div class="g2c" style="margin-top:8px">
-      <div class="form-group">
-        <label>Signature du bailleur <span style="font-size:10px;color:var(--text2)">(fin du document)</span></label>
-        <canvas id="bail-sig-bailleur" width="200" height="70" style="border:0.5px solid var(--border2);border-radius:var(--radius);background:#fff;cursor:crosshair;display:block;touch-action:none"></canvas>
-        <button type="button" class="btn btn-sm" style="margin-top:4px" onclick="clearSig('bail-sig-bailleur')">↺ Effacer</button>
-      </div>
-      <div class="form-group">
-        <label>Signature du locataire</label>
-        <canvas id="bail-sig-locataire" width="200" height="70" style="border:0.5px solid var(--border2);border-radius:var(--radius);background:#fff;cursor:crosshair;display:block;touch-action:none"></canvas>
-        <button type="button" class="btn btn-sm" style="margin-top:4px" onclick="clearSig('bail-sig-locataire')">↺ Effacer</button>
-      </div>
-    </div>
-    <div style="display:flex;gap:8px;margin-top:12px">
-      <button type="button" class="btn btn-sm" id="btn-preview-bail" style="flex:1">👁 Prévisualiser</button>
-    </div>
-    ${mf}`;
-  }
   if(m.type==='edit-tenant-old'){
     const logs = S.locatif?.logements||[];
     const log = logs.find(l=>l.id===m.logId);
@@ -5496,54 +5263,15 @@ async function saveModal(){
       log.notes=q('m-ten-notes').value;
     }
   }
-  if(m.type==='add-water'){
-    html=`${mhd('Nouveau relevé eau')}
-    <div class="form-group"><label>Logement *</label><select id="m-wat-log">
-      ${(S.locatif?.logements||[]).map(l=>`<option value="${l.id}">${l.name}</option>`).join('')}
-    </select></div>
-    <div class="g2c">
-      <div class="form-group"><label>Année</label><input id="m-wat-year" type="number" value="${new Date().getFullYear()}"></div>
-      <div class="form-group"><label>Période</label><select id="m-wat-period"><option>Janvier</option><option>Mars</option><option>Juin</option><option>Décembre</option></select></div>
-    </div>
-    <div class="g2c">
-      <div class="form-group"><label>Ancien index (m³)</label><input id="m-wat-old" type="number" step="0.001"></div>
-      <div class="form-group"><label>Nouvel index (m³)</label><input id="m-wat-new" type="number" step="0.001"></div>
-    </div>
-    <div class="g2c">
-      <div class="form-group"><label>Prix/m³ (€)</label><input id="m-wat-prix" type="number" step="0.0001"></div>
-      <div class="form-group"><label>Montant facturé (€)</label><input id="m-wat-mnt" type="number" step="0.01"></div>
-    </div>
-    <div class="form-group"><label>Date paiement</label><input id="m-wat-date" type="date"></div>
-    ${mf}`;
-  }
+
+
+
   if(m.type==='add-releve'){
     const cpt = S.compteurs.find(c=>c.id===m.cptId)||{};
     const lastRel = S.releves.filter(r=>r.compteur_id===m.cptId).sort((a,b)=>new Date(b.date)-new Date(a.date))[0];
     const tenant = cpt.tenant_id?S.tenants.find(t=>t.id===cpt.tenant_id):null;
-    html=`${mhd('Nouveau relevé — '+(cpt.name||''))}
-    <div class="form-group"><label>Compteur</label><select id="m-rcpt">
-      ${S.compteurs.map(c=>`<option value="${c.id}" ${c.id===m.cptId?'selected':''}>${c.name}${c.tenant_id?(()=>{const t=S.tenants.find(x=>x.id===c.tenant_id);return t?' — '+t.nom:'';})():''}</option>`).join('')}
-    </select></div>
-    ${tenant?`<div style="background:var(--bg2);padding:8px 12px;border-radius:var(--radius);font-size:12px;margin-bottom:10px">
-      👤 Locataire : <b>${tenant.nom}</b> — ${tenant.logement||''} ${tenant.email?'📧 '+tenant.email:'⚠ Pas d\'email'}
-    </div>`:''}
-    <div class="form-group"><label>Date du relevé *</label><input id="m-rdate" type="date" value="${NOW}"></div>
-    <div style="background:var(--bg2);padding:10px 12px;border-radius:var(--radius);margin-bottom:10px;font-size:12px">
-      Dernier relevé : <b>${lastRel?lastRel.nouvel_index+' '+(cpt.unite||'m³')+' le '+dateLabel(lastRel.date):'index initial = '+(cpt.index_initial||0)}</b>
-    </div>
-    <div class="g2c">
-      <div class="form-group"><label>Ancien index (auto)</label><input id="m-rold" type="number" step="0.001" value="${lastRel?.nouvel_index||cpt.index_initial||0}" readonly style="background:var(--bg2)"></div>
-      <div class="form-group"><label>Nouvel index *</label><input id="m-rnew" type="number" step="0.001" placeholder="Ex: 285.30" autofocus></div>
-    </div>
-    <div class="g2c">
-      <div class="form-group"><label>Prix unitaire (€/${cpt.unite||'m³'})</label><input id="m-rprix" type="number" step="0.001" value="${cpt.prix_unitaire||lastRel?.prix_unitaire||0}" placeholder="Ex: 3.50"></div>
-      <div class="form-group"><label>Notes</label><input id="m-rnotes" placeholder="Remarques..."></div>
-    </div>
-    ${tenant?.email?`<div style="background:#e8f5e9;padding:8px 12px;border-radius:var(--radius);font-size:12px;margin-top:8px">
-      📧 Une facture eau sera générée et envoyée à <b>${tenant.email}</b> à la validation.
-    </div>`:''}
-    ${mf}`;
   }
+
   if(m.type==='add-revenue'){
     const rec={
       description:q('m-revdesc')?.value||'',montant:parseFloat(q('m-revmnt')?.value)||0,
@@ -5554,100 +5282,11 @@ async function saveModal(){
     if(error){alert('Erreur : '+error.message);return;}
     if(data)S.revenues=(S.revenues||[]).concat(data);
   }
-  if(m.type==='add-zone'){html=`${mhd('Nouvelle zone')}
-    <div class="form-group"><label>Nom *</label><input id="m-zn" placeholder="Ex: Appart 1er gauche, RDC, Cave..."></div>${mf}`;}
-  if(m.type==='add-subzone'){html=`${mhd('Nouvelle sous-zone')}
-    <div class="form-group"><label>Nom *</label><input id="m-szn" placeholder="Ex: Cuisine, Salle de bain, Chambre..."></div>${mf}`;}
-  if(m.type==='add-trade'){html=`${mhd('Nouveau corps de métier')}
-    <div class="form-group"><label>Nom *</label><input id="m-ttn" placeholder="Ex: Plomberie, Électricité..."></div>
-    <div class="form-group"><label>Icône (emoji)</label><input id="m-tti" placeholder="🔧"></div>${mf}`;}
-  if(m.type==='add-topo-item'){html=`${mhd('Nouvel élément')}
-    <div class="form-group"><label>Nom *</label><input id="m-tin" placeholder="Ex: Compteur d'eau, Tableau 63A..."></div>
-    <div class="form-group"><label>Notes</label><input id="m-tinotes" placeholder="Marque, date, installation..."></div>${mf}`;}
-  if(m.type==='add-wo-doc'){html=`${mhd('Joindre un document au bon de travaux')}
-    <div class="form-group"><label>Nom du document *</label><input id="m-wdn" placeholder="Ex: Devis plombier, Facture électricien..."></div>
-    <div class="g2c">
-      <div class="form-group"><label>Type</label><select id="m-wdt">
-        <option value="devis">Devis</option>
-        <option value="facture">Facture</option>
-        <option value="photo">Photo / Constat</option>
-        <option value="autre">Autre</option>
-      </select></div>
-      <div class="form-group"><label>Date</label><input id="m-wdd" type="date" value="${NOW}"></div>
-    </div>
-    <div style="display:flex;gap:8px;align-items:flex-end;margin-bottom:10px">
-      <div class="form-group" style="flex:1;margin:0"><label>Lien URL</label><input id="m-wdu" placeholder="https://drive.google.com/..."></div>
-      <button type="button" class="btn btn-p" onclick="openDrivePicker(f=>{document.getElementById('m-wdu').value=f.url;document.getElementById('m-wdn').value=document.getElementById('m-wdn').value||f.name;},(S.modal?.woId&&S.workOrders.find(w=>w.id===S.modal.woId)?.topo_ref?.propName||''))" style="white-space:nowrap;flex-shrink:0">
-        📁 Choisir depuis Drive
-      </button>
-    </div>
-    ${mf}`;}
-  if(m.type==='edit-cg'){
-    const cg=m.asset.carte_grise||{};
-    html=`${mhd('Carte grise — '+m.asset.name)}
-    <div style="font-size:12px;color:var(--text2);margin-bottom:12px">Renseignez les champs de votre certificat d'immatriculation (les codes entre parenthèses correspondent aux cases officielles).</div>
-    <div class="g2c">
-      <div class="form-group"><label>(A) Immatriculation</label><input id="cg-immat" value="${cg.immat||''}" placeholder="AA-123-BB"></div>
-      <div class="form-group"><label>(B) Date 1ère immatriculation</label><input id="cg-date1" type="date" value="${cg.date_1ere_immat||''}"></div>
-    </div>
-    <div class="form-group"><label>(C.1) Titulaire</label><input id="cg-titulaire" value="${cg.titulaire||''}" placeholder="Nom Prénom"></div>
-    <div class="form-group"><label>(C.4.2) Adresse</label><input id="cg-adresse" value="${cg.adresse||''}" placeholder="Adresse complète"></div>
-    <div class="g2c">
-      <div class="form-group"><label>(D.1) Marque</label><input id="cg-marque" value="${cg.marque||''}" placeholder="Ex: RENAULT"></div>
-      <div class="form-group"><label>(D.3) Dénomination commerciale</label><input id="cg-denom" value="${cg.denomination||''}" placeholder="Ex: TRAFIC"></div>
-    </div>
-    <div class="g2c">
-      <div class="form-group"><label>(D.2) Type / Variante / Version</label><input id="cg-type" value="${cg.type_variante||''}"></div>
-      <div class="form-group"><label>(E) N° identification VIN</label><input id="cg-vin" value="${cg.vin||''}" placeholder="17 caractères"></div>
-    </div>
-    <div class="g2c">
-      <div class="form-group"><label>(F.1) Masse max. technique (kg)</label><input id="cg-mmr" type="number" value="${cg.masse_max||''}"></div>
-      <div class="form-group"><label>(F.2) Masse en charge max. (kg)</label><input id="cg-mmc" type="number" value="${cg.masse_charge||''}"></div>
-    </div>
-    <div class="form-group"><label>(G) Masse en service (kg)</label><input id="cg-ms" type="number" value="${cg.masse_service||''}"></div>
-    <div class="g2c">
-      <div class="form-group"><label>(P.1) Cylindrée (cm³)</label><input id="cg-cyl" type="number" value="${cg.cylindree||''}"></div>
-      <div class="form-group"><label>(P.2) Puissance nette max. (kW)</label><input id="cg-pkw" type="number" value="${cg.puissance_kw||''}"></div>
-    </div>
-    <div class="g2c">
-      <div class="form-group"><label>(P.3) Carburant / Énergie</label><select id="cg-carb">
-        ${['','Essence','Diesel','Électrique','Hybride essence','Hybride diesel','GPL','GNV','Hydrogène'].map(v=>`<option ${cg.carburant===v?'selected':''}>${v}</option>`).join('')}
-      </select></div>
-      <div class="form-group"><label>(P.6) Puissance admin. (CV)</label><input id="cg-pcv" type="number" value="${cg.puissance_cv||''}"></div>
-    </div>
-    <div class="g2c">
-      <div class="form-group"><label>(J) Catégorie véhicule</label><select id="cg-cat">
-        ${['','M1 (VP)','M2','M3','N1 (VU ≤3,5t)','N2','N3','L1e','L2e','L3e','L4e','L5e','O1','O2','O3','O4'].map(v=>`<option ${cg.categorie===v?'selected':''}>${v}</option>`).join('')}
-      </select></div>
-      <div class="form-group"><label>(J.3) Usage</label><select id="cg-usage">
-        ${['','Particulier','Commerce','Société','Location','Taxi','Ambulance','Enseignement','Agricole','Compétition'].map(v=>`<option ${cg.usage===v?'selected':''}>${v}</option>`).join('')}
-      </select></div>
-    </div>
-    <div class="g2c">
-      <div class="form-group"><label>(J.1) Carrosserie CE</label><input id="cg-carce" value="${cg.carrosserie_ce||''}" placeholder="Ex: AC, BB, BE..."></div>
-      <div class="form-group"><label>(J.2) Carrosserie nationale</label><input id="cg-carnat" value="${cg.carrosserie_nat||''}" placeholder="Ex: BERLINE, BREAK..."></div>
-    </div>
-    <div class="g2c">
-      <div class="form-group"><label>(S.1) Places assises</label><input id="cg-pass" type="number" value="${cg.places_assises||''}"></div>
-      <div class="form-group"><label>(S.2) Places debout</label><input id="cg-pdeb" type="number" value="${cg.places_debout||''}"></div>
-    </div>
-    <div class="g2c">
-      <div class="form-group"><label>(R) Couleur</label><input id="cg-coul" value="${cg.couleur||''}" placeholder="Ex: GRIS"></div>
-      <div class="form-group"><label>(V.9) Classe environnementale</label><select id="cg-env">
-        ${['','Euro 1','Euro 2','Euro 3','Euro 4','Euro 5','Euro 5a','Euro 5b','Euro 6','Euro 6b','Euro 6c','Euro 6d','Euro 6d-temp'].map(v=>`<option ${cg.classe_env===v?'selected':''}>${v}</option>`).join('')}
-      </select></div>
-    </div>
-    <div class="g2c">
-      <div class="form-group"><label>(U.1) Niveau sonore dB(A)</label><input id="cg-son" type="number" value="${cg.niveau_sonore||''}"></div>
-      <div class="form-group"><label>(U.2) Régime moteur (tr/min)</label><input id="cg-rpm" type="number" value="${cg.regime_moteur||''}"></div>
-    </div>
-    <div class="g2c">
-      <div class="form-group"><label>(V.7) Émissions CO₂ (g/km)</label><input id="cg-co2" type="number" value="${cg.co2||''}"></div>
-      <div class="form-group"><label>(X.1) Date contrôle technique</label><input id="cg-ct" type="date" value="${cg.date_ct||''}"></div>
-    </div>
-    <div class="form-group"><label>(Z) Mentions particulières / Remarques</label><textarea id="cg-rem">${cg.remarques||''}</textarea></div>
-    ${mf}`;
-  }
+
+  
+
+
+
   if(m.type==='saisie-loyer'){
     const t=m.tenant||{};
     const moisNum=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'].indexOf(m.mois)+1;
@@ -5685,150 +5324,53 @@ async function saveModal(){
       alert('✓ Enregistré !');
     }
   }
-  if(m.type==='add-asset'||m.type==='edit-asset'){
-    const nom=q('m-asn')?.value.trim();if(!nom)return alert('Nom requis');
-    const rec={name:nom,category:q('m-asc')?.value,status:q('m-ass')?.value||'ok',
-      location:q('m-asl')?.value||null,description:q('m-asd')?.value||null,
-      serial:q('m-aser')?.value||null,brand:q('m-abr')?.value||null,
-      purchase_date:q('m-apd')?.value||null,notes:q('m-asn2')?.value||null};
-    if(m.type==='add-asset'){
+
+  if(m.type==='add-asset'){
       const {data,error}=await sb.from('assets').insert(rec).select().single();
       if(error){alert('Erreur : '+error.message);return;}
       if(data)S.assets.push(data);
-    }else{
-      const {error}=await sb.from('assets').update(rec).eq('id',m.asset.id);
-      if(error){alert('Erreur : '+error.message);return;}
-      Object.assign(m.asset,rec);
     }
-  }
 
-  if(m.type==='add-user'||m.type==='edit-user'){
-    const name=q('m-un')?.value.trim();if(!name)return alert('Nom requis');
-    const email=q('m-ue')?.value.trim();if(!email)return alert('Email requis');
-    const role=q('m-ur')?.value||'lecteur';
-    const profile=q('m-uprofile')?.value||'custom';
-    const tabEls=[...document.querySelectorAll('.utab-cb:checked')];
-    const assetEls=[...document.querySelectorAll('.uasset-cb:checked')];
-    const rec={name,email,role,profile,
-      visible_tabs:tabEls.map(e=>e.value),
-      visible_assets:assetEls.map(e=>e.value)};
-    if(m.type==='add-user'){
+  if(m.type==='add-user'){
       const pwd=q('m-upwd')?.value;if(!pwd)return alert('Mot de passe requis');
       const {data,error}=await sb.from('users').insert({...rec,password:pwd,initials:name.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2)}).select().single();
       if(error){alert('Erreur : '+error.message);return;}
       if(data)S.users.push(data);
-    }else{
-      const pwd=q('m-upwd')?.value;
-      const upd=pwd?{...rec,password:pwd}:rec;
-      const {error}=await sb.from('users').update(upd).eq('id',m.user.id);
-      if(error){alert('Erreur : '+error.message);return;}
-      Object.assign(m.user,rec);
     }
-  }
 
-  if(m.type==='add-facture'||m.type==='edit-facture'){
-    const fourn=q('fac-four')?.value.trim();if(!fourn)return alert('Fournisseur requis');
-    const ttc=parseFloat(q('fac-ttc')?.value);if(!ttc)return alert('Montant TTC requis');
-    const rec={fournisseur:fourn,date:q('fac-date')?.value,
-      categorie:q('fac-cat')?.value||null,compte:q('fac-compte')?.value||'savadur',
-      bien:q('fac-bien')?.value||null,wo_id:q('fac-wo')?.value||null,
-      montant_ht:parseFloat(q('fac-ht')?.value)||0,tva_pct:parseFloat(q('fac-tva')?.value)||0,
-      montant_ttc:ttc,description:q('fac-desc')?.value||null,
-      numero:q('fac-num')?.value||null,drive_url:q('fac-url')?.value||null,
-      rapproche:q('fac-rapproche')?.checked||false};
-    if(m.type==='add-facture'){
+  if(m.type==='add-facture'){
       const {data,error}=await sb.from('factures').insert(rec).select().single();
       if(error){alert('Erreur : '+error.message);return;}
       if(data)S.factures=[data,...S.factures];
-    }else{
-      const {error}=await sb.from('factures').update(rec).eq('id',m.facture.id);
-      if(error){alert('Erreur : '+error.message);return;}
-      Object.assign(m.facture,rec);
     }
-  }
 
-  if(m.type==='add-cso'||m.type==='edit-cso'){
-    const nom=q('m-cnom')?.value.trim();if(!nom)return alert('Désignation requise');
-    const empSel=q('m-cemp')?.value||'';
-    const empCustom=q('m-cemp-custom')?.value||'';
-    const emplacement=empSel&&empSel!==''?empSel:empCustom;
-    const rec={nom,categorie:q('m-ccat')?.value||null,reference:q('m-cref')?.value||null,
-      stock:parseFloat(q('m-cstock')?.value)||0,unite:q('m-cunite2')?.value||'pièce(s)',
-      stock_min:parseFloat(q('m-cstockmin')?.value)||0,
-      prix_achat:parseFloat(q('m-cprix2')?.value)||0,
-      emplacement:emplacement||null,description:q('m-cdesc2')?.value||null,
-      order_links:(q('m-clinks')?.value||'').trim().split('\n').map(l=>l.trim()).filter(Boolean),
-      affect_type:q('m-caffect-type')?.value||null,
-      asset_id:q('m-casset')?.value||null,
-      famille_id:q('m-cfamille')?.value||null,
-      affect_label:(q('m-caffect-type')?.value==='bien'?q('m-cbien')?.value:q('m-caffect-label')?.value)||null};
-    if(m.type==='add-cso'){
+  if(m.type==='add-cso'){
       const {data,error}=await sb.from('consommables').insert(rec).select().single();
       if(error){alert('Erreur : '+error.message);return;}
       if(data)S.consommables.push(data);
-    }else{
-      const {error}=await sb.from('consommables').update(rec).eq('id',m.cso.id);
-      if(error){alert('Erreur : '+error.message);return;}
-      Object.assign(m.cso,rec);
     }
-  }
 
-  if(m.type==='add-rng'||m.type==='edit-rng'){
-    const nom=q('m-rn')?.value.trim();if(!nom)return alert('Nom requis');
-    const rec={nom,description:q('m-rd')?.value||null,location:q('m-rl')?.value||null};
-    if(m.type==='add-rng'){
+  if(m.type==='add-rng'){
       const {data,error}=await sb.from('rangements').insert(rec).select().single();
       if(error){alert('Erreur : '+error.message);return;}
       if(data)S.rangements.push(data);
-    }else{
-      const {error}=await sb.from('rangements').update(rec).eq('id',m.rng.id);
-      if(error){alert('Erreur : '+error.message);return;}
-      Object.assign(m.rng,rec);
     }
-  }
 
-  if(m.type==='add-tenant'||m.type==='edit-tenant'){
-    const nom=q('m-tnom')?.value?.trim();if(!nom)return alert('Nom requis');
-    const propVal=q('m-tprop')?.value||'';
-    const zoneVal=q('m-tzone')?.value||'';
-    const logement=propVal?(zoneVal?propVal+' — '+zoneVal:propVal):(m.type==='edit-tenant'?m.tenant?.logement||'':'');
-    const rec={nom,logement,email:q('m-temail')?.value||'',
-      telephone:q('m-ttel')?.value||'',type_bail:q('m-tbail')?.value||'habitation',
-      loyer_ref:parseFloat(q('m-tloy')?.value)||0,charges:parseFloat(q('m-tch')?.value)||0,
-      caution:parseFloat(q('m-tcau')?.value)||0,dette:parseFloat(q('m-tdet')?.value)||0,
-      caf:q('m-tcaf')?.value==='true',actif:q('m-tact')?.value!=='false',
-      bail_url:q('m-tbail-url')?.value||'',edl_url:q('m-tedl-url')?.value||'',
-      assurance_url:q('m-tassur-url')?.value||'',
-      date_entree:q('m-tent')?.value||null,date_sortie:q('m-tsort')?.value||null,
-      notes:q('m-tnotes')?.value||''};
-    if(m.type==='add-tenant'){
+  if(m.type==='add-tenant'){
       const {data,error}=await sb.from('tenants').insert(rec).select().single();
       if(error){alert('Erreur création : '+error.message);return;}
       if(data)S.tenants.push(data);
-    }else{
-      if(!m.tenant?.id){alert('ID locataire manquant');return;}
-      const {error}=await sb.from('tenants').update(rec).eq('id',m.tenant.id);
-      if(error){alert('Erreur modification : '+error.message);return;}
-      Object.assign(m.tenant,rec);
     }
-  }
 
-  if(m.type==='add-cpt'||m.type==='edit-cpt'){
-    const nom=q('m-cptn')?.value.trim();if(!nom)return alert('Nom requis');
-    const rec={nom,tenant_id:q('m-cptten')?.value||null,
-      logement:q('m-cptlog')?.value||null,
-      prix_unitaire:parseFloat(q('m-cptprix')?.value)||0,
-      index_initial:parseFloat(q('m-cptidx')?.value)||0,
-      notes:q('m-cptnotes')?.value||null};
-    if(m.type==='add-cpt'){
+  if(m.type==='add-cpt'){
       const {data,error}=await sb.from('compteurs').insert(rec).select().single();
       if(error){alert('Erreur : '+error.message);return;}
       if(data)S.compteurs.push(data);
-    }else{
-      const {error}=await sb.from('compteurs').update(rec).eq('id',m.cpt.id);
-      if(error){alert('Erreur : '+error.message);return;}
-      Object.assign(m.cpt,rec);
     }
+
+  if(m.type==='adjust-cso'){
+    const c=m.cso;
+    
   }
 
   closeModal();
@@ -7247,6 +6789,10 @@ function _openPicker(callback){
 // QUITTANCES & FACTURES
 // ============================================================
 async function autoSendQuittance(tenant,payment,mois,annee,commentaire=''){
+  // Sender depends on property type
+  const isDubailQ = dubailFilter(tenant.logement||'');
+  const SEND_FROM_EMAIL = isDubailQ ? 'savadur56@gmail.com'   : 'antoinejosse56@gmail.com';
+  const SEND_FROM_NAME  = isDubailQ ? 'J&A SAVADUR'           : 'Antoine JOSSE';
   if(!tenant.email)return;
   const fmt=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR',minimumFractionDigits:2}).format(n||0);
   const isCommercial=tenant.type_bail==='commercial';
@@ -7261,8 +6807,9 @@ async function autoSendQuittance(tenant,payment,mois,annee,commentaire=''){
   const subject=isCommercial
     ?'Facture de loyer '+mois+' '+annee+' — '+tenant.logement+' — N°'+invoiceNum
     :'Quittance de loyer '+mois+' '+annee+' — '+tenant.logement;
-  // Copie de sauvegarde à savadur56@gmail.com (en plus du BCC standard)
-  const copyBcc = FROM_EMAIL !== ALERT_EMAIL ? [{email:'savadur56@gmail.com'}] : [];
+  // Copie savadur56 uniquement pour biens Dubail
+  const isDubailTenant = dubailFilter(tenant.logement||'');
+  const copyBcc = isDubailTenant ? [{email:'savadur56@gmail.com'}] : [];
   // Envoi Brevo
   if(!BREVO_API_KEY)BREVO_API_KEY=ensureBrevoKey();
   if(!BREVO_API_KEY)throw new Error('Clé Brevo manquante');
@@ -7270,7 +6817,7 @@ async function autoSendQuittance(tenant,payment,mois,annee,commentaire=''){
   const resp=await fetch('https://api.brevo.com/v3/smtp/email',{
     method:'POST',
     headers:{'api-key':BREVO_API_KEY,'Content-Type':'application/json','Accept':'application/json'},
-    body:JSON.stringify({sender:{name:FROM_NAME,email:FROM_EMAIL},to:[{email:tenant.email,name:tenant.nom}],subject,htmlContent:emailHtml})
+    body:JSON.stringify({sender:{name:SEND_FROM_NAME,email:SEND_FROM_EMAIL},to:[{email:tenant.email,name:tenant.nom}],subject,htmlContent:emailHtml})
   });
   if(!resp.ok){const t=await resp.text();const w=window.open('','_blank');if(w){w.document.write(emailHtml);w.document.close();}throw new Error(t);}
   // Copie séparée à savadur56 et admin
@@ -7380,6 +6927,12 @@ async function sendAccuseEau(releve,cpt,tenant,montant){
 }
 
 function buildQuittanceHtml(tenant,payment,mois,annee,loyer,charges,total,datePaiement,fmt,commentaire=''){
+  const isDubail = dubailFilter(tenant.logement||'');
+  const bailNom   = isDubail ? 'J&A SAVADUR'               : 'Antoine JOSSE';
+  const bailAddr  = isDubail ? '29 RUE VICE AMIRAL BOUVET' : '5 RUE DE CALVIN';
+  const bailCP    = '56100 LORIENT';
+  const bailEmail = isDubail ? 'savadur56@gmail.com'        : 'antoinejosse56@gmail.com';
+  const bailTel   = isDubail ? '06.30.37.06.88'             : '';
   const caf=parseFloat(payment.caf||0);
   const locPart=parseFloat(payment.locataire_part||0);
   const dateLoc=payment.date_loc?new Date(payment.date_loc).toLocaleDateString('fr-FR'):datePaiement;
@@ -7405,7 +6958,7 @@ function buildQuittanceHtml(tenant,payment,mois,annee,loyer,charges,total,datePa
   const printBar='<div class="print-bar"><div><strong>🖨 Quittance de loyer</strong><div class="hint">Cliquez Imprimer pour enregistrer en PDF</div></div><button class="print-btn" onclick="setTimeout(()=>window.print(),300)">🖨 Imprimer / Sauvegarder PDF</button><a href="https://antoinejosse56-lang.github.io/GMAO/" class="print-btn" style="text-decoration:none;margin-left:8px">🏠 GMAO Pro</a></div>';
   return '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>'+css+'</style></head><body>'+printBar
     +'<div class="header">'
-    +'<div><strong>LE BAILLEUR</strong><br>J&A SAVADUR<br>29 RUE VICE AMIRAL BOUVET<br>56100 LORIENT<br>Savadur56@gmail.com<br>06.30.37.06.88</div>'
+    +'<div><strong>LE BAILLEUR</strong><br>'+bailNom+'<br>'+bailAddr+'<br>'+bailCP+'<br>'+bailEmail+(bailTel?'<br>'+bailTel:'')+'</div>'
     +'<div style="text-align:right"><strong>LE LOCATAIRE</strong><br>'+tenant.nom+'<br>'+tenant.logement+'<br>26 Rue Général Dubail<br>56100 LORIENT</div>'
     +'</div>'
     +'<div class="title">Quittance de loyer</div>'
@@ -7777,7 +7330,7 @@ function renderQRConfirm(mtId){
       <div style="background:#1D9E75;padding:24px;text-align:center">
         <div style="font-size:40px">✅</div>
         <div style="color:#fff;font-size:20px;font-weight:700;margin-top:8px">Validation rapide</div>
-        <div style="color:rgba(255,255,255,.8);font-size:13px;margin-top:4px">GMAO Pro</div>
+        <div style="color:rgba(255,255,255,.8);font-size:13px;margin-top:4px">GMAO Pro <span style="font-size:9px;opacity:0.5">v4</span></div>
       </div>
       <div style="padding:24px">
         <div style="font-size:18px;font-weight:600;margin-bottom:4px">${mt.name}</div>
