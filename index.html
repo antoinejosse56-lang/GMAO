@@ -1687,52 +1687,44 @@ function renderLocatif(){
   if(tab==='synthese'){
     const allowedTenantIds=new Set(tenants.map(t=>t.id));
     const filteredPayments=S.rentPayments.filter(p=>allowedTenantIds.has(p.tenant_id));
-    const totalPercu = filteredPayments.filter(p=>p.paye&&p.annee===year).reduce((s,p)=>s+(p.loyer||0),0);
-    const totalAttendu = tenants.reduce((s,t)=>s+(t.loyer_ref||0)*12,0);
-    const totalDettes = filteredPayments.filter(p=>!p.paye&&p.loyer>0&&p.annee===year).reduce((s,p)=>s+(p.loyer||0),0);
+    // Split Dubail vs perso
+    const dubailTenants=tenants.filter(t=>dubailFilter(t.logement||''));
+    const persoTenants=tenants.filter(t=>!dubailFilter(t.logement||''));
+    const dubailIds=new Set(dubailTenants.map(t=>t.id));
+    const persoIds=new Set(persoTenants.map(t=>t.id));
+    const dubailPmts=filteredPayments.filter(p=>dubailIds.has(p.tenant_id));
+    const persoPmts=filteredPayments.filter(p=>persoIds.has(p.tenant_id));
+
+    function statsBlock(label,tList,pmtList,color){
+      const percu=pmtList.filter(p=>p.paye&&p.annee===year).reduce((s,p)=>s+(p.loyer||0),0);
+      const attendu=tList.reduce((s,t)=>s+(t.loyer_ref||0)*12,0);
+      const dettes=pmtList.filter(p=>!p.paye&&p.loyer>0&&p.annee===year).reduce((s,p)=>s+(p.loyer||0),0);
+      return `<div class="card" style="margin-bottom:14px">
+        <div style="font-size:13px;font-weight:600;color:${color};margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid ${color}">${label} — ${tList.length} locataire(s)</div>
+        <div class="g4">
+          <div class="stat"><div class="stat-l">Loyers perçus ${year}</div><div class="stat-v" style="color:var(--green)">${fmt(percu)}</div></div>
+          <div class="stat"><div class="stat-l">Loyers attendus</div><div class="stat-v">${fmt(attendu)}</div></div>
+          <div class="stat"><div class="stat-l">En retard</div><div class="stat-v" style="color:var(--red)">${fmt(dettes)}</div></div>
+          <div class="stat"><div class="stat-l">Taux encaissement</div><div class="stat-v" style="color:${attendu>0?'var(--blue)':'var(--text2)'}">${attendu>0?Math.round(percu/attendu*100)+'%':'—'}</div></div>
+        </div>
+        ${tList.length>0?`<div style="overflow-x:auto;margin-top:10px"><table>
+          <thead><tr><th>Locataire</th><th>Logement</th><th>Loyer réf.</th>${MONTHS.filter((_,i)=>i<new Date().getMonth()+2).map(m=>`<th style="font-size:10px">${m.slice(0,3)}</th>`).join('')}<th>Total</th></tr></thead>
+          <tbody>${tList.map(t=>{
+            const tPmts=pmtList.filter(p=>p.tenant_id===t.id&&p.annee===year);
+            const total=tPmts.filter(p=>p.paye).reduce((s,p)=>s+(p.loyer||0),0);
+            return '<tr><td style="font-weight:500;font-size:12px">'+t.nom+'</td><td style="font-size:11px;color:var(--text2)">'+t.logement+'</td><td style="font-size:12px">'+fmt(t.loyer_ref||0)+'</td>'+MONTHS.filter((_,i)=>i<new Date().getMonth()+2).map(m=>{const p=tPmts.find(x=>x.mois===m);return '<td style="font-size:11px;text-align:center">'+(p?p.paye?'<span style="color:var(--green)">✓</span>':'<span style="color:var(--amber)">…</span>':'<span style="color:var(--text3)">—</span>')+'</td>';}).join('')+'<td style="font-weight:600;font-size:12px">'+fmt(total)+'</td></tr>';
+          }).join('')}</tbody>
+        </table></div>`:''}
+      </div>`;
+    }
+
     return `${tabBar}${yearBar}
-    <div class="g4" style="margin-bottom:16px">
-      <div class="stat"><div class="stat-l">Loyers perçus ${year}</div><div class="stat-v" style="color:var(--green)">${fmt(totalPercu)}</div></div>
-      <div class="stat"><div class="stat-l">Loyers attendus</div><div class="stat-v">${fmt(totalAttendu)}</div></div>
-      <div class="stat"><div class="stat-l">Impayés ${year}</div><div class="stat-v" style="color:var(--red)">${fmt(totalDettes)}</div></div>
-      <div class="stat"><div class="stat-l">Locataires actifs</div><div class="stat-v">${tenants.length}</div></div>
-    </div>
-    <div class="card">
-      <div class="sec">Loyers perçus par locataire — ${year}</div>
-      <div style="overflow-x:auto"><table>
-        <thead><tr><th>Logement</th><th>Locataire</th><th>Type</th><th>Loyer réf./mois</th>
-          ${MONTHS.map(m=>`<th style="font-size:10px;padding:4px 6px">${m.slice(0,3)}</th>`).join('')}
-          <th>Total reçu</th></tr></thead>
-        <tbody>
-        ${tenants.map(t=>{
-          const monthlyData = MONTHS.map(m=>{
-            const p = filteredPayments.find(x=>x.tenant_id===t.id&&x.annee===year&&x.mois===m);
-            return p?.paye?p.loyer||0:0;
-          });
-          const total = monthlyData.reduce((s,v)=>s+v,0);
-          return `<tr>
-            <td style="font-weight:500;font-size:12px">${t.logement||'—'}</td>
-            <td style="font-size:12px">${t.nom}</td>
-            <td><span class="badge ${t.type_bail==='commercial'?'bblue':'bgreen'}" style="font-size:10px">${t.type_bail==='commercial'?'Com.':'Hab.'}</span></td>
-            <td style="font-size:12px">${fmt(t.loyer_ref)}</td>
-            ${monthlyData.map(v=>`<td style="font-size:11px;text-align:right;padding:4px 6px;color:${v>0?'var(--green)':'var(--text3)'}">${v>0?v.toFixed(0):'—'}</td>`).join('')}
-            <td style="font-weight:500;color:var(--green)">${fmt(total)}</td>
-          </tr>`;
-        }).join('')}
-        <tr style="border-top:2px solid var(--border);font-weight:500">
-          <td colspan="4">TOTAL</td>
-          ${MONTHS.map(m=>{
-            const v = S.rentPayments.filter(p=>p.paye&&p.annee===year&&p.mois===m).reduce((s,p)=>s+(p.loyer||0),0);
-            return `<td style="font-size:11px;text-align:right;padding:4px 6px;font-weight:500">${v>0?v.toFixed(0):'—'}</td>`;
-          }).join('')}
-          <td style="color:var(--green)">${fmt(totalPercu)}</td>
-        </tr>
-        </tbody>
-      </table></div>
-    </div>`;
+    ${!isDubailProfile()?statsBlock('🏢 J&A SAVADUR — 26 rue Général Dubail',dubailTenants,dubailPmts,'#185FA5'):''}
+    ${!isDubailProfile()&&persoTenants.length>0?statsBlock('🏠 Biens personnels',persoTenants,persoPmts,'#1D9E75'):''}
+    ${isDubailProfile()?statsBlock('🏢 J&A SAVADUR — 26 rue Général Dubail',tenants,filteredPayments,'#185FA5'):''}
+    `;
   }
 
-  // ====== DETTES ======
   if(tab==='dettes'){
     const debts = tenants.map(t=>{
       const unpaid = S.rentPayments.filter(p=>p.tenant_id===t.id&&!p.paye&&p.loyer>0);
@@ -2444,7 +2436,7 @@ function renderEtiquettes(){
     const checked = locTools.filter(t=>invState[t.id]).length;
     return `${tabBar}
     <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center">
-      <select id="inv-loc-sel" style="padding:6px 10px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:13px">
+      <select id="inv-loc-sel" onchange="S.selInventLoc=this.value;S.inventState={};render();" style="padding:6px 10px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:13px">
         ${locations.map(l=>`<option value="${l}" ${l===selLoc?'selected':''}>${l}</option>`).join('')}
         <option value="">Tous les emplacements</option>
       </select>
@@ -2730,7 +2722,7 @@ function buildBailHtml(b){
   </style></head><body>
   <div class="print-bar no-print">
     <div><strong>📝 ${typeLabel}</strong><div style="font-size:11px;opacity:.85">Cliquez Imprimer pour enregistrer en PDF</div></div>
-    <button class="print-btn" onclick="window.print()">🖨 Imprimer</button>
+    <button class="print-btn" onclick="setTimeout(()=>window.print(),300)">🖨 Imprimer / Sauvegarder PDF</button>
     <a href="https://antoinejosse56-lang.github.io/GMAO/" class="print-btn" style="text-decoration:none;margin-left:8px">🏠 GMAO Pro</a>
   </div>
 
@@ -2856,7 +2848,7 @@ function buildEdlHtml(edl){
   </style></head><body>
   <div class="print-bar no-print">
     <div><strong>📋 État des lieux ${typeLabel}</strong><div style="font-size:11px;opacity:.85">Cliquez Imprimer pour enregistrer en PDF</div></div>
-    <button class="print-btn" onclick="window.print()">🖨 Imprimer</button>
+    <button class="print-btn" onclick="setTimeout(()=>window.print(),300)">🖨 Imprimer / Sauvegarder PDF</button>
     <a href="https://antoinejosse56-lang.github.io/GMAO/" class="print-btn" style="text-decoration:none;margin-left:8px">🏠 GMAO Pro</a>
   </div>
   <h1>ÉTAT DES LIEUX D'${typeLabel}</h1>
@@ -2897,7 +2889,10 @@ function printEdl(edl,tenant,htmlOverride){
   const html=htmlOverride||buildEdlHtml(edl);
   try{
     const w=window.open('','_blank');
-    if(w){w.document.write(html);w.document.close();}
+    if(w){
+      const htmlP=html.replace('</body>','<script>window.onload=function(){setTimeout(function(){window.print();},600);};<\/script></body>');
+      w.document.write(htmlP);w.document.close();
+    }
     else{const url='data:text/html;charset=utf-8,'+encodeURIComponent(html);window.location.href=url;}
   }catch(e){
     const a=document.createElement('a');
@@ -3535,6 +3530,41 @@ function renderUsers(){
   </table></div></div>`;
 }
 
+function woUpdateZone(){
+  const propId=document.getElementById('m-wa-prop')?.value;
+  const p=S.topology.properties.find(x=>x.id===propId);
+  const zones=p?(p.zones||[]):[];
+  const zoneSel=document.getElementById('m-wa-zone');
+  const zoneWrap=document.getElementById('m-wa-zone-wrap');
+  const subWrap=document.getElementById('m-wa-sub-wrap');
+  if(zoneSel){
+    zoneSel.innerHTML='<option value="">— Aucune zone —</option>'+zones.map(z=>'<option value="'+z.id+'">'+z.name+'</option>').join('');
+  }
+  if(zoneWrap) zoneWrap.style.display=zones.length?'':'none';
+  if(subWrap) subWrap.style.display='none';
+  // Also filter assets by property
+  const assets=propId?S.assets.filter(a=>(a.topo_ref?.propId||'')===(propId)||((a.location||'').includes(p?.name||'XXXXXX'))):S.assets;
+  const assetSel=document.getElementById('m-wa');
+  if(assetSel){
+    assetSel.innerHTML='<option value="">— Aucun équipement spécifique —</option>'+assets.map(a=>'<option value="'+a.id+'">'+a.name+'</option>').join('');
+  }
+}
+
+function woUpdateSubZone(){
+  const propId=document.getElementById('m-wa-prop')?.value;
+  const zoneId=document.getElementById('m-wa-zone')?.value;
+  const p=S.topology.properties.find(x=>x.id===propId);
+  const z=p?.zones?.find(x=>x.id===zoneId);
+  const subs=z?(z.subZones||[]):[];
+  const subSel=document.getElementById('m-wa-sub');
+  const subWrap=document.getElementById('m-wa-sub-wrap');
+  if(subSel){
+    subSel.innerHTML='<option value="">— Aucune sous-zone —</option>'+subs.map(s=>'<option value="'+s.id+'">'+s.name+'</option>').join('');
+  }
+  if(subWrap) subWrap.style.display=subs.length?'':'none';
+}
+
+
 function renderModal(){
   const m = S.modal;
   let html = '';
@@ -3819,14 +3849,30 @@ function renderModal(){
     const mb=S.famille.find(x=>x.id===m.membreId)||{};
     html=`${mhd('Document — '+(mb.prenom||''))}
     <div class="form-group"><label>Type de document *</label><select id="m-dtype">
-      ${['Passeport','Carte nationale d\'identité','Permis de conduire','Carte Vitale','Mutuelle','Carte de séjour','Acte de naissance','Livret de famille','Autre'].map(t=>`<option>${t}</option>`).join('')}
+      ${['Passeport','Carte nationale d\'identité','Permis de conduire','Carte Vitale','Mutuelle','Carte de séjour','Acte de naissance','Livret de famille','Autre'].map(t=>`<option ${(m.doc?.type===t)?'selected':''}>${t}</option>`).join('')}
     </select></div>
-    <div class="form-group"><label>N° de document</label><input id="m-dnum" placeholder="Ex: 12AB34567"></div>
+    <div class="form-group"><label>N° de document</label><input id="m-dnum" value="${(m.doc?.numero)||''}" placeholder="Ex: 12AB34567"></div>
     <div class="g2c">
-      <div class="form-group"><label>Date de délivrance</label><input id="m-ddelivre" type="date"></div>
-      <div class="form-group"><label>Date d'expiration</label><input id="m-dexpiry" type="date"></div>
+      <div class="form-group"><label>Date de délivrance</label><input id="m-ddelivre" type="date" value="${(m.doc?.date_delivrance)||''}"></div>
+      <div class="form-group"><label>Date d'expiration</label><input id="m-dexpiry" type="date" value="${(m.doc?.date_expiry)||''}"></div>
     </div>
     <div class="form-group"><label>Notes</label><input id="m-dnotes"></div>
+    <div class="g2c">
+      <div class="form-group">
+        <label>🔔 Rappel avant expiration</label>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
+          <input id="m-dreminder" type="number" min="1" max="365" value="${(m.doc?.reminder_days)||60}" style="width:80px;padding:6px 8px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text)">
+          <span style="font-size:12px;color:var(--text2)">jours avant</span>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>🔗 Document Drive</label>
+        <div style="display:flex;gap:6px;margin-top:4px">
+          <input id="m-ddrive" value="${(m.doc?.drive_url)||''}" placeholder="https://drive.google.com/..." style="flex:1;padding:6px 8px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">
+          <button type="button" class="btn btn-sm" onclick="openDrivePicker(f=>{document.getElementById('m-ddrive').value=f.url;})">📁</button>
+        </div>
+      </div>
+    </div>
     ${mf}`;
   }
 
@@ -5097,18 +5143,22 @@ async function saveModal(){
     ${mf}`;
   }
   if(m.type==='add-membre-doc'){
-    const mb=S.famille.find(x=>x.id===m.membreId)||{};
-    html=`${mhd('Document — '+(mb.prenom||''))}
-    <div class="form-group"><label>Type de document *</label><select id="m-dtype">
-      ${['Passeport','Carte nationale d\'identité','Permis de conduire','Carte Vitale','Mutuelle','Carte de séjour','Acte de naissance','Livret de famille','Autre'].map(t=>`<option>${t}</option>`).join('')}
-    </select></div>
-    <div class="form-group"><label>N° de document</label><input id="m-dnum" placeholder="Ex: 12AB34567"></div>
-    <div class="g2c">
-      <div class="form-group"><label>Date de délivrance</label><input id="m-ddelivre" type="date"></div>
-      <div class="form-group"><label>Date d'expiration</label><input id="m-dexpiry" type="date"></div>
-    </div>
-    <div class="form-group"><label>Notes</label><input id="m-dnotes"></div>
-    ${mf}`;
+    const mb=S.famille.find(x=>x.id===m.membreId);
+    if(!mb)return;
+    const type=q('m-dtype')?.value;if(!type)return alert('Type requis');
+    const doc={
+      id:uid(),type,
+      numero:q('m-dnum')?.value||'',
+      date_delivrance:q('m-ddelivre')?.value||null,
+      date_expiry:q('m-dexpiry')?.value||null,
+      reminder_days:parseInt(q('m-dreminder')?.value)||60,
+      drive_url:q('m-ddrive')?.value||'',
+      notes:q('m-dnotes')?.value||''
+    };
+    if(!mb.documents)mb.documents=[];
+    mb.documents.push(doc);
+    const {error}=await sb.from('famille').update({documents:mb.documents}).eq('id',mb.id);
+    if(error){alert('Erreur : '+error.message);mb.documents.pop();return;}
   }
   if(m.type==='edit-mt'){
     const mt=m.mt||{};
@@ -5600,49 +5650,40 @@ async function saveModal(){
   }
   if(m.type==='saisie-loyer'){
     const t=m.tenant||{};
-    const p=m.existing||{};
-    const isComm=t.type_bail==='commercial';
-    const loyerRef=t.loyer_ref||0;
-    const chargesRef=t.charges||0;
-    const totalTTC=isComm?(loyerRef+chargesRef)*1.2:(loyerRef+chargesRef);
-    html=`${mhd('Saisir loyer — '+t.nom+' — '+m.mois+' '+m.annee)}
-    <div style="background:var(--bg2);padding:10px;border-radius:var(--radius);margin-bottom:14px;font-size:13px">
-      <b>${t.logement||''}</b>
-      ${isComm?`— Loyer HT : <b>${new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(loyerRef)}</b>
-       → TTC : <b>${new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(loyerRef*1.2)}</b>
-       ${chargesRef>0?`| Charges HT : <b>${new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(chargesRef)}</b> → TTC : <b>${new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(chargesRef*1.2)}</b>`:''}
-       | <b>Total TTC : ${new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(totalTTC)}</b>`
-      :`— Loyer réf. : <b>${new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(loyerRef)}</b>
-       ${chargesRef>0?`+ Charges : <b>${new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(chargesRef)}</b>`:''}
-       | <b>Total : ${new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(loyerRef+chargesRef)}</b>`}
-    </div>
-
-    <div style="border:0.5px solid var(--border2);border-radius:var(--radius);padding:12px;margin-bottom:12px">
-      <div class="sec" style="margin-bottom:10px">🏦 Virement locataire</div>
-      <div class="g2c">
-        <div class="form-group"><label>Montant reçu (€)</label><input id="m-sl-loc" type="number" step="0.01" value="${p.locataire_part||p.loyer||0}" placeholder="0.00"></div>
-        <div class="form-group"><label>Date de réception</label><input id="m-sl-date" type="date" value="${p.date_loc||''}"></div>
-      </div>
-    </div>
-
-    <div style="border:0.5px solid var(--border2);border-radius:var(--radius);padding:12px;margin-bottom:12px">
-      <div class="sec" style="margin-bottom:10px">🏢 Virement CAF</div>
-      <div class="g2c">
-        <div class="form-group"><label>Montant CAF (€)</label><input id="m-sl-caf" type="number" step="0.01" value="${p.caf||0}" placeholder="0.00"></div>
-        <div class="form-group"><label>Date de réception CAF</label><input id="m-sl-date-caf" type="date" value="${p.date_caf||''}"></div>
-      </div>
-    </div>
-
-    <div class="form-group"><label>Payé intégralement ?</label><select id="m-sl-paye">
-      <option value="true" ${p.paye?'selected':''}>Oui — loyer soldé</option>
-      <option value="partial" ${!p.paye&&(p.locataire_part>0||p.caf>0)?'selected':''}>Partiel — en cours</option>
-      <option value="false" ${!p.paye&&!(p.locataire_part>0||p.caf>0)?'selected':''}>Non — rien reçu</option>
-    </select></div>
-    <div class="form-group"><label>Notes (internes, non imprimées)</label><input id="m-sl-notes" value="${p.notes||''}"></div>
-    <div class="form-group"><label>Commentaire sur la quittance/facture <span style="color:var(--text2);font-size:11px">(apparaîtra sur le document)</span></label>
-      <input id="m-sl-comment" value="${p.commentaire||''}" placeholder="Ex: Paiement reçu par virement, Solde partiel — reste dû...">
-    </div>
-    ${mf}`;
+    const moisNum=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'].indexOf(m.mois)+1;
+    const locPart=parseFloat(q('m-sl-loc')?.value)||0;
+    const cafPart=parseFloat(q('m-sl-caf')?.value)||0;
+    const montantTotal=locPart+cafPart||parseFloat(q('m-sl-loc')?.value)||0;
+    const dateL=q('m-sl-date')?.value||null;
+    const dateCaf=q('m-sl-date-caf')?.value||null;
+    const payeVal=q('m-sl-paye')?.value;
+    const paye=payeVal==='true';
+    const notes=q('m-sl-notes')?.value||'';
+    const commentaire=q('m-sl-comment')?.value||'';
+    const rec={
+      tenant_id:t.id,mois:m.mois,mois_num:moisNum,annee:m.annee,
+      loyer:montantTotal,locataire_part:locPart,caf:cafPart,
+      date_loc:dateL,date_caf:dateCaf,paye,notes,commentaire,
+      quittance_envoyee:false
+    };
+    let payment=m.existing;
+    if(payment){
+      const {error}=await sb.from('rent_payments').update(rec).eq('id',payment.id);
+      if(error){alert('Erreur : '+error.message);return;}
+      Object.assign(payment,rec);
+    } else {
+      const {data,error}=await sb.from('rent_payments').insert(rec).select().single();
+      if(error){alert('Erreur : '+error.message);return;}
+      if(data){S.rentPayments.push(data);payment=data;}
+    }
+    if(paye&&t.email&&payment){
+      try{
+        await autoSendQuittance(t,payment,m.mois,m.annee,commentaire);
+        alert('✓ Enregistré !\n\n📄 Document ouvert pour impression/PDF.');
+      }catch(e){alert('✓ Enregistré\n\n📄 '+e.message);}
+    } else {
+      alert('✓ Enregistré !');
+    }
   }
   if(m.type==='add-asset'||m.type==='edit-asset'){
     const nom=q('m-asn')?.value.trim();if(!nom)return alert('Nom requis');
@@ -7242,7 +7283,11 @@ async function autoSendQuittance(tenant,payment,mois,annee,commentaire=''){
   // Open print preview
   try{
     const w=window.open('','_blank');
-    if(w){w.document.write(emailHtml);w.document.close();}
+    if(w){
+      // Add auto-print script to the HTML before writing
+      const htmlWithPrint=emailHtml.replace('</body>','<script>window.onload=function(){setTimeout(function(){window.print();},600);};<\/script></body>');
+      w.document.write(htmlWithPrint);w.document.close();
+    }
     else{
       // Fallback: data URI
       const url='data:text/html;charset=utf-8,'+encodeURIComponent(emailHtml);
@@ -7357,7 +7402,7 @@ function buildQuittanceHtml(tenant,payment,mois,annee,loyer,charges,total,datePa
     .sig-block{margin-top:40px;display:flex;justify-content:space-between;align-items:flex-end}
     .sig-right{text-align:right;font-size:13px}
     .sig-right .name{font-weight:bold;margin-top:50px;border-top:1px solid #222;padding-top:6px}`;
-  const printBar='<div class="print-bar"><div><strong>🖨 Quittance de loyer</strong><div class="hint">Cliquez Imprimer pour enregistrer en PDF</div></div><button class="print-btn" onclick="window.print()">🖨 Imprimer</button><a href="https://antoinejosse56-lang.github.io/GMAO/" class="print-btn" style="text-decoration:none;margin-left:8px">🏠 GMAO Pro</a></div>';
+  const printBar='<div class="print-bar"><div><strong>🖨 Quittance de loyer</strong><div class="hint">Cliquez Imprimer pour enregistrer en PDF</div></div><button class="print-btn" onclick="setTimeout(()=>window.print(),300)">🖨 Imprimer / Sauvegarder PDF</button><a href="https://antoinejosse56-lang.github.io/GMAO/" class="print-btn" style="text-decoration:none;margin-left:8px">🏠 GMAO Pro</a></div>';
   return '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>'+css+'</style></head><body>'+printBar
     +'<div class="header">'
     +'<div><strong>LE BAILLEUR</strong><br>J&A SAVADUR<br>29 RUE VICE AMIRAL BOUVET<br>56100 LORIENT<br>Savadur56@gmail.com<br>06.30.37.06.88</div>'
@@ -7410,7 +7455,7 @@ function buildFactureHtml(tenant,payment,mois,annee,loyer,charges,total,datePaie
     td:first-child{text-align:left}
     .total-row td{font-weight:bold;font-size:15px;background:#f0f0f0;border-top:2px solid #222}
     .sig-block{margin-top:40px;text-align:right;font-size:13px}`;
-  const printBar='<div class="print-bar"><div><strong>🖨 Facture de loyer</strong><div class="hint">Cliquez Imprimer pour enregistrer en PDF</div></div><button class="print-btn" onclick="window.print()">🖨 Imprimer</button><a href="https://antoinejosse56-lang.github.io/GMAO/" class="print-btn" style="text-decoration:none;margin-left:8px">🏠 GMAO Pro</a></div>';
+  const printBar='<div class="print-bar"><div><strong>🖨 Facture de loyer</strong><div class="hint">Cliquez Imprimer pour enregistrer en PDF</div></div><button class="print-btn" onclick="setTimeout(()=>window.print(),300)">🖨 Imprimer / Sauvegarder PDF</button><a href="https://antoinejosse56-lang.github.io/GMAO/" class="print-btn" style="text-decoration:none;margin-left:8px">🏠 GMAO Pro</a></div>';
   return '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>'+css+'</style></head><body>'+printBar
     +'<div class="header">'
     +'<div><strong>J&A SAVADUR</strong><br>29 RUE AMIRAL BOUVET<br>56100 LORIENT<br>savadur56@gmail.com<br>06.30.37.06.88</div>'
@@ -7444,7 +7489,7 @@ function buildFactureEauHtml(tenant,cpt,conso,montant,montantHT,montantTVA,prix,
     td{padding:8px 10px;border:1px solid #ddd;text-align:center}
     td:first-child{text-align:left}
     .total-row td{font-weight:bold;background:#f0f0f0;border-top:2px solid #222}`;
-  const eauPrintBar='<div class="print-bar"><div><strong>💧 Facture eau</strong><div class="hint">Cliquez Imprimer pour enregistrer en PDF</div></div><button class="print-btn" onclick="window.print()">🖨 Imprimer</button><a href="https://antoinejosse56-lang.github.io/GMAO/" class="print-btn" style="text-decoration:none;margin-left:8px">🏠 GMAO Pro</a></div>';
+  const eauPrintBar='<div class="print-bar"><div><strong>💧 Facture eau</strong><div class="hint">Cliquez Imprimer pour enregistrer en PDF</div></div><button class="print-btn" onclick="setTimeout(()=>window.print(),300)">🖨 Imprimer / Sauvegarder PDF</button><a href="https://antoinejosse56-lang.github.io/GMAO/" class="print-btn" style="text-decoration:none;margin-left:8px">🏠 GMAO Pro</a></div>';
   return '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>'+eauCss+'</style></head><body>'+eauPrintBar
     +'<div class="header">'
     +'<div><strong>J&A SAVADUR</strong><br>29 RUE AMIRAL BOUVET<br>56100 LORIENT<br>savadur56@gmail.com</div>'
