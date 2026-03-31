@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro</title>
 <!-- BUILD:20260331-201849 -->
-<meta name="version" content="v16-20260331-204123">
+<meta name="version" content="v17-20260331-205022">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -2969,44 +2969,46 @@ function printMaintenanceLabel(mt, csoLinks, siteUrl){
 function printAllLabels(locs,state){
   const siteUrl=window.location.origin+window.location.pathname;
   const doGenerate=()=>{
-    const qrPromises=locs.map(loc=>new Promise(resolve=>{
+    let completed=0;
+    const results=locs.map(loc=>({loc,dataUrl:null}));
+    if(locs.length===0){buildAndOpen([]);return;}
+    locs.forEach((loc,i)=>{
       const url=siteUrl+'?emplacement='+encodeURIComponent(loc);
-      if(typeof QRCode!=='undefined'&&QRCode.toDataURL){
-        QRCode.toDataURL(url,{width:120,margin:1},function(err,dataUrl){resolve({loc,dataUrl:err?null:dataUrl});});
-      } else {resolve({loc,dataUrl:null});}
-    }));
-    Promise.all(qrPromises).then(results=>{
-      const labelsHtml=results.map(({loc,dataUrl})=>{
-        const rng=(state.rangements||[]).find(r=>r.nom===loc);
-        const desc=rng?.description||'';
-        return '<div class="label">'
-          +(dataUrl?'<img src="'+dataUrl+'" width="100" height="100">':'<div style="width:100px;height:100px;background:#eee;margin:0 auto"></div>')
-          +'<div class="name">'+loc+'</div>'
-          +(desc?'<div class="desc">'+desc+'</div>':'')
-          +'</div>';
-      }).join('');
-      const html='<!DOCTYPE html><html><head><meta charset="UTF-8">'
-        +'<style>'
-        +'body{font-family:Arial,sans-serif;padding:16px}'
-        +'.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}'
-        +'.label{border:1.5px solid #222;border-radius:6px;padding:12px;text-align:center;break-inside:avoid}'
-        +'.name{font-weight:700;font-size:13px;margin-top:6px}'
-        +'.desc{font-size:10px;color:#555}'
-        +'.printbtn{margin-bottom:12px;background:#1D9E75;color:#fff;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-size:14px;font-weight:700}'
-        +'@media print{.printbtn{display:none}}'
-        +'</style></head><body>'
-        +'<button class="printbtn" onclick="window.print()">&#128424; Imprimer toutes</button>'
-        +'<div class="grid">'+labelsHtml+'</div>'
-        +'</body></html>';
-      const blob=new Blob([html],{type:'text/html'});
-      const url=URL.createObjectURL(blob);
-      const a=document.createElement('a');a.href=url;a.target='_blank';
-      document.body.appendChild(a);a.click();document.body.removeChild(a);
-      setTimeout(()=>URL.revokeObjectURL(url),30000);
+      const tmpCanvas=document.createElement('canvas');
+      try{
+        QRCode.toCanvas(tmpCanvas,url,{width:120,margin:1},function(err){
+          results[i].dataUrl=err?null:tmpCanvas.toDataURL('image/png');
+          completed++;
+          if(completed===locs.length)buildAndOpen(results);
+        });
+      }catch(e){
+        results[i].dataUrl=null;completed++;
+        if(completed===locs.length)buildAndOpen(results);
+      }
     });
   };
-  if(typeof QRCode!=='undefined'&&QRCode.toDataURL){doGenerate();}
-  else{let t=0;const w=setInterval(()=>{t++;if(typeof QRCode!=='undefined'&&QRCode.toDataURL){clearInterval(w);doGenerate();}else if(t>15){clearInterval(w);doGenerate();}},200);}
+  const buildAndOpen=(results)=>{
+    const labelsHtml=results.map(({loc,dataUrl})=>{
+      const rng=(state.rangements||[]).find(r=>r.nom===loc);
+      const desc=rng?.description||'';
+      return '<div class="label">'
+        +(dataUrl?'<img src="'+dataUrl+'" width="100" height="100">':'<div style="width:100px;height:100px;background:#f0f0f0;margin:0 auto;line-height:100px;font-size:10px;color:#999">QR N/A</div>')
+        +'<div class="name">'+loc+'</div>'
+        +(desc?'<div class="desc">'+desc+'</div>':'')
+        +'</div>';
+    }).join('');
+    const html='<!DOCTYPE html><html><head><meta charset="UTF-8"><style>body{font-family:Arial,sans-serif;padding:16px}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.label{border:1.5px solid #222;border-radius:6px;padding:12px;text-align:center;break-inside:avoid}.name{font-weight:700;font-size:13px;margin-top:6px}.desc{font-size:10px;color:#555}.printbtn{margin-bottom:12px;background:#1D9E75;color:#fff;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-size:14px;font-weight:700}@media print{.printbtn{display:none}}</style></head><body>'
+      +'<button class="printbtn" onclick="window.print()">&#128424; Imprimer toutes</button>'
+      +'<div class="grid">'+labelsHtml+'</div>'
+      +'</body></html>';
+    const blob=new Blob([html],{type:'text/html'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');a.href=url;a.target='_blank';
+    document.body.appendChild(a);a.click();document.body.removeChild(a);
+    setTimeout(()=>URL.revokeObjectURL(url),30000);
+  };
+  if(typeof QRCode!=='undefined'){doGenerate();}
+  else{let t=0;const w=setInterval(()=>{t++;if(typeof QRCode!=='undefined'){clearInterval(w);doGenerate();}else if(t>15){clearInterval(w);doGenerate();}},200);}
 }
 
 
@@ -3015,24 +3017,16 @@ function printLocationLabel(loc,tools,siteUrl){
   const rng=(S.rangements||[]).find(r=>r.nom===loc);
   const desc=rng?.description||'';
   
-  // Generate QR using canvas in main window (QRCode lib is loaded here)
-  const generateAndOpen=(qrDataUrl)=>{
+  const openLabel=(qrDataUrl)=>{
     const html='<!DOCTYPE html><html><head><meta charset="UTF-8">'
-      +'<style>'
-      +'body{font-family:Arial,sans-serif;margin:0;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh}'
-      +'.label{border:2px solid #222;border-radius:10px;padding:20px 24px;text-align:center;width:240px}'
-      +'.name{font-size:18px;font-weight:700;margin:12px 0 4px}'
-      +'.desc{font-size:12px;color:#666}'
-      +'.printbtn{position:fixed;top:12px;right:12px;background:#1D9E75;color:#fff;border:none;padding:10px 20px;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer}'
-      +'@media print{.printbtn{display:none}}'
-      +'</style></head><body>'
+      +'<style>body{font-family:Arial,sans-serif;margin:0;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh}.label{border:2px solid #222;border-radius:10px;padding:20px 24px;text-align:center;width:240px}.name{font-size:18px;font-weight:700;margin:12px 0 4px}.desc{font-size:12px;color:#666}.printbtn{position:fixed;top:12px;right:12px;background:#1D9E75;color:#fff;border:none;padding:10px 20px;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer}@media print{.printbtn{display:none}}</style>'
+      +'</head><body>'
       +'<button class="printbtn" onclick="window.print()">&#128424; Imprimer</button>'
       +'<div class="label">'
-      +(qrDataUrl?'<img src="'+qrDataUrl+'" width="200" height="200" alt="QR">':'<div style="width:200px;height:200px;background:#eee;display:flex;align-items:center;justify-content:center;font-size:12px;color:#888">QR non disponible</div>')
+      +(qrDataUrl?'<img src="'+qrDataUrl+'" width="200" height="200">':'')
       +'<div class="name">'+loc+'</div>'
       +(desc?'<div class="desc">'+desc+'</div>':'')
-      +'</div>'
-      +'</body></html>';
+      +'</div></body></html>';
     const blob=new Blob([html],{type:'text/html'});
     const url=URL.createObjectURL(blob);
     const a=document.createElement('a');a.href=url;a.target='_blank';
@@ -3040,20 +3034,22 @@ function printLocationLabel(loc,tools,siteUrl){
     setTimeout(()=>URL.revokeObjectURL(url),30000);
   };
   
-  // Try to use QRCode library (loaded in main app)
-  if(typeof QRCode!=='undefined'&&QRCode.toDataURL){
-    QRCode.toDataURL(qrUrl,{width:200,margin:2},function(err,dataUrl){
-      generateAndOpen(err?null:dataUrl);
-    });
-  } else {
-    // Retry up to 3s then open without QR
-    let tries=0;
-    const wait=setInterval(()=>{
-      tries++;
-      if(typeof QRCode!=='undefined'&&QRCode.toDataURL){
-        clearInterval(wait);
-        QRCode.toDataURL(qrUrl,{width:200,margin:2},function(err,dataUrl){generateAndOpen(err?null:dataUrl);});
-      } else if(tries>15){clearInterval(wait);generateAndOpen(null);}
+  // Use toCanvas with a temporary canvas element (toDataURL may not exist in browser build)
+  const tryQR=()=>{
+    const tmpCanvas=document.createElement('canvas');
+    try{
+      QRCode.toCanvas(tmpCanvas,qrUrl,{width:200,margin:2},function(err){
+        openLabel(err?null:tmpCanvas.toDataURL('image/png'));
+      });
+    }catch(e){openLabel(null);}
+  };
+  
+  if(typeof QRCode!=='undefined'){tryQR();}
+  else{
+    let t=0;const w=setInterval(()=>{
+      t++;
+      if(typeof QRCode!=='undefined'){clearInterval(w);tryQR();}
+      else if(t>15){clearInterval(w);openLabel(null);}
     },200);
   }
 }
@@ -5528,6 +5524,40 @@ async function saveModal(){
 }
 
 
+
+function updateTenantZones(existingZoneName){
+  const sel=document.getElementById('m-tprop');
+  const wrap=document.getElementById('m-tzone-wrap');
+  const zsel=document.getElementById('m-tzone');
+  if(!sel||!wrap||!zsel)return;
+  
+  // If no property selected, pick first one with zones
+  if(!sel.value){
+    const withZones=S.topology.properties.find(p=>(p.zones||[]).length>0);
+    if(withZones){
+      for(let i=0;i<sel.options.length;i++){
+        if(sel.options[i].value===withZones.name){sel.selectedIndex=i;break;}
+      }
+    } else if(sel.options.length>1){sel.selectedIndex=1;}
+  }
+  
+  const pname=sel.value;
+  if(!pname){wrap.style.display='none';return;}
+  
+  const p=S.topology.properties.find(x=>x.name===pname)||
+          S.topology.properties.find(x=>x.name.toLowerCase()===pname.toLowerCase().trim());
+  const zones=p?(p.zones||[]):[];
+  
+  if(zones.length){
+    zsel.innerHTML='<option value="">— Aucune zone —</option>'+
+      zones.map(z=>'<option value="'+z.name+'" '+(z.name===existingZoneName?'selected':'')+'>'+z.name+'</option>').join('');
+    wrap.style.display='';
+  } else {
+    wrap.style.display='none';
+    zsel.innerHTML='';
+  }
+}
+
 function bindAll(){
   const q = id => document.getElementById(id);
   document.querySelectorAll('[data-nav]').forEach(el=>el.onclick=()=>{S.view=el.dataset.nav;S.selectedAsset=null;S.filter={cat:'all',search:''};if(el.dataset.nav!=='topology'){S.topoState.zoneId=null;S.topoState.subZoneId=null;S.topoState.tradeId=null;}if(el.dataset.nav!=='assets'){S.assetNav={propId:null,zoneId:null,subId:null};}render();});
@@ -5690,32 +5720,8 @@ function bindAll(){
   document.querySelectorAll('[data-loc-annee]').forEach(el=>el.onclick=()=>{S.locAnnee=parseInt(el.dataset.locAnnee);render();});
 
   const btnAddTenant=q('btn-add-tenant');
-  if(btnAddTenant)btnAddTenant.onclick=()=>{S.modal={type:'add-tenant'};render();setTimeout(()=>{
-    const sel=document.getElementById('m-tprop');
-    if(sel){
-      // Select first property WITH zones (not just first property)
-      if(!sel.value){
-        const firstWithZones=S.topology.properties.find(p=>(p.zones||[]).length>0);
-        if(firstWithZones){
-          // Find the option with this name and select it
-          for(let i=0;i<sel.options.length;i++){
-            if(sel.options[i].value===firstWithZones.name){sel.selectedIndex=i;break;}
-          }
-        } else if(sel.options.length>1){sel.selectedIndex=1;}
-      }
-      const pname=sel.value;
-      const p=S.topology.properties.find(x=>x.name===pname)||S.topology.properties.find(x=>x.name.toLowerCase()===pname.toLowerCase().trim());
-      const zones=p?(p.zones||[]):[];
-      const wrap=document.getElementById('m-tzone-wrap');
-      const zsel=document.getElementById('m-tzone');
-      if(wrap&&zsel&&zones.length){
-        zsel.innerHTML='<option value="">— Aucune zone —</option>'+zones.map(z=>'<option value="'+z.name+'">'+z.name+'</option>').join('');
-        wrap.style.display='';
-      } else if(wrap){
-        wrap.style.display='none';
-      }
-    }
-  },200);};
+  if(btnAddTenant)  btnAddTenant.onclick=()=>{S.modal={type:'add-tenant'};render();setTimeout(()=>updateTenantZones(''),200);};
+
   const btnOpenEdl=document.getElementById('btn-open-edl-form');
   if(btnOpenEdl)btnOpenEdl.onclick=()=>{
     const t=S.modal?.tenant||null;
@@ -5764,24 +5770,12 @@ function bindAll(){
 
   document.querySelectorAll('[data-edit-tenant]').forEach(el=>el.onclick=()=>{
     const t=S.tenants.find(x=>x.id===el.dataset.editTenant);
-    if(t){S.modal={type:'edit-tenant',tenant:t};render();
-      setTimeout(()=>{
-        const sel=document.getElementById('m-tprop');
-        if(sel&&sel.value){
-          const pname=sel.value;
-          const p=S.topology.properties.find(x=>x.name===pname)||S.topology.properties.find(x=>x.name.toLowerCase()===pname.toLowerCase().trim());
-          const zones=p?(p.zones||[]):[];
-          const wrap=document.getElementById('m-tzone-wrap');
-          const zsel=document.getElementById('m-tzone');
-          const existingZone=S.modal?.tenant?.logement?.includes(' — ')?S.modal.tenant.logement.split(' — ')[1]:'';
-          if(wrap&&zsel&&zones.length){
-            zsel.innerHTML='<option value="">— Aucune zone —</option>'+zones.map(z=>'<option value="'+z.name+'" '+(z.name===existingZone?'selected':'')+'>'+z.name+'</option>').join('');
-            wrap.style.display='';
-          } else if(wrap){
-            wrap.style.display='none';
-          }
-        }
-      },200);
+    if(t){
+      const logStr=t.logement||'';
+      const sep=logStr.includes(' — ')?' — ':' - ';
+      const existingZone=logStr.includes(sep)?logStr.split(sep)[1]||'':'';
+      S.modal={type:'edit-tenant',tenant:t};render();
+      setTimeout(()=>updateTenantZones(existingZone),200);
     }});
   document.querySelectorAll('[data-del-tenant]').forEach(el=>el.onclick=async()=>{
     if(!confirm('Supprimer ce locataire ?'))return;
