@@ -5421,8 +5421,7 @@ async function saveModal(){
     const nom=q('m-rnom')?.value?.trim()||q('m-rn')?.value?.trim();
     if(!nom)return alert('Nom requis');
     const rec={nom,
-      description:q('m-rdesc')?.value||q('m-rd')?.value||null,
-      location:q('m-rlieu')?.value||q('m-rloc')?.value||q('m-rl')?.value||null};
+      description:q('m-rdesc')?.value||q('m-rd')?.value||null};
     if(m.type==='add-rng'){
       const {data,error}=await sb.from('rangements').insert(rec).select().single();
       if(error){alert('Erreur : '+error.message);return;}
@@ -5465,7 +5464,7 @@ async function saveModal(){
   if(m.type==='add-cpt'||m.type==='edit-cpt'){
     const nom=q('m-cn')?.value.trim()||q('m-cn-select')?.value;
     if(!nom)return alert('Nom requis');
-    const rec={nom,
+    const rec={name:nom,
       tenant_id:q('m-ctenant')?.value||null,
       topo_id:q('m-ctopo')?.value||null,
       type:q('m-ctype')?.value||'eau',
@@ -6939,13 +6938,16 @@ async function autoSendQuittance(tenant,payment,mois,annee,commentaire=''){
     headers:{'api-key':BREVO_API_KEY,'Content-Type':'application/json','Accept':'application/json'},
     body:JSON.stringify({sender:{name:FROM_NAME,email:FROM_EMAIL},to:isDubailQ?[{email:'savadur56@gmail.com',name:'J&A SAVADUR'},{email:ALERT_EMAIL,name:'Antoine JOSSE'}]:[{email:ALERT_EMAIL,name:'Antoine JOSSE'}],subject:copySubject,htmlContent:emailHtml})
   }).catch(e=>console.warn('Copie archive failed:',e.message));
-  // Open print preview
+  // Open print preview (with print button enabled)
   try{
-    const blob=new Blob([emailHtml],{type:'text/html;charset=utf-8'});
+    const previewHtml=isCommercial
+      ?buildFactureHtml(tenant,payment,mois,annee,total,charges,total,datePaiement,invoiceNum,fmt,commentaire,true)
+      :buildQuittanceHtml(tenant,payment,mois,annee,total,charges,total,datePaiement,fmt,commentaire,true);
+    const blob=new Blob([previewHtml],{type:'text/html;charset=utf-8'});
     const blobUrl=URL.createObjectURL(blob);
     const w=window.open(blobUrl,'_blank');
     if(!w){
-      const url='data:text/html;charset=utf-8,'+encodeURIComponent(emailHtml);
+      const url='data:text/html;charset=utf-8,'+encodeURIComponent(previewHtml);
       window.open(url,'_blank');
     }
   }catch(e){
@@ -7034,7 +7036,7 @@ async function sendAccuseEau(releve,cpt,tenant,montant){
   return true;
 }
 
-function buildQuittanceHtml(tenant,payment,mois,annee,loyer,charges,total,datePaiement,fmt,commentaire=''){
+function buildQuittanceHtml(tenant,payment,mois,annee,loyer,charges,total,datePaiement,fmt,commentaire='',showPrintBar=true){
   const isDubail = dubailFilter(tenant.logement||'');
   const bailNom   = isDubail ? 'J&A SAVADUR'               : 'Antoine JOSSE';
   const bailAddr  = isDubail ? '29 RUE VICE AMIRAL BOUVET' : '5 RUE DE CALVIN';
@@ -7064,7 +7066,7 @@ function buildQuittanceHtml(tenant,payment,mois,annee,loyer,charges,total,datePa
     .sig-right{text-align:right;font-size:13px}
     .sig-right .name{font-weight:bold;margin-top:50px;border-top:1px solid #222;padding-top:6px}`;
   const printBar='<div class="print-bar"><div><strong>🖨 Quittance de loyer</strong><div class="hint">Cliquez Imprimer pour enregistrer en PDF</div></div><button class="print-btn" onclick="setTimeout(()=>window.print(),300)">🖨 Imprimer / Sauvegarder PDF</button></div>';
-  return '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>'+css+'</style></head><body>'+printBar
+  return '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>'+css+'</style></head><body>'+(showPrintBar?printBar:'')
     +'<div class="header">'
     +'<div><strong>LE BAILLEUR</strong><br>'+bailNom+'<br>'+bailAddr+'<br>'+bailCP+'<br>'+bailEmail+(bailTel?'<br>'+bailTel:'')+'</div>'
     +'<div style="text-align:right"><strong>LE LOCATAIRE</strong><br>'+tenant.nom+'<br>'+tenant.logement+'<br>26 Rue Général Dubail<br>56100 LORIENT</div>'
@@ -7117,7 +7119,7 @@ function buildFactureHtml(tenant,payment,mois,annee,loyer,charges,total,datePaie
     .total-row td{font-weight:bold;font-size:15px;background:#f0f0f0;border-top:2px solid #222}
     .sig-block{margin-top:40px;text-align:right;font-size:13px}`;
   const printBar='<div class="print-bar"><div><strong>🖨 Facture de loyer</strong><div class="hint">Cliquez Imprimer pour enregistrer en PDF</div></div><button class="print-btn" onclick="setTimeout(()=>window.print(),300)">🖨 Imprimer / Sauvegarder PDF</button></div>';
-  return '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>'+css+'</style></head><body>'+printBar
+  return '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>'+css+'</style></head><body>'+(showPrintBar?printBar:'')
     +'<div class="header">'
     +'<div><strong>J&A SAVADUR</strong><br>29 RUE AMIRAL BOUVET<br>56100 LORIENT<br>savadur56@gmail.com<br>06.30.37.06.88</div>'
     +'<div style="text-align:right"><strong>'+tenant.nom+'</strong><br>'+tenant.logement+'<br>26 rue général Dubail<br>56100 Lorient</div>'
