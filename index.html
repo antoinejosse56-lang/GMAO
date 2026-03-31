@@ -2727,7 +2727,7 @@ function buildBailHtml(b){
   <div class="print-bar no-print">
     <div><strong>📝 ${typeLabel}</strong><div style="font-size:11px;opacity:.85">Cliquez Imprimer pour enregistrer en PDF</div></div>
     <button class="print-btn" onclick="setTimeout(()=>window.print(),300)">🖨 Imprimer / Sauvegarder PDF</button>
-    <a href="https://antoinejosse56-lang.github.io/GMAO/" class="print-btn" style="text-decoration:none;margin-left:8px">🏠 GMAO Pro</a>
+    
   </div>
 
   <h1>${typeLabel}</h1>
@@ -2853,7 +2853,7 @@ function buildEdlHtml(edl){
   <div class="print-bar no-print">
     <div><strong>📋 État des lieux ${typeLabel}</strong><div style="font-size:11px;opacity:.85">Cliquez Imprimer pour enregistrer en PDF</div></div>
     <button class="print-btn" onclick="setTimeout(()=>window.print(),300)">🖨 Imprimer / Sauvegarder PDF</button>
-    <a href="https://antoinejosse56-lang.github.io/GMAO/" class="print-btn" style="text-decoration:none;margin-left:8px">🏠 GMAO Pro</a>
+    
   </div>
   <h1>ÉTAT DES LIEUX D'${typeLabel}</h1>
   <div style="text-align:center;font-size:12px;color:#666;margin-bottom:16px">Le ${dateStr}</div>
@@ -4618,8 +4618,9 @@ function renderModal(){
         <select id="m-tzone">
           <option value="">— Aucune zone —</option>
           ${(()=>{
-            const pName=(t.logement||'').split(' — ')[0];
-            const p=S.topology.properties.find(x=>x.name===pName);
+            const logStr=t.logement||'';
+            const pName=logStr.split(' — ')[0].split(' - ')[0].trim();
+            const p=S.topology.properties.find(x=>x.name.toLowerCase()===pName.toLowerCase());
             if(!p)return '';
             const sep2=(t.logement||'').includes(' — ')?' — ':' - ';const zName=(t.logement||'').split(sep2)[1]||'';
             return (p.zones||[]).map(z=>'<option value="'+z.name+'" '+(z.name===zName?'selected':'')+'>'+z.name+'</option>').join('');
@@ -5417,8 +5418,11 @@ async function saveModal(){
   }
 
   if(m.type==='add-rng'||m.type==='edit-rng'){
-    const nom=q('m-rn')?.value.trim();if(!nom)return alert('Nom requis');
-    const rec={nom,description:q('m-rd')?.value||null,location:q('m-rl')?.value||null};
+    const nom=q('m-rnom')?.value?.trim()||q('m-rn')?.value?.trim();
+    if(!nom)return alert('Nom requis');
+    const rec={nom,
+      description:q('m-rdesc')?.value||q('m-rd')?.value||null,
+      location:q('m-rlieu')?.value||q('m-rloc')?.value||q('m-rl')?.value||null};
     if(m.type==='add-rng'){
       const {data,error}=await sb.from('rangements').insert(rec).select().single();
       if(error){alert('Erreur : '+error.message);return;}
@@ -5459,12 +5463,17 @@ async function saveModal(){
   }
 
   if(m.type==='add-cpt'||m.type==='edit-cpt'){
-    const nom=q('m-cptn')?.value.trim();if(!nom)return alert('Nom requis');
-    const rec={nom,tenant_id:q('m-cptten')?.value||null,
-      logement:q('m-cptlog')?.value||null,
-      prix_unitaire:parseFloat(q('m-cptprix')?.value)||0,
-      index_initial:parseFloat(q('m-cptidx')?.value)||0,
-      notes:q('m-cptnotes')?.value||null};
+    const nom=q('m-cn')?.value.trim()||q('m-cn-select')?.value;
+    if(!nom)return alert('Nom requis');
+    const rec={nom,
+      tenant_id:q('m-ctenant')?.value||null,
+      topo_id:q('m-ctopo')?.value||null,
+      type:q('m-ctype')?.value||'eau',
+      unite:q('m-cunite')?.value||'m³',
+      serial:q('m-cserial')?.value||null,
+      prix_unitaire:parseFloat(q('m-cprix')?.value)||0,
+      index_initial:parseFloat(q('m-cidx')?.value)||0,
+      notes:q('m-cnotes')?.value||null};
     if(m.type==='add-cpt'){
       const {data,error}=await sb.from('compteurs').insert(rec).select().single();
       if(error){alert('Erreur : '+error.message);return;}
@@ -6930,16 +6939,14 @@ async function autoSendQuittance(tenant,payment,mois,annee,commentaire=''){
     headers:{'api-key':BREVO_API_KEY,'Content-Type':'application/json','Accept':'application/json'},
     body:JSON.stringify({sender:{name:FROM_NAME,email:FROM_EMAIL},to:isDubailQ?[{email:'savadur56@gmail.com',name:'J&A SAVADUR'},{email:ALERT_EMAIL,name:'Antoine JOSSE'}]:[{email:ALERT_EMAIL,name:'Antoine JOSSE'}],subject:copySubject,htmlContent:emailHtml})
   }).catch(e=>console.warn('Copie archive failed:',e.message));
-  // Open print preview via blob URL (avoids popup blocker)
+  // Open print preview
   try{
-    const htmlWithPrint=emailHtml.replace('</body>','<script>window.onload=function(){setTimeout(function(){window.print();},600);};<\/script></body>');
-    const blob=new Blob([htmlWithPrint],{type:'text/html;charset=utf-8'});
+    const blob=new Blob([emailHtml],{type:'text/html;charset=utf-8'});
     const blobUrl=URL.createObjectURL(blob);
     const w=window.open(blobUrl,'_blank');
     if(!w){
-      // Fallback: data URI
       const url='data:text/html;charset=utf-8,'+encodeURIComponent(emailHtml);
-      window.location.href=url;
+      window.open(url,'_blank');
     }
   }catch(e){
     const url='data:text/html;charset=utf-8,'+encodeURIComponent(emailHtml);
@@ -7056,7 +7063,7 @@ function buildQuittanceHtml(tenant,payment,mois,annee,loyer,charges,total,datePa
     .sig-block{margin-top:40px;display:flex;justify-content:space-between;align-items:flex-end}
     .sig-right{text-align:right;font-size:13px}
     .sig-right .name{font-weight:bold;margin-top:50px;border-top:1px solid #222;padding-top:6px}`;
-  const printBar='<div class="print-bar"><div><strong>🖨 Quittance de loyer</strong><div class="hint">Cliquez Imprimer pour enregistrer en PDF</div></div><button class="print-btn" onclick="setTimeout(()=>window.print(),300)">🖨 Imprimer / Sauvegarder PDF</button><a href="https://antoinejosse56-lang.github.io/GMAO/" class="print-btn" style="text-decoration:none;margin-left:8px">🏠 GMAO Pro</a></div>';
+  const printBar='<div class="print-bar"><div><strong>🖨 Quittance de loyer</strong><div class="hint">Cliquez Imprimer pour enregistrer en PDF</div></div><button class="print-btn" onclick="setTimeout(()=>window.print(),300)">🖨 Imprimer / Sauvegarder PDF</button></div>';
   return '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>'+css+'</style></head><body>'+printBar
     +'<div class="header">'
     +'<div><strong>LE BAILLEUR</strong><br>'+bailNom+'<br>'+bailAddr+'<br>'+bailCP+'<br>'+bailEmail+(bailTel?'<br>'+bailTel:'')+'</div>'
@@ -7109,7 +7116,7 @@ function buildFactureHtml(tenant,payment,mois,annee,loyer,charges,total,datePaie
     td:first-child{text-align:left}
     .total-row td{font-weight:bold;font-size:15px;background:#f0f0f0;border-top:2px solid #222}
     .sig-block{margin-top:40px;text-align:right;font-size:13px}`;
-  const printBar='<div class="print-bar"><div><strong>🖨 Facture de loyer</strong><div class="hint">Cliquez Imprimer pour enregistrer en PDF</div></div><button class="print-btn" onclick="setTimeout(()=>window.print(),300)">🖨 Imprimer / Sauvegarder PDF</button><a href="https://antoinejosse56-lang.github.io/GMAO/" class="print-btn" style="text-decoration:none;margin-left:8px">🏠 GMAO Pro</a></div>';
+  const printBar='<div class="print-bar"><div><strong>🖨 Facture de loyer</strong><div class="hint">Cliquez Imprimer pour enregistrer en PDF</div></div><button class="print-btn" onclick="setTimeout(()=>window.print(),300)">🖨 Imprimer / Sauvegarder PDF</button></div>';
   return '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>'+css+'</style></head><body>'+printBar
     +'<div class="header">'
     +'<div><strong>J&A SAVADUR</strong><br>29 RUE AMIRAL BOUVET<br>56100 LORIENT<br>savadur56@gmail.com<br>06.30.37.06.88</div>'
@@ -7143,7 +7150,7 @@ function buildFactureEauHtml(tenant,cpt,conso,montant,montantHT,montantTVA,prix,
     td{padding:8px 10px;border:1px solid #ddd;text-align:center}
     td:first-child{text-align:left}
     .total-row td{font-weight:bold;background:#f0f0f0;border-top:2px solid #222}`;
-  const eauPrintBar='<div class="print-bar"><div><strong>💧 Facture eau</strong><div class="hint">Cliquez Imprimer pour enregistrer en PDF</div></div><button class="print-btn" onclick="setTimeout(()=>window.print(),300)">🖨 Imprimer / Sauvegarder PDF</button><a href="https://antoinejosse56-lang.github.io/GMAO/" class="print-btn" style="text-decoration:none;margin-left:8px">🏠 GMAO Pro</a></div>';
+  const eauPrintBar='<div class="print-bar"><div><strong>💧 Facture eau</strong><div class="hint">Cliquez Imprimer pour enregistrer en PDF</div></div><button class="print-btn" onclick="setTimeout(()=>window.print(),300)">🖨 Imprimer / Sauvegarder PDF</button></div>';
   return '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>'+eauCss+'</style></head><body>'+eauPrintBar
     +'<div class="header">'
     +'<div><strong>J&A SAVADUR</strong><br>29 RUE AMIRAL BOUVET<br>56100 LORIENT<br>savadur56@gmail.com</div>'
