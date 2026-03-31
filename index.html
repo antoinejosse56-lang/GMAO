@@ -8,8 +8,8 @@
 <meta name="color-scheme" content="light">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro</title>
-<!-- BUILD:20260331-114408 -->
-<meta name="version" content="v6-20260331-114408">
+<!-- BUILD:20260331-123304 -->
+<meta name="version" content="v7-20260331-123331">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -4592,7 +4592,7 @@ function renderModal(){
           const wrap=document.getElementById('m-tzone-wrap');
           const sel=document.getElementById('m-tzone');
           if(wrap&&zones.length){
-            sel.innerHTML='<option value="">— Aucune zone —</option>'+zones.map(z=>'<option value="'+z.name+'">'+z.name+'</option>').join('');
+            sel.innerHTML='<option value="">\u2014 Aucune zone \u2014</option>'+zones.map(z=>'<option value="'+z.name+'">'+z.name+'</option>').join('');
             wrap.style.display='';
           } else if(wrap){
             wrap.style.display='none';
@@ -4603,7 +4603,7 @@ function renderModal(){
           ${(()=>{
             const allOpts=[];
             S.topology.properties.forEach(p=>{
-              const pSelected=(()=>{const l=t.logement||'';const sep=l.includes(' — ')?' — ':' - ';return l.split(sep)[0];})()=== p.name;
+              const pSelected=(()=>{const l=t.logement||'';const sep=l.includes(' \u2014 ')?' \u2014 ':' - ';return l.split(sep)[0];})()=== p.name;
               allOpts.push('<option value="'+p.name+'" '+(pSelected?'selected':'')+'>'+p.name+'</option>');
             });
             return allOpts.join('');
@@ -4613,7 +4613,7 @@ function renderModal(){
       <div class="form-group" id="m-tzone-wrap" style="display:${(()=>{
         const logStr=t.logement||'';
         if(!logStr) return 'none'; // ADD: hidden until property selected
-        const sep=logStr.includes(' — ')?' — ':' - ';
+        const sep=logStr.includes(' \u2014 ')?' \u2014 ':' - ';
         const pName=logStr.split(sep)[0].trim();
         const p=S.topology.properties.find(x=>x.name.toLowerCase()===pName.toLowerCase())||
                 S.topology.properties.find(x=>pName.toLowerCase().includes(x.name.toLowerCase())||x.name.toLowerCase().includes(pName.toLowerCase()));
@@ -4621,11 +4621,11 @@ function renderModal(){
       })()}">
         <label>Zone / Appartement</label>
         <select id="m-tzone">
-          <option value="">— Aucune zone —</option>
+          <option value="">\u2014 Aucune zone \u2014</option>
           ${(()=>{
             const logStr=t.logement||'';
             if(!logStr) return '';
-            const sep=logStr.includes(' — ')?' — ':' - ';
+            const sep=logStr.includes(' \u2014 ')?' \u2014 ':' - ';
             const pName=logStr.split(sep)[0].trim();
             const zName=logStr.includes(sep)?logStr.split(sep).slice(1).join(sep)||'':'';
             const p=S.topology.properties.find(x=>x.name.toLowerCase()===pName.toLowerCase())||
@@ -5446,7 +5446,7 @@ async function saveModal(){
     const nom=q('m-tnom')?.value?.trim();if(!nom)return alert('Nom requis');
     const propVal=q('m-tprop')?.value||'';
     const zoneVal=q('m-tzone')?.value||'';
-    const logement=propVal?(zoneVal?propVal+' — '+zoneVal:propVal):(m.type==='edit-tenant'?m.tenant?.logement||'':'');
+    const logement=propVal?(zoneVal?propVal+' \u2014 '+zoneVal:propVal):(m.type==='edit-tenant'?m.tenant?.logement||'':'');
     const rec={nom,logement,
       email:q('m-temail')?.value||'',telephone:q('m-ttel')?.value||'',
       type_bail:q('m-tbail')?.value||'habitation',
