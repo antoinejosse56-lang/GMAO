@@ -8,7 +8,8 @@
 <meta name="color-scheme" content="light">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro</title>
-<meta name="version" content="v4.0-20260329">
+<!-- BUILD:20260331-114408 -->
+<meta name="version" content="v6-20260331-114408">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -4590,10 +4591,10 @@ function renderModal(){
           const zones=p?(p.zones||[]):[];
           const wrap=document.getElementById('m-tzone-wrap');
           const sel=document.getElementById('m-tzone');
-          if(zones.length){
+          if(wrap&&zones.length){
             sel.innerHTML='<option value="">— Aucune zone —</option>'+zones.map(z=>'<option value="'+z.name+'">'+z.name+'</option>').join('');
             wrap.style.display='';
-          } else {
+          } else if(wrap){
             wrap.style.display='none';
             sel.innerHTML='';
           }
@@ -4610,23 +4611,31 @@ function renderModal(){
         </select>
       </div>
       <div class="form-group" id="m-tzone-wrap" style="display:${(()=>{
-        const pName=(t.logement||'').split(' — ')[0];
-        const p=S.topology.properties.find(x=>x.name===pName);
-        return p&&(p.zones||[]).length?'':'none';
+        const logStr=t.logement||'';
+        if(!logStr) return 'none'; // ADD: hidden until property selected
+        const sep=logStr.includes(' — ')?' — ':' - ';
+        const pName=logStr.split(sep)[0].trim();
+        const p=S.topology.properties.find(x=>x.name.toLowerCase()===pName.toLowerCase())||
+                S.topology.properties.find(x=>pName.toLowerCase().includes(x.name.toLowerCase())||x.name.toLowerCase().includes(pName.toLowerCase()));
+        return (p&&(p.zones||[]).length)?'':'none';
       })()}">
         <label>Zone / Appartement</label>
         <select id="m-tzone">
           <option value="">— Aucune zone —</option>
           ${(()=>{
             const logStr=t.logement||'';
-            const pName=logStr.split(' — ')[0].split(' - ')[0].trim();
-            const p=S.topology.properties.find(x=>x.name.toLowerCase()===pName.toLowerCase());
+            if(!logStr) return '';
+            const sep=logStr.includes(' — ')?' — ':' - ';
+            const pName=logStr.split(sep)[0].trim();
+            const zName=logStr.includes(sep)?logStr.split(sep).slice(1).join(sep)||'':'';
+            const p=S.topology.properties.find(x=>x.name.toLowerCase()===pName.toLowerCase())||
+                    S.topology.properties.find(x=>pName.toLowerCase().includes(x.name.toLowerCase())||x.name.toLowerCase().includes(pName.toLowerCase()));
             if(!p)return '';
-            const sep2=(t.logement||'').includes(' — ')?' — ':' - ';const zName=(t.logement||'').split(sep2)[1]||'';
             return (p.zones||[]).map(z=>'<option value="'+z.name+'" '+(z.name===zName?'selected':'')+'>'+z.name+'</option>').join('');
           })()}
         </select>
       </div>
+
     </div>
     <div class="g2c">
       <div class="form-group"><label>Email (pour quittances)</label><input id="m-temail" type="email" value="${t.email||''}" placeholder="locataire@email.fr"></div>
@@ -6913,8 +6922,8 @@ async function autoSendQuittance(tenant,payment,mois,annee,commentaire=''){
   const moisNum=String(['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'].indexOf(mois)+1).padStart(2,'0');
   const invoiceNum=annee+'-'+moisNum+'-'+tenant.logement.replace(/[^A-Z0-9]/gi,'').toUpperCase().slice(0,6);
   const emailHtml=isCommercial
-    ?buildFactureHtml(tenant,payment,mois,annee,total,charges,total,datePaiement,invoiceNum,fmt,commentaire)
-    :buildQuittanceHtml(tenant,payment,mois,annee,total,charges,total,datePaiement,fmt,commentaire);
+    ?buildFactureHtml(tenant,payment,mois,annee,total,charges,total,datePaiement,invoiceNum,fmt,commentaire,false)
+    :buildQuittanceHtml(tenant,payment,mois,annee,total,charges,total,datePaiement,fmt,commentaire,false);
   const subject=isCommercial
     ?'Facture de loyer '+mois+' '+annee+' — '+tenant.logement+' — N°'+invoiceNum
     :'Quittance de loyer '+mois+' '+annee+' — '+tenant.logement;
@@ -7092,7 +7101,7 @@ function buildQuittanceHtml(tenant,payment,mois,annee,loyer,charges,total,datePa
     +'</body></html>';
 }
 
-function buildFactureHtml(tenant,payment,mois,annee,loyer,charges,total,datePaiement,invoiceNum,fmt,commentaire=''){
+function buildFactureHtml(tenant,payment,mois,annee,loyer,charges,total,datePaiement,invoiceNum,fmt,commentaire='',showPrintBar=true){
   const loyerHT=parseFloat(tenant.loyer_ref||0);
   const loyerTVA=Math.round(loyerHT*0.2*100)/100;
   const loyerTTC=Math.round((loyerHT+loyerTVA)*100)/100;
