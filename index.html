@@ -8,8 +8,8 @@
 <meta name="color-scheme" content="light">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro</title>
-<!-- BUILD:20260331-145053 -->
-<meta name="version" content="v9-20260331-145053">
+<!-- BUILD:20260331-150445 -->
+<meta name="version" content="v10-20260331-150445">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -2966,61 +2966,73 @@ function printMaintenanceLabel(mt, csoLinks, siteUrl){
 }
 
 
-function printAllLabels(locs, state){
-  const rows = Math.ceil(locs.length / 3);
-  let labelsHtml = '';
+function printAllLabels(locs,state){
+  let labelsHtml='';
   locs.forEach(loc=>{
-    const tools=(state.tools||[]).filter(t=>t.location===loc);
     const rng=(state.rangements||[]).find(r=>r.nom===loc);
-    labelsHtml+=`<div style="border:1px solid #ddd;border-radius:6px;padding:10px;text-align:center;break-inside:avoid;margin-bottom:8px">
-      <div style="font-weight:700;font-size:14px">${loc}</div>
-      ${rng?.description?`<div style="font-size:10px;color:#666">${rng.description}</div>`:''}
-      ${tools.length>0?`<div style="font-size:10px;color:#888">${tools.slice(0,4).map(t=>t.name).join(', ')}${tools.length>4?'...':''}</div>`:''}
-    </div>`;
+    const desc=rng?.description||'';
+    labelsHtml+='<div class="label">'
+      +'<div class="qr" id="qr-'+btoa(loc).replace(/[^a-z0-9]/gi,'').slice(0,12)+'"></div>'
+      +'<div class="name">'+loc+'</div>'
+      +(desc?'<div class="desc">'+desc+'</div>':'')
+      +'</div>';
   });
-  const html=`<!DOCTYPE html><html><head><meta charset="UTF-8">
-  <style>body{font-family:Arial,sans-serif;padding:20px}
-  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
-  @media print{.no-print{display:none}}
-  </style></head><body>
-  <div class="no-print" style="margin-bottom:16px">
-    <button onclick="window.print()" style="padding:8px 20px;background:#1D9E75;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px">🖨 Imprimer</button>
-  </div>
-  <div class="grid">${labelsHtml}</div>
-  </body></html>`;
+  const siteUrl=window.location.origin+window.location.pathname;
+  const html='<!DOCTYPE html><html><head><meta charset="UTF-8">'
+    +'<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"><\/script>'
+    +'<style>'
+    +'body{font-family:Arial,sans-serif;padding:16px}'
+    +'.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}'
+    +'.label{border:1.5px solid #222;border-radius:6px;padding:12px;text-align:center;break-inside:avoid}'
+    +'.name{font-weight:700;font-size:14px;margin-top:8px}'
+    +'.desc{font-size:10px;color:#555}'
+    +'.no-print{margin-bottom:12px}'
+    +'@media print{.no-print{display:none}}'
+    +'</style></head><body>'
+    +'<div class="no-print"><button onclick="window.print()" style="padding:8px 20px;background:#1D9E75;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px">&#128424; Imprimer toutes</button></div>'
+    +'<div class="grid">'+labelsHtml+'</div>'
+    +'<script>'
+    +locs.map((loc,i)=>{
+      const id='qr-'+btoa(loc).replace(/[^a-z0-9]/gi,'').slice(0,12);
+      const url=siteUrl+'?emplacement='+encodeURIComponent(loc);
+      return 'QRCode.toCanvas(document.createElement(\'canvas\'),\''+url+'\',{width:100,margin:1},function(err,c){if(!err){document.getElementById(\''+id+'\').appendChild(c);}});';
+    }).join('')
+    +'<\/script></body></html>';
   const blob=new Blob([html],{type:'text/html'});
   window.open(URL.createObjectURL(blob),'_blank');
 }
 
-function printLocationLabel(loc, tools, siteUrl){
-  const qrData = siteUrl+'?location='+encodeURIComponent(loc);
-  const toolList = tools.slice(0,8).map(t=>'• '+t.name).join('<br>');
-  const w = window.open('','_blank','width=400,height=400');
-  w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
+
+function printLocationLabel(loc,tools,siteUrl){
+  const qrUrl=siteUrl+'?emplacement='+encodeURIComponent(loc);
+  const rng=(S.rangements||[]).find(r=>r.nom===loc);
+  const desc=rng?.description||'';
+  const html=`<!DOCTYPE html><html><head><meta charset="UTF-8">
   <style>
-    body{font-family:Arial,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#fff}
-    .label{border:2px solid #222;padding:14px;width:280px;text-align:center;border-radius:6px}
-    .label h2{font-size:14px;margin:8px 0 6px;font-weight:600}
-    .label .tools{font-size:10px;color:#555;text-align:left;line-height:1.6;border-top:1px solid #eee;padding-top:6px;margin-top:6px}
-    @media print{body{display:block}.label{margin:20px auto}}
+    body{font-family:Arial,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#fff;flex-direction:column}
+    .label{border:2px solid #222;padding:20px;width:240px;text-align:center;border-radius:8px;background:#fff}
+    .label h2{font-size:16px;margin:12px 0 4px;font-weight:700}
+    .label .desc{font-size:12px;color:#555;margin-bottom:4px}
+    .no-print{position:fixed;top:10px;right:10px}
+    @media print{.no-print{display:none}}
   </style></head><body>
-  <div style="position:fixed;top:10px;right:10px;z-index:999">
+  <div class="no-print">
     <button onclick="window.print()" style="padding:8px 16px;background:#1D9E75;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600">&#128424; Imprimer</button>
   </div>
   <div class="label">
-    <div style="font-size:10px;color:#999;margin-bottom:4px">EMPLACEMENT</div>
-    <div id="qr-print" style="display:flex;justify-content:center"></div>
-    <h2>📦 ${loc}</h2>
-    <div class="tools">${toolList}${tools.length>8?'<br>+ '+(tools.length-8)+' autres':''}</div>
+    <div id="qr-print"></div>
+    <h2>${loc}</h2>
+    ${desc?'<div class="desc">'+desc+'</div>':''}
   </div>
   <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"><\/script>
   <script>
-    QRCode.toCanvas(document.createElement('canvas'),'${qrData}',{width:110},function(err,canvas){
-      if(!err){document.getElementById('qr-print').appendChild(canvas);setTimeout(()=>window.print(),500);}
+    QRCode.toCanvas(document.createElement('canvas'),'${qrUrl}',{width:160,margin:1},function(err,canvas){
+      if(!err){document.getElementById('qr-print').appendChild(canvas);}
     });
   <\/script>
-  </body></html>`);
-  w.document.close();
+  </body></html>`;
+  const blob=new Blob([html],{type:'text/html'});
+  const w=window.open(URL.createObjectURL(blob),'_blank');
 }
 
 
@@ -4623,7 +4635,7 @@ function renderModal(){
       <div class="form-group"><label>Logement *</label>
         <select id="m-tprop" onchange="(function(){
           const pname=document.getElementById('m-tprop').value;
-          const p=S.topology.properties.find(x=>x.name===pname);
+          const p=S.topology.properties.find(x=>x.name===pname)||S.topology.properties.find(x=>x.name.toLowerCase()===pname.toLowerCase().trim());
           const zones=p?(p.zones||[]):[];
           const wrap=document.getElementById('m-tzone-wrap');
           const sel=document.getElementById('m-tzone');
@@ -5503,10 +5515,8 @@ async function saveModal(){
     if(!nom)return alert('Nom requis');
     const rec={name:nom,
       tenant_id:q('m-ctenant')?.value||null,
-      topo_id:q('m-ctopo')?.value||null,
       type:q('m-ctype')?.value||'eau',
       unite:q('m-cunite')?.value||'m³',
-      serial:q('m-cserial')?.value||null,
       prix_unitaire:parseFloat(q('m-cprix')?.value)||0,
       index_initial:parseFloat(q('m-cidx')?.value)||0,
       notes:q('m-cnotes')?.value||null};
@@ -6991,9 +7001,12 @@ async function autoSendQuittance(tenant,payment,mois,annee,commentaire=''){
     const blob=new Blob([previewHtml],{type:'text/html;charset=utf-8'});
     const blobUrl=URL.createObjectURL(blob);
     const w=window.open(blobUrl,'_blank');
+    setTimeout(()=>URL.revokeObjectURL(blobUrl),60000);
     if(!w){
-      const url='data:text/html;charset=utf-8,'+encodeURIComponent(previewHtml);
-      window.open(url,'_blank');
+      // Popup blocked - open in same tab or show link
+      const a=document.createElement('a');
+      a.href=blobUrl;a.target='_blank';a.download='quittance.html';
+      document.body.appendChild(a);a.click();document.body.removeChild(a);
     }
   }catch(e){
     const url='data:text/html;charset=utf-8,'+encodeURIComponent(emailHtml);
@@ -7598,12 +7611,45 @@ async function handleQRDone(mtId){
 
 
 loadAll().then(async()=>{
-  // Handle QR code quick-action URL params
+  // Handle URL params
   const urlParams=new URLSearchParams(window.location.search);
   const qrAction=urlParams.get('action');
   const qrMtId=urlParams.get('mt');
+  const emplacementParam=urlParams.get('emplacement');
   if(qrAction==='done'&&qrMtId){
     renderQRConfirm(qrMtId);
+    return;
+  }
+  if(emplacementParam){
+    // Navigate to tools tab showing this emplacement
+    S.eTab='emplacements';
+    S.activeTab='outils';
+    render();
+    // Show a popup with tools and consommables for this emplacement
+    setTimeout(()=>{
+      const tools=S.tools.filter(t=>t.location===emplacementParam);
+      const csos=S.consommables.filter(c=>c.emplacement===emplacementParam);
+      const rng=(S.rangements||[]).find(r=>r.nom===emplacementParam);
+      let html='<div style="padding:20px;font-family:Arial,sans-serif;max-width:500px;margin:0 auto">';
+      html+='<h2 style="font-size:20px;margin-bottom:4px">'+emplacementParam+'</h2>';
+      if(rng?.description)html+='<p style="color:#666;margin-bottom:16px">'+rng.description+'</p>';
+      if(tools.length){
+        html+='<h3 style="font-size:14px;color:#555;margin-bottom:8px">🔧 Outils ('+tools.length+')</h3>';
+        html+='<ul style="list-style:none;padding:0;margin-bottom:16px">';
+        tools.forEach(t=>html+='<li style="padding:6px 0;border-bottom:1px solid #eee">'+t.name+'<span style="float:right;color:#888;font-size:12px">'+t.status+'</span></li>');
+        html+='</ul>';
+      }
+      if(csos.length){
+        html+='<h3 style="font-size:14px;color:#555;margin-bottom:8px">📦 Consommables ('+csos.length+')</h3>';
+        html+='<ul style="list-style:none;padding:0">';
+        csos.forEach(c=>html+='<li style="padding:6px 0;border-bottom:1px solid #eee">'+c.nom+'<span style="float:right;color:#888;font-size:12px">Stock: '+c.stock+' '+c.unite+'</span></li>');
+        html+='</ul>';
+      }
+      if(!tools.length&&!csos.length)html+='<p style="color:#888;text-align:center;padding:20px">Aucun article dans cet emplacement</p>';
+      html+='<a href="'+window.location.origin+window.location.pathname+'" style="display:block;text-align:center;margin-top:16px;padding:10px;background:#1D9E75;color:#fff;border-radius:6px;text-decoration:none;font-weight:600">→ Ouvrir GMAO Pro</a>';
+      html+='</div>';
+      document.getElementById('root').innerHTML=html;
+    },100);
     return;
   }
   render();
