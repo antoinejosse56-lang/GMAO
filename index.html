@@ -8,8 +8,8 @@
 <meta name="color-scheme" content="light">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro</title>
-<!-- BUILD:20260331-182256 -->
-<meta name="version" content="v12-20260331-182256">
+<!-- BUILD:20260331-201145 -->
+<meta name="version" content="v13-20260331-201145">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -2967,39 +2967,42 @@ function printMaintenanceLabel(mt, csoLinks, siteUrl){
 
 
 function printAllLabels(locs,state){
-  let labelsHtml='';
-  locs.forEach(loc=>{
-    const rng=(state.rangements||[]).find(r=>r.nom===loc);
-    const desc=rng?.description||'';
-    labelsHtml+='<div class="label">'
-      +'<div class="qr" id="qr-'+btoa(loc).replace(/[^a-z0-9]/gi,'').slice(0,12)+'"></div>'
-      +'<div class="name">'+loc+'</div>'
-      +(desc?'<div class="desc">'+desc+'</div>':'')
-      +'</div>';
-  });
+  if(typeof QRCode==='undefined'){alert('QRCode library not loaded');return;}
   const siteUrl=window.location.origin+window.location.pathname;
-  const html='<!DOCTYPE html><html><head><meta charset="UTF-8">'
-    +'<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"><\/script>'
-    +'<style>'
-    +'body{font-family:Arial,sans-serif;padding:16px}'
-    +'.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}'
-    +'.label{border:1.5px solid #222;border-radius:6px;padding:12px;text-align:center;break-inside:avoid}'
-    +'.name{font-weight:700;font-size:14px;margin-top:8px}'
-    +'.desc{font-size:10px;color:#555}'
-    +'.no-print{margin-bottom:12px}'
-    +'@media print{.no-print{display:none}}'
-    +'</style></head><body>'
-    +'<div class="no-print"><button onclick="window.print()" style="padding:8px 20px;background:#1D9E75;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px">&#128424; Imprimer toutes</button></div>'
-    +'<div class="grid">'+labelsHtml+'</div>'
-    +'<script>'
-    +locs.map((loc,i)=>{
-      const id='qr-'+btoa(loc).replace(/[^a-z0-9]/gi,'').slice(0,12);
-      const url=siteUrl+'?emplacement='+encodeURIComponent(loc);
-      return 'QRCode.toCanvas(document.createElement(\'canvas\'),\''+url+'\',{width:100,margin:1},function(err,c){if(!err){document.getElementById(\''+id+'\').appendChild(c);}});';
-    }).join('')
-    +'<\/script></body></html>';
-  const blob=new Blob([html],{type:'text/html'});
-  window.open(URL.createObjectURL(blob),'_blank');
+  // Generate all QR codes as dataURLs first
+  const qrPromises=locs.map(loc=>new Promise(resolve=>{
+    const url=siteUrl+'?emplacement='+encodeURIComponent(loc);
+    QRCode.toDataURL(url,{width:120,margin:1},function(err,dataUrl){resolve({loc,dataUrl:err?null:dataUrl});});
+  }));
+  Promise.all(qrPromises).then(results=>{
+    const labelsHtml=results.map(({loc,dataUrl})=>{
+      const rng=(state.rangements||[]).find(r=>r.nom===loc);
+      const desc=rng?.description||'';
+      return '<div class="label">'
+        +(dataUrl?'<img src="'+dataUrl+'" style="width:100px;height:100px;display:block;margin:0 auto">':'<div style="width:100px;height:100px;background:#eee;margin:0 auto"></div>')
+        +'<div class="name">'+loc+'</div>'
+        +(desc?'<div class="desc">'+desc+'</div>':'')
+        +'</div>';
+    }).join('');
+    const html='<!DOCTYPE html><html><head><meta charset="UTF-8">'
+      +'<style>'
+      +'body{font-family:Arial,sans-serif;padding:16px}'
+      +'.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}'
+      +'.label{border:1.5px solid #222;border-radius:6px;padding:12px;text-align:center;break-inside:avoid}'
+      +'.name{font-weight:700;font-size:13px;margin-top:6px}'
+      +'.desc{font-size:10px;color:#555}'
+      +'.printbtn{margin-bottom:12px;background:#1D9E75;color:#fff;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-size:14px;font-weight:700}'
+      +'@media print{.printbtn{display:none}}'
+      +'</style></head><body>'
+      +'<button class="printbtn" onclick="window.print()">&#128424; Imprimer toutes</button>'
+      +'<div class="grid">'+labelsHtml+'</div>'
+      +'</body></html>';
+    const blob=new Blob([html],{type:'text/html'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');a.href=url;a.target='_blank';
+    document.body.appendChild(a);a.click();document.body.removeChild(a);
+    setTimeout(()=>URL.revokeObjectURL(url),30000);
+  });
 }
 
 
@@ -3007,32 +3010,33 @@ function printLocationLabel(loc,tools,siteUrl){
   const qrUrl=siteUrl+'?emplacement='+encodeURIComponent(loc);
   const rng=(S.rangements||[]).find(r=>r.nom===loc);
   const desc=rng?.description||'';
-  const html=`<!DOCTYPE html><html><head><meta charset="UTF-8">
-  <style>
-    body{font-family:Arial,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#fff;flex-direction:column}
-    .label{border:2px solid #222;padding:20px;width:240px;text-align:center;border-radius:8px;background:#fff}
-    .label h2{font-size:16px;margin:12px 0 4px;font-weight:700}
-    .label .desc{font-size:12px;color:#555;margin-bottom:4px}
-    .no-print{position:fixed;top:10px;right:10px}
-    @media print{.no-print{display:none}}
-  </style></head><body>
-  <div class="no-print">
-    <button onclick="window.print()" style="padding:8px 16px;background:#1D9E75;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600">&#128424; Imprimer</button>
-  </div>
-  <div class="label">
-    <div id="qr-print"></div>
-    <h2>${loc}</h2>
-    ${desc?'<div class="desc">'+desc+'</div>':''}
-  </div>
-  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"><\/script>
-  <script>
-    QRCode.toCanvas(document.createElement('canvas'),'${qrUrl}',{width:160,margin:1},function(err,canvas){
-      if(!err){document.getElementById('qr-print').appendChild(canvas);}
-    });
-  <\/script>
-  </body></html>`;
-  const blob=new Blob([html],{type:'text/html'});
-  const w=window.open(URL.createObjectURL(blob),'_blank');
+  // Generate QR as dataURL in main app context (blob URL can't load external scripts)
+  if(typeof QRCode==='undefined'){alert('QRCode library not loaded');return;}
+  QRCode.toDataURL(qrUrl,{width:200,margin:2},function(err,qrDataUrl){
+    const qrImg=err?'<div style="width:180px;height:180px;border:1px dashed #ccc;display:flex;align-items:center;justify-content:center;margin:0 auto;font-size:11px;color:#999">QR indisponible</div>'
+      :'<img src="'+qrDataUrl+'" style="width:180px;height:180px;display:block;margin:0 auto">';
+    const html='<!DOCTYPE html><html><head><meta charset="UTF-8">'
+      +'<style>'
+      +'body{font-family:Arial,sans-serif;margin:0;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh}'
+      +'.label{border:2px solid #222;border-radius:10px;padding:20px 24px;text-align:center;width:240px}'
+      +'.name{font-size:18px;font-weight:700;margin:12px 0 4px}'
+      +'.desc{font-size:12px;color:#666}'
+      +'.printbtn{position:fixed;top:12px;right:12px;background:#1D9E75;color:#fff;border:none;padding:10px 20px;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer}'
+      +'@media print{.printbtn{display:none}}'
+      +'</style></head><body>'
+      +'<button class="printbtn" onclick="window.print()">&#128424; Imprimer</button>'
+      +'<div class="label">'
+      +qrImg
+      +'<div class="name">'+loc+'</div>'
+      +(desc?'<div class="desc">'+desc+'</div>':'')
+      +'</div>'
+      +'</body></html>';
+    const blob=new Blob([html],{type:'text/html'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');a.href=url;a.target='_blank';
+    document.body.appendChild(a);a.click();document.body.removeChild(a);
+    setTimeout(()=>URL.revokeObjectURL(url),30000);
+  });
 }
 
 
@@ -6946,8 +6950,8 @@ async function autoSendQuittance(tenant,payment,mois,annee,commentaire=''){
   const moisNum=String(['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'].indexOf(mois)+1).padStart(2,'0');
   const invoiceNum=annee+'-'+moisNum+'-'+tenant.logement.replace(/[^A-Z0-9]/gi,'').toUpperCase().slice(0,6);
   const emailHtml=isCommercial
-    ?buildFactureHtml(tenant,payment,mois,annee,total,charges,total,datePaiement,invoiceNum,fmt,commentaire,false)
-    :buildQuittanceHtml(tenant,payment,mois,annee,total,charges,total,datePaiement,fmt,commentaire,false);
+    ?buildFactureHtml(tenant,payment,mois,annee,total,charges,total,datePaiement,invoiceNum,fmt,commentaire,true)
+    :buildQuittanceHtml(tenant,payment,mois,annee,total,charges,total,datePaiement,fmt,commentaire,true);
   const subject=isCommercial
     ?'Facture de loyer '+mois+' '+annee+' — '+tenant.logement+' — N°'+invoiceNum
     :'Quittance de loyer '+mois+' '+annee+' — '+tenant.logement;
