@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro</title>
 <!-- BUILD:20260331-123304 -->
-<meta name="version" content="v7-20260331-123331">
+<meta name="version" content="v8-20260331-140825">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -2414,26 +2414,33 @@ function renderEtiquettes(){
 
   // === ÉTIQUETTES EMPLACEMENTS ===
   if(eTab==='emplacements'){
+    const toolLocs=new Set(S.tools.map(t=>t.location).filter(Boolean));
+    const rngLocs=new Set((S.rangements||[]).map(r=>r.nom).filter(Boolean));
+    const allLocs=[...new Set([...rngLocs,...toolLocs])].sort();
+    const cards=allLocs.map(loc=>{
+      const tools=S.tools.filter(t=>t.location===loc);
+      const rng=(S.rangements||[]).find(r=>r.nom===loc);
+      return '<div class="card" style="padding:12px;text-align:center">'
+        +'<canvas id="qr-loc-'+btoa(loc).replace(/[^a-z0-9]/gi,'').slice(0,15)+'" style="width:100px;height:100px"></canvas>'
+        +'<div style="font-size:13px;font-weight:500;margin-top:6px">'+loc+'</div>'
+        +'<div style="font-size:11px;color:var(--text2)">'+tools.length+' outil'+(tools.length>1?'s':'')+'</div>'
+        +(rng&&rng.description?'<div style="font-size:10px;color:var(--text3);margin:2px 0">'+rng.description+'</div>':'')
+        +(tools.length>0?'<div style="font-size:10px;color:var(--text3);margin:2px 0">'+tools.slice(0,3).map(t=>t.name).join(', ')+(tools.length>3?'...':'')+'</div>':'')
+        +'<button class="btn btn-sm" style="margin-top:8px" data-print-loc="'+loc+'">&#128424; &#201;tiquette</button>'
+        +'</div>';
+    }).join('');
+    const empty=allLocs.length===0?'<div style="grid-column:1/-1;text-align:center;padding:30px;color:var(--text2)">Aucun emplacement. Ajoutez des rangements ou assignez un emplacement aux outils.</div>':'';
     return `${tabBar}
-    <div style="display:flex;justify-content:flex-end;margin-bottom:12px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
       <button class="btn btn-p btn-sm" id="btn-add-location">+ Emplacement</button>
+      <button class="btn btn-sm" id="btn-print-all-labels">&#128424; Toutes les &#233;tiquettes</button>
     </div>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px">
-      ${locations.map(loc=>{
-        const tools = S.tools.filter(t=>t.location===loc);
-        return `<div class="card" style="padding:12px;text-align:center">
-          <canvas id="qr-loc-${btoa(loc).replace(/[^a-z0-9]/gi,'')}" style="width:100px;height:100px"></canvas>
-          <div style="font-size:13px;font-weight:500;margin-top:6px">${loc}</div>
-          <div style="font-size:11px;color:var(--text2)">${tools.length} outil${tools.length>1?'s':''}</div>
-          <div style="margin-top:6px;font-size:11px;color:var(--text3)">${tools.slice(0,3).map(t=>t.name).join(', ')}${tools.length>3?'...':''}</div>
-          <button class="btn btn-sm" style="margin-top:8px" data-print-loc="${loc}">🖨 Étiquette</button>
-        </div>`;
-      }).join('')}
-      ${locations.length===0?'<div style="grid-column:1/-1;text-align:center;padding:30px;color:var(--text2)">Aucun emplacement défini. Ajoutez des emplacements dans la fiche de chaque outil.</div>':''}
+      ${cards}${empty}
     </div>`;
   }
 
-  // === INVENTAIRE RAPIDE ===
+// === INVENTAIRE RAPIDE ===
   if(eTab==='inventaire'){
     const selLoc = S.selInventLoc||locations[0]||'';
     const locTools = S.tools.filter(t=>t.location===selLoc);
@@ -2959,6 +2966,32 @@ function printMaintenanceLabel(mt, csoLinks, siteUrl){
 }
 
 
+function printAllLabels(locs, state){
+  const rows = Math.ceil(locs.length / 3);
+  let labelsHtml = '';
+  locs.forEach(loc=>{
+    const tools=(state.tools||[]).filter(t=>t.location===loc);
+    const rng=(state.rangements||[]).find(r=>r.nom===loc);
+    labelsHtml+=`<div style="border:1px solid #ddd;border-radius:6px;padding:10px;text-align:center;break-inside:avoid;margin-bottom:8px">
+      <div style="font-weight:700;font-size:14px">${loc}</div>
+      ${rng?.description?`<div style="font-size:10px;color:#666">${rng.description}</div>`:''}
+      ${tools.length>0?`<div style="font-size:10px;color:#888">${tools.slice(0,4).map(t=>t.name).join(', ')}${tools.length>4?'...':''}</div>`:''}
+    </div>`;
+  });
+  const html=`<!DOCTYPE html><html><head><meta charset="UTF-8">
+  <style>body{font-family:Arial,sans-serif;padding:20px}
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+  @media print{.no-print{display:none}}
+  </style></head><body>
+  <div class="no-print" style="margin-bottom:16px">
+    <button onclick="window.print()" style="padding:8px 20px;background:#1D9E75;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px">🖨 Imprimer</button>
+  </div>
+  <div class="grid">${labelsHtml}</div>
+  </body></html>`;
+  const blob=new Blob([html],{type:'text/html'});
+  window.open(URL.createObjectURL(blob),'_blank');
+}
+
 function printLocationLabel(loc, tools, siteUrl){
   const qrData = siteUrl+'?location='+encodeURIComponent(loc);
   const toolList = tools.slice(0,8).map(t=>'• '+t.name).join('<br>');
@@ -2971,6 +3004,9 @@ function printLocationLabel(loc, tools, siteUrl){
     .label .tools{font-size:10px;color:#555;text-align:left;line-height:1.6;border-top:1px solid #eee;padding-top:6px;margin-top:6px}
     @media print{body{display:block}.label{margin:20px auto}}
   </style></head><body>
+  <div style="position:fixed;top:10px;right:10px;z-index:999">
+    <button onclick="window.print()" style="padding:8px 16px;background:#1D9E75;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600">&#128424; Imprimer</button>
+  </div>
   <div class="label">
     <div style="font-size:10px;color:#999;margin-bottom:4px">EMPLACEMENT</div>
     <div id="qr-print" style="display:flex;justify-content:center"></div>
@@ -4611,23 +4647,35 @@ function renderModal(){
         </select>
       </div>
       <div class="form-group" id="m-tzone-wrap" style="display:${(()=>{
+        // For edit: use existing logement; for add: check if first property has zones
         const logStr=t.logement||'';
-        if(!logStr) return 'none'; // ADD: hidden until property selected
-        const sep=logStr.includes(' \u2014 ')?' \u2014 ':' - ';
-        const pName=logStr.split(sep)[0].trim();
+        const propNames=S.topology.properties.map(x=>x.name);
+        let pName='';
+        if(logStr){
+          const sep=logStr.includes(' \u2014 ')?' \u2014 ':' - ';
+          pName=logStr.split(sep)[0].trim();
+        } else {
+          // For add: use first property as default (matches default selection in dropdown)
+          pName=propNames[0]||'';
+        }
         const p=S.topology.properties.find(x=>x.name.toLowerCase()===pName.toLowerCase())||
                 S.topology.properties.find(x=>pName.toLowerCase().includes(x.name.toLowerCase())||x.name.toLowerCase().includes(pName.toLowerCase()));
         return (p&&(p.zones||[]).length)?'':'none';
       })()}">
         <label>Zone / Appartement</label>
         <select id="m-tzone">
-          <option value="">\u2014 Aucune zone \u2014</option>
+          <option value="">— Aucune zone —</option>
           ${(()=>{
             const logStr=t.logement||'';
-            if(!logStr) return '';
-            const sep=logStr.includes(' \u2014 ')?' \u2014 ':' - ';
-            const pName=logStr.split(sep)[0].trim();
-            const zName=logStr.includes(sep)?logStr.split(sep).slice(1).join(sep)||'':'';
+            const propNames=S.topology.properties.map(x=>x.name);
+            let pName='', zName='';
+            if(logStr){
+              const sep=logStr.includes(' \u2014 ')?' \u2014 ':' - ';
+              pName=logStr.split(sep)[0].trim();
+              zName=logStr.includes(sep)?logStr.split(sep).slice(1).join(sep):'';
+            } else {
+              pName=propNames[0]||'';
+            }
             const p=S.topology.properties.find(x=>x.name.toLowerCase()===pName.toLowerCase())||
                     S.topology.properties.find(x=>pName.toLowerCase().includes(x.name.toLowerCase())||x.name.toLowerCase().includes(pName.toLowerCase()));
             if(!p)return '';
@@ -4636,8 +4684,6 @@ function renderModal(){
         </select>
       </div>
 
-    </div>
-    <div class="g2c">
       <div class="form-group"><label>Email (pour quittances)</label><input id="m-temail" type="email" value="${t.email||''}" placeholder="locataire@email.fr"></div>
       <div class="form-group"><label>Type de bail</label><select id="m-tbail">
         <option value="habitation" ${(t.type_bail||'habitation')==='habitation'?'selected':''}>Habitation (sans TVA)</option>
@@ -6444,6 +6490,14 @@ function bindAll(){
     const t=S.tools.find(x=>x.id===el.dataset.printLabel);
     if(t)printLabel(t,window.location.origin+window.location.pathname);
   });
+  const btnPrintAllLabels=document.getElementById('btn-print-all-labels');
+  if(btnPrintAllLabels)btnPrintAllLabels.onclick=()=>{
+    const toolLocs=new Set(S.tools.map(t=>t.location).filter(Boolean));
+    const rngLocs=new Set((S.rangements||[]).map(r=>r.nom).filter(Boolean));
+    const allLocs=[...new Set([...rngLocs,...toolLocs])].sort();
+    printAllLabels(allLocs,S);
+  };
+
   document.querySelectorAll('[data-print-loc]').forEach(el=>el.onclick=e=>{
     e.stopPropagation();
     const loc=el.dataset.printLoc;
