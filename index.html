@@ -8,8 +8,8 @@
 <meta name="color-scheme" content="light">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro</title>
-<!-- BUILD:20260331-123304 -->
-<meta name="version" content="v8-20260331-140825">
+<!-- BUILD:20260331-145053 -->
+<meta name="version" content="v9-20260331-145053">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -4757,25 +4757,7 @@ function renderModal(){
     ${mf}`;
   }
 
-  if(m.type==='edit-tenant'){
-    const log = (S.locatif?.logements||[]).find(l=>l.id===m.logId)||{};
-    html=`${mhd('Fiche locataire — '+log.name)}
-    <div class="g2c">
-      <div class="form-group"><label>Nom du locataire</label><input id="m-ten-name" value="${log.tenant||''}"></div>
-      <div class="form-group"><label>Email *</label><input id="m-ten-email" type="email" value="${log.tenant_email||''}" placeholder="locataire@email.fr"></div>
-    </div>
-    <div class="g2c">
-      <div class="form-group"><label>Loyer mensuel (€)</label><input id="m-ten-loyer" type="number" value="${log.loyer_base||0}"></div>
-      <div class="form-group"><label>Charges (€)</label><input id="m-ten-charges" type="number" value="${log.charges||0}"></div>
-    </div>
-    <div class="g2c">
-      <div class="form-group"><label>Dépôt de garantie (€)</label><input id="m-ten-dg" type="number" value="${log.depot_garantie||0}"></div>
-      <div class="form-group"><label>Début du bail</label><input id="m-ten-debut" type="date" value="${log.bail_debut||''}"></div>
-    </div>
-    <div class="form-group"><label>Fin du bail</label><input id="m-ten-fin" type="date" value="${log.bail_fin||''}"></div>
-    <div class="form-group"><label>Notes</label><textarea id="m-ten-notes">${log.notes||''}</textarea></div>
-    ${mf}`;
-  }
+
 
   if(m.type==='add-water'){
     html=`${mhd('Nouveau relevé eau')}
