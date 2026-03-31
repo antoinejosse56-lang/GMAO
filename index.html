@@ -8,8 +8,8 @@
 <meta name="color-scheme" content="light">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro</title>
-<!-- BUILD:20260331-150445 -->
-<meta name="version" content="v10-20260331-150445">
+<!-- BUILD:20260331-152627 -->
+<meta name="version" content="v11-20260331-152627">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -4658,41 +4658,10 @@ function renderModal(){
           })()}
         </select>
       </div>
-      <div class="form-group" id="m-tzone-wrap" style="display:${(()=>{
-        // For edit: use existing logement; for add: check if first property has zones
-        const logStr=t.logement||'';
-        const propNames=S.topology.properties.map(x=>x.name);
-        let pName='';
-        if(logStr){
-          const sep=logStr.includes(' \u2014 ')?' \u2014 ':' - ';
-          pName=logStr.split(sep)[0].trim();
-        } else {
-          // For add: use first property as default (matches default selection in dropdown)
-          pName=propNames[0]||'';
-        }
-        const p=S.topology.properties.find(x=>x.name.toLowerCase()===pName.toLowerCase())||
-                S.topology.properties.find(x=>pName.toLowerCase().includes(x.name.toLowerCase())||x.name.toLowerCase().includes(pName.toLowerCase()));
-        return (p&&(p.zones||[]).length)?'':'none';
-      })()}">
+      <div class="form-group" id="m-tzone-wrap" style="display:none">
         <label>Zone / Appartement</label>
         <select id="m-tzone">
           <option value="">— Aucune zone —</option>
-          ${(()=>{
-            const logStr=t.logement||'';
-            const propNames=S.topology.properties.map(x=>x.name);
-            let pName='', zName='';
-            if(logStr){
-              const sep=logStr.includes(' \u2014 ')?' \u2014 ':' - ';
-              pName=logStr.split(sep)[0].trim();
-              zName=logStr.includes(sep)?logStr.split(sep).slice(1).join(sep):'';
-            } else {
-              pName=propNames[0]||'';
-            }
-            const p=S.topology.properties.find(x=>x.name.toLowerCase()===pName.toLowerCase())||
-                    S.topology.properties.find(x=>pName.toLowerCase().includes(x.name.toLowerCase())||x.name.toLowerCase().includes(pName.toLowerCase()));
-            if(!p)return '';
-            return (p.zones||[]).map(z=>'<option value="'+z.name+'" '+(z.name===zName?'selected':'')+'>'+z.name+'</option>').join('');
-          })()}
         </select>
       </div>
 
@@ -5698,7 +5667,7 @@ function bindAll(){
   document.querySelectorAll('[data-loc-annee]').forEach(el=>el.onclick=()=>{S.locAnnee=parseInt(el.dataset.locAnnee);render();});
 
   const btnAddTenant=q('btn-add-tenant');
-  if(btnAddTenant)btnAddTenant.onclick=()=>{S.modal={type:'add-tenant'};render();};
+  if(btnAddTenant)btnAddTenant.onclick=()=>{S.modal={type:'add-tenant'};render();setTimeout(()=>{const sel=document.getElementById('m-tprop');if(sel)sel.dispatchEvent(new Event('change'));},50);};
   const btnOpenEdl=document.getElementById('btn-open-edl-form');
   if(btnOpenEdl)btnOpenEdl.onclick=()=>{
     const t=S.modal?.tenant||null;
@@ -5747,7 +5716,10 @@ function bindAll(){
 
   document.querySelectorAll('[data-edit-tenant]').forEach(el=>el.onclick=()=>{
     const t=S.tenants.find(x=>x.id===el.dataset.editTenant);
-    if(t){S.modal={type:'edit-tenant',tenant:t};render();}});
+    if(t){S.modal={type:'edit-tenant',tenant:t};render();
+      // Fire zone update after render
+      setTimeout(()=>{const sel=document.getElementById('m-tprop');if(sel)sel.dispatchEvent(new Event('change'));},50);
+    }});
   document.querySelectorAll('[data-del-tenant]').forEach(el=>el.onclick=async()=>{
     if(!confirm('Supprimer ce locataire ?'))return;
     await sb.from('tenants').delete().eq('id',el.dataset.delTenant);
@@ -6518,7 +6490,7 @@ function bindAll(){
   const btnScanQr=document.getElementById('btn-scan-qr');
   if(btnScanQr)btnScanQr.onclick=()=>{alert('📷 Utilisez l\'appareil photo de votre smartphone pour scanner le QR code — le lien s\'ouvrira dans GMAO Pro.');};
   setTimeout(()=>{
-    if(typeof QRCode==='undefined')return;
+    if(typeof QRCode==='undefined'){setTimeout(()=>bindAll(),500);return;}
     const siteUrl=window.location.origin+window.location.pathname;
     S.tools.forEach(t=>{const canvas=document.getElementById('qr-tool-'+t.id);if(canvas&&!canvas._qr){canvas._qr=true;QRCode.toCanvas(canvas,siteUrl+'?tool='+t.id,{width:100,margin:1},()=>{});}});
     [...new Set(S.tools.map(t=>t.location).filter(Boolean))].forEach(loc=>{const id='qr-loc-'+btoa(loc).replace(/[^a-z0-9]/gi,'');const canvas=document.getElementById(id);if(canvas&&!canvas._qr){canvas._qr=true;QRCode.toCanvas(canvas,siteUrl+'?location='+encodeURIComponent(loc),{width:100,margin:1},()=>{});}});
@@ -7000,14 +6972,11 @@ async function autoSendQuittance(tenant,payment,mois,annee,commentaire=''){
       :buildQuittanceHtml(tenant,payment,mois,annee,total,charges,total,datePaiement,fmt,commentaire,true);
     const blob=new Blob([previewHtml],{type:'text/html;charset=utf-8'});
     const blobUrl=URL.createObjectURL(blob);
-    const w=window.open(blobUrl,'_blank');
-    setTimeout(()=>URL.revokeObjectURL(blobUrl),60000);
-    if(!w){
-      // Popup blocked - open in same tab or show link
-      const a=document.createElement('a');
-      a.href=blobUrl;a.target='_blank';a.download='quittance.html';
-      document.body.appendChild(a);a.click();document.body.removeChild(a);
-    }
+    // Use <a> click instead of window.open to bypass popup blocker
+    const a=document.createElement('a');
+    a.href=blobUrl;a.target='_blank';a.rel='noopener';
+    document.body.appendChild(a);a.click();document.body.removeChild(a);
+    setTimeout(()=>URL.revokeObjectURL(blobUrl),30000);
   }catch(e){
     const url='data:text/html;charset=utf-8,'+encodeURIComponent(emailHtml);
     const a=document.createElement('a');a.href=url;a.target='_blank';a.click();
