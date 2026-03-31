@@ -8,8 +8,8 @@
 <meta name="color-scheme" content="light">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro</title>
-<!-- BUILD:20260331-201145 -->
-<meta name="version" content="v13-20260331-201145">
+<!-- BUILD:20260331-201849 -->
+<meta name="version" content="v14-20260331-201849">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -2967,7 +2967,16 @@ function printMaintenanceLabel(mt, csoLinks, siteUrl){
 
 
 function printAllLabels(locs,state){
-  if(typeof QRCode==='undefined'){alert('QRCode library not loaded');return;}
+  // Wait for QRCode library to load (up to 3 seconds)
+  if(typeof QRCode==='undefined'){
+    let tries=0;
+    const wait=setInterval(()=>{
+      tries++;
+      if(typeof QRCode!=='undefined'){clearInterval(wait);printLocationLabel(loc,tools,siteUrl);}
+      else if(tries>15){clearInterval(wait);alert('QRCode library not loaded. Please refresh the page.');}
+    },200);
+    return;
+  }
   const siteUrl=window.location.origin+window.location.pathname;
   // Generate all QR codes as dataURLs first
   const qrPromises=locs.map(loc=>new Promise(resolve=>{
@@ -3011,7 +3020,15 @@ function printLocationLabel(loc,tools,siteUrl){
   const rng=(S.rangements||[]).find(r=>r.nom===loc);
   const desc=rng?.description||'';
   // Generate QR as dataURL in main app context (blob URL can't load external scripts)
-  if(typeof QRCode==='undefined'){alert('QRCode library not loaded');return;}
+  if(typeof QRCode==='undefined'){
+    let tries=0;
+    const wait=setInterval(()=>{
+      tries++;
+      if(typeof QRCode!=='undefined'){clearInterval(wait);printAllLabels(locs,state);}
+      else if(tries>15){clearInterval(wait);alert('QRCode library not loaded. Please refresh.');}
+    },200);
+    return;
+  }
   QRCode.toDataURL(qrUrl,{width:200,margin:2},function(err,qrDataUrl){
     const qrImg=err?'<div style="width:180px;height:180px;border:1px dashed #ccc;display:flex;align-items:center;justify-content:center;margin:0 auto;font-size:11px;color:#999">QR indisponible</div>'
       :'<img src="'+qrDataUrl+'" style="width:180px;height:180px;display:block;margin:0 auto">';
@@ -5674,11 +5691,10 @@ function bindAll(){
   if(btnAddTenant)btnAddTenant.onclick=()=>{S.modal={type:'add-tenant'};render();setTimeout(()=>{
     const sel=document.getElementById('m-tprop');
     if(sel){
-      // Pre-select first real property for new tenant
       if(!sel.value&&sel.options.length>1)sel.selectedIndex=1;
       sel.dispatchEvent(new Event('change'));
     }
-  },50);};
+  },200);};
   const btnOpenEdl=document.getElementById('btn-open-edl-form');
   if(btnOpenEdl)btnOpenEdl.onclick=()=>{
     const t=S.modal?.tenant||null;
@@ -5728,7 +5744,7 @@ function bindAll(){
   document.querySelectorAll('[data-edit-tenant]').forEach(el=>el.onclick=()=>{
     const t=S.tenants.find(x=>x.id===el.dataset.editTenant);
     if(t){S.modal={type:'edit-tenant',tenant:t};render();
-      setTimeout(()=>{const sel=document.getElementById('m-tprop');if(sel&&sel.value)sel.dispatchEvent(new Event('change'));},50);
+      setTimeout(()=>{const sel=document.getElementById('m-tprop');if(sel&&sel.value)sel.dispatchEvent(new Event('change'));},200);
     }});
   document.querySelectorAll('[data-del-tenant]').forEach(el=>el.onclick=async()=>{
     if(!confirm('Supprimer ce locataire ?'))return;
@@ -7102,7 +7118,11 @@ function buildQuittanceHtml(tenant,payment,mois,annee,loyer,charges,total,datePa
     .sig-block{margin-top:40px;display:flex;justify-content:space-between;align-items:flex-end}
     .sig-right{text-align:right;font-size:13px}
     .sig-right .name{font-weight:bold;margin-top:50px;border-top:1px solid #222;padding-top:6px}`;
-  const printBar='<div class="print-bar" style="position:sticky;top:0;z-index:999;background:#1D9E75;color:#fff;display:flex;align-items:center;justify-content:space-between;padding:10px 20px;margin-bottom:16px"><div><strong style=\'color:#fff\'>🖨 Quittance de loyer</strong><div style=\'font-size:12px;opacity:.8\'>Cliquez Imprimer pour enregistrer en PDF</div></div><button onclick="window.print()" style=\'background:#fff;color:#1D9E75;border:none;padding:8px 20px;border-radius:6px;font-weight:700;font-size:14px;cursor:pointer\'>🖨 Imprimer</button></div>';
+  const printBar='<div style=\'position:sticky;top:0;z-index:999;background:#1D9E75;color:#fff;display:flex;align-items:center;justify-content:space-between;padding:10px 20px;margin-bottom:16px;font-family:Arial,sans-serif\'>'
+    +'<div><strong style=\'color:#fff;font-size:14px\'>📄 Quittance de loyer</strong><div style=\'font-size:11px;opacity:.8\'>Pour imprimer : utilisez Ctrl+P ou cliquez le bouton</div></div>'
+    +'<button onclick=\'window.print()\' style=\'background:#fff;color:#1D9E75;border:none;padding:8px 20px;border-radius:6px;font-weight:700;font-size:13px;cursor:pointer\'>🖨 Imprimer</button>'
+    +'</div>'
+    +'<script>try{setTimeout(function(){window.print();},800);}catch(e){}<\/script>';
   return '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>'+css+'</style></head><body>'+(showPrintBar?printBar:'')
     +'<div class="header">'
     +'<div><strong>LE BAILLEUR</strong><br>'+bailNom+'<br>'+bailAddr+'<br>'+bailCP+'<br>'+bailEmail+(bailTel?'<br>'+bailTel:'')+'</div>'
@@ -7155,7 +7175,11 @@ function buildFactureHtml(tenant,payment,mois,annee,loyer,charges,total,datePaie
     td:first-child{text-align:left}
     .total-row td{font-weight:bold;font-size:15px;background:#f0f0f0;border-top:2px solid #222}
     .sig-block{margin-top:40px;text-align:right;font-size:13px}`;
-  const printBar='<div class="print-bar" style=\'position:sticky;top:0;z-index:999;background:#1D9E75;color:#fff;display:flex;align-items:center;justify-content:space-between;padding:10px 20px;margin-bottom:16px\'><div><strong style=\'color:#fff\'>🖨 Facture de loyer</strong><div style=\'font-size:12px;opacity:.8\'>Cliquez Imprimer pour enregistrer en PDF</div></div><button onclick=\'window.print()\' style=\'background:#fff;color:#1D9E75;border:none;padding:8px 20px;border-radius:6px;font-weight:700;font-size:14px;cursor:pointer\'>🖨 Imprimer</button></div>';
+  const printBar='<div style=\'position:sticky;top:0;z-index:999;background:#1D9E75;color:#fff;display:flex;align-items:center;justify-content:space-between;padding:10px 20px;margin-bottom:16px;font-family:Arial,sans-serif\'>'
+    +'<div><strong style=\'color:#fff;font-size:14px\'>📄 Facture de loyer</strong><div style=\'font-size:11px;opacity:.8\'>Pour imprimer : utilisez Ctrl+P ou cliquez le bouton</div></div>'
+    +'<button onclick=\'window.print()\' style=\'background:#fff;color:#1D9E75;border:none;padding:8px 20px;border-radius:6px;font-weight:700;font-size:13px;cursor:pointer\'>🖨 Imprimer</button>'
+    +'</div>'
+    +'<script>try{setTimeout(function(){window.print();},800);}catch(e){}<\/script>';
   return '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>'+css+'</style></head><body>'+(showPrintBar?printBar:'')
     +'<div class="header">'
     +'<div><strong>J&A SAVADUR</strong><br>29 RUE AMIRAL BOUVET<br>56100 LORIENT<br>savadur56@gmail.com<br>06.30.37.06.88</div>'
