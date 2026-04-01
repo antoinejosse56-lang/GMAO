@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v46-20260401-151749">
+<meta name="version" content="v47-20260401-152201">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -4970,10 +4970,11 @@ async function saveModal(){
     const rec={
       name:nom,
       category:q('m-cat')?.value||q('m-type')?.value||null,
+      type:q('m-type')?.value||q('m-cat')?.value||null,
       status:q('m-status')?.value||'ok',
       location:q('m-loc')?.value||null,
       description:q('m-desc')?.value||null,
-      notes:q('m-maint')?.value||null
+      next_maint:q('m-maint')?.value||null
     };
     if(m.type==='add-asset'){
       const {data,error}=await sb.from('assets').insert(rec).select().single();
