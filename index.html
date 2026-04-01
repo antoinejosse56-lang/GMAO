@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v41-20260401-140902">
+<meta name="version" content="v42-20260401-141428">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -1713,7 +1713,7 @@ function renderLocatif(){
                   ${chargesHT>0?`<td style="font-size:12px">${fmt(chargesHT)}</td>`:''}
                   <td style="font-weight:500">${fmt(loyerHT+chargesHT)}</td>
                 `}
-                <td style="font-weight:500;color:${isPaid?'var(--green)':'var(--text)'}">${montant>0?fmt(montant):'—'}</td>
+                <td style="font-weight:500;color:${isPaid?'var(--green)':'var(--text)'}">${(p?.locataire_part||0)+(p?.caf||0)>0?fmt((p?.locataire_part||0)+(p?.caf||0)):'—'}</td>
                 <td style="font-size:11px">
                   ${p?.date_loc?'🏦 '+new Date(p.date_loc).toLocaleDateString('fr-FR'):'—'}
                   ${p?.date_caf?'<br>🏢 CAF : '+new Date(p.date_caf).toLocaleDateString('fr-FR'):''}
