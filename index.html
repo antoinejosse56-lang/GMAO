@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v32-20260401-123201">
+<meta name="version" content="v33-20260401-123637">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -4998,7 +4998,7 @@ async function saveModal(){
     const expectedReturn=q('m-lr')?.value||null;
     if(!expectedReturn)return alert('Date de retour prévue requise');
     const notes=q('m-ln')?.value||'';
-    const rec={tool_id:m.toolId,borrower,loan_date:loanDate,expected_return:expectedReturn,notes,returned:false};
+    const rec={tool_id:m.toolId,borrower,date:loanDate,expected_return:expectedReturn,notes,returned:false};
     const {data,error}=await sb.from('loans').insert(rec).select().single();
     if(error){alert('Erreur prêt : '+error.message);return;}
     S.loans.push(data);
