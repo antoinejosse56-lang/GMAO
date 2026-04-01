@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v54-20260401-164320">
+<meta name="version" content="v55-20260401-164725">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -2653,7 +2653,9 @@ function renderFamille(){
 function renderEtiquettes(){
   const eTab = S.eTab||'outils';
   const siteUrl = window.location.origin + window.location.pathname;
-  const locations = [...new Set(S.tools.map(t=>t.location).filter(Boolean))].sort();
+  const toolLocs = new Set(S.tools.map(t=>t.location).filter(Boolean));
+  const rngLocs = new Set((S.rangements||[]).map(r=>r.nom).filter(Boolean));
+  const locations = [...new Set([...rngLocs,...toolLocs])].sort();
 
   const tabBar = `<div class="tab-bar" style="margin-bottom:14px">
     <div class="tab ${eTab==='outils'?'active':''}" data-etab="outils">🔧 Outils</div>
