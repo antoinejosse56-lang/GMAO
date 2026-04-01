@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v49-20260401-161127">
+<meta name="version" content="v50-20260401-161744">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -3477,6 +3477,7 @@ function renderModal(){
         <div style="flex:1">
           <div style="font-size:13px;font-weight:500">${d.type}</div>
           <div style="font-size:11px;color:var(--text2)">${d.numero||''} ${d.date_expiry?'· Expire: '+dateLabel(d.date_expiry):''}</div>
+          ${d.drive_url?`<a href="${d.drive_url}" target="_blank" style="font-size:11px;color:var(--blue)">&#128279; Voir le document</a>`:''}
         </div>
         ${days!==null?`<span class="badge ${days<0?'bred':days<=90?'bamber':'bgreen'}">${days<0?'Expiré':'Dans '+days+'j'}</span>`:''}
         <button class="btn btn-d btn-sm" data-del-fdoc="${d.id}" data-membre-id="${mb.id}">✕</button>
