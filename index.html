@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v35-20260401-124343">
+<meta name="version" content="v36-20260401-124842">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -2667,7 +2667,6 @@ function renderEtiquettes(){
     return `${tabBar}
     <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center">
       ${cats.map(c=>`<span class="pill ${selCat===c?'active':''}" data-efilter="${c}">${c==='all'?'Tous':c}</span>`).join('')}
-      <button class="btn btn-p btn-sm" style="margin-left:auto" id="btn-print-all-labels">🖨 Imprimer tout</button>
     </div>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px">
       ${filtered.map(t=>`
@@ -6044,13 +6043,6 @@ function bindAll(){
     const t=S.tools.find(x=>x.id===el.dataset.printLabel);
     if(t)printLabel(t,window.location.origin+window.location.pathname);
   });
-  const btnPrintAllLabels=document.getElementById('btn-print-all-labels');
-  if(btnPrintAllLabels)btnPrintAllLabels.onclick=()=>{
-    const toolLocs=new Set(S.tools.map(t=>t.location).filter(Boolean));
-    const rngLocs=new Set((S.rangements||[]).map(r=>r.nom).filter(Boolean));
-    const allLocs=[...new Set([...rngLocs,...toolLocs])].sort();
-    printAllLabels(allLocs,S);
-  };
 
   document.querySelectorAll('[data-print-loc]').forEach(el=>el.onclick=e=>{
     e.stopPropagation();
