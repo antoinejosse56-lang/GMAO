@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v33-20260401-123637">
+<meta name="version" content="v34-20260401-123948">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -2768,33 +2768,35 @@ function printLabel(tool, siteUrl){
 }
 
 function printLocationLabel(loc, tools, siteUrl){
-  const qrData = siteUrl+'?location='+encodeURIComponent(loc);
-  const toolList = tools.slice(0,8).map(t=>'• '+t.name).join('<br>');
-  const w = window.open('','_blank','width=400,height=400');
-  w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
-  <style>
-    body{font-family:Arial,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#fff}
-    .label{border:2px solid #222;padding:14px;width:280px;text-align:center;border-radius:6px}
-    .label h2{font-size:14px;margin:8px 0 6px;font-weight:600}
-    .label .tools{font-size:10px;color:#555;text-align:left;line-height:1.6;border-top:1px solid #eee;padding-top:6px;margin-top:6px}
-    @media print{body{display:block}.label{margin:20px auto}}
-  </style></head><body>
-  <div class="label">
-    <div style="font-size:10px;color:#999;margin-bottom:4px">EMPLACEMENT</div>
-    <div id="qr-print" style="display:flex;justify-content:center"></div>
-    <h2>📦 ${loc}</h2>
-    <div class="tools">${toolList}${tools.length>8?'<br>+ '+(tools.length-8)+' autres':''}</div>
-  </div>
-  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"><\/script>
-  <script>
-    QRCode.toCanvas(document.createElement('canvas'),'${qrData}',{width:110},function(err,canvas){
-      if(!err){document.getElementById('qr-print').appendChild(canvas);setTimeout(()=>window.print(),500);}
-    });
-  <\/script>
-  </body></html>`);
-  w.document.close();
+  const qrUrl=siteUrl+'?emplacement='+encodeURIComponent(loc);
+  const rng=(S.rangements||[]).find(r=>r.nom===loc);
+  const desc=rng?.description||'';
+  const qrSrc='https://api.qrserver.com/v1/create-qr-code/?size=200x200&data='+encodeURIComponent(qrUrl)+'&format=png';
+  const parts=[
+    '<!DOCTYPE html><html><head><meta charset="UTF-8">',
+    '<style>',
+    'body{font-family:Arial,sans-serif;margin:0;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh}',
+    '.label{border:2px solid #222;border-radius:8px;padding:20px;text-align:center;width:240px}',
+    '.name{font-size:16px;font-weight:700;margin:10px 0 4px}',
+    '.desc{font-size:11px;color:#666}',
+    '.printbtn{position:fixed;top:12px;right:12px;background:#1D9E75;color:#fff;border:none;padding:8px 18px;border-radius:6px;cursor:pointer;font-weight:700;font-size:13px}',
+    '@media print{.printbtn{display:none}}',
+    '</style></head><body>',
+    '<button class="printbtn" onclick="window.print()">&#128424; Imprimer</button>',
+    '<div class="label">',
+    '<img src="'+qrSrc+'" width="200" height="200" alt="QR">',
+    '<div class="name">'+loc+'</div>',
+    desc?'<div class="desc">'+desc+'</div>':'',
+    '</div>',
+    '</body></html>'
+  ];
+  const html=parts.join('');
+  const blob=new Blob([html],{type:'text/html'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');a.href=url;a.target='_blank';
+  document.body.appendChild(a);a.click();document.body.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(url),60000);
 }
-
 
 
 function renderRangements(){
