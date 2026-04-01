@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v51-20260401-162852">
+<meta name="version" content="v52-20260401-163225">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -2622,7 +2622,7 @@ function renderFamille(){
           +'<div style="font-weight:600;font-size:14px">'+(mb.prenom||'')+' '+(mb.nom||'')+'</div>'
           +'<div style="font-size:11px;color:var(--text2)">'+(mb.relation||'')+(mb.naissance?' &middot; n&eacute;(e) le '+dateLabel(mb.naissance):'')+'</div>'
         +'</div>'
-        +(isAdmin()?'<button class="btn btn-sm" data-edit-membre="'+mb.id+'" style="flex-shrink:0">&#9998;</button>':'')
+        +(isAdmin()?'<button class="btn btn-sm" data-edit-membre="'+mb.id+'" style="flex-shrink:0">&#9998;</button>'+'<button class="btn btn-d btn-sm" data-del-membre="'+mb.id+'" style="flex-shrink:0" title="Supprimer">&#10005;</button>':'')
       +'</div>'
       +(mb.notes?'<div style="font-size:12px;color:var(--text2);margin-bottom:8px;padding:6px 8px;background:var(--bg2);border-radius:4px">'+mb.notes+'</div>':'')
       +'<div style="display:flex;gap:6px;flex-wrap:wrap">'
@@ -6063,6 +6063,15 @@ function bindAll(){
   document.querySelectorAll('[data-edit-membre]').forEach(el=>el.onclick=()=>{
     const mb=S.famille.find(x=>x.id===el.dataset.editMembre);
     if(mb){S.modal={type:'edit-membre',membre:mb};render();}
+  });
+  document.querySelectorAll('[data-del-membre]').forEach(el=>el.onclick=async()=>{
+    const mb=S.famille.find(x=>x.id===el.dataset.delMembre);
+    if(!mb)return;
+    if(!confirm('Supprimer '+mb.prenom+' '+( mb.nom||'')+' ? Cette action est irréversible.'))return;
+    const {error}=await sb.from('famille').delete().eq('id',mb.id);
+    if(error){alert('Erreur : '+error.message);return;}
+    S.famille=S.famille.filter(x=>x.id!==mb.id);
+    render();
   });
   document.querySelectorAll('[data-view-docs]').forEach(el=>el.onclick=()=>{
     const mb=S.famille.find(x=>x.id===el.dataset.viewDocs);
