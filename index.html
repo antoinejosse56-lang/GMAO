@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v26-20260401-114318">
+<meta name="version" content="v27-20260401-114804">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -5868,6 +5868,8 @@ function bindAll(){
     const mb=S.famille.find(x=>x.id===el.dataset.viewEvents);
     if(mb){S.modal={type:'view-membre-events',membreId:mb.id};render();}
   });
+  const btnAddDocHere=document.getElementById('btn-add-doc-here');
+  if(btnAddDocHere)btnAddDocHere.onclick=()=>{S.modal={type:'add-membre-doc',membreId:S.modal?.membreId};render();};
   const btnAddEventHere=document.getElementById('btn-add-event-here');
   if(btnAddEventHere)btnAddEventHere.onclick=()=>{S.modal={type:'add-membre-event',membreId:S.modal?.membreId};render();};
   document.querySelectorAll('[data-del-event]').forEach(el=>el.onclick=async()=>{
