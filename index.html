@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v45-20260401-151339">
+<meta name="version" content="v46-20260401-151749">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -4966,11 +4966,15 @@ async function saveModal(){
 
 
   if(m.type==='add-asset'||m.type==='edit-asset'){
-    const nom=q('m-asn')?.value.trim();if(!nom)return alert('Nom requis');
-    const rec={name:nom,category:q('m-asc')?.value||null,status:q('m-ass')?.value||'ok',
-      location:q('m-asl')?.value||null,description:q('m-asd')?.value||null,
-      serial:q('m-aser')?.value||null,brand:q('m-abr')?.value||null,
-      purchase_date:q('m-apd')?.value||null,notes:q('m-asn2')?.value||null};
+    const nom=q('m-name')?.value?.trim();if(!nom)return alert('Nom requis');
+    const rec={
+      name:nom,
+      category:q('m-cat')?.value||q('m-type')?.value||null,
+      status:q('m-status')?.value||'ok',
+      location:q('m-loc')?.value||null,
+      description:q('m-desc')?.value||null,
+      notes:q('m-maint')?.value||null
+    };
     if(m.type==='add-asset'){
       const {data,error}=await sb.from('assets').insert(rec).select().single();
       if(error){alert('Erreur : '+error.message);return;}
