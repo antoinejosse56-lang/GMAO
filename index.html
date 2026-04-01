@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v18-20260401-042247">
+<meta name="version" content="v19-20260401-043403">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -3285,8 +3285,13 @@ function printConsoLabel(emp, items, siteUrl){
     <div class="ft"><span>📷 Scanner pour inventaire rapide</span><span>${new Date().toLocaleDateString('fr-FR')}</span></div>
   </div>
   <div class="btns"><button class="bp" onclick="window.print()">🖨 Imprimer</button><button class="bc" onclick="window.close()">Fermer</button></div>
-  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"><\/script>
-  <script>QRCode.toCanvas(document.getElementById('qrc'),'${qrData}',{width:90,margin:1},()=>{});<\/script>
+  <script>
+    var img=document.createElement('img');
+    img.src='https://api.qrserver.com/v1/create-qr-code/?size=90x90&data='+encodeURIComponent('${qrData}')+'&format=png';
+    img.width=90;img.height=90;
+    var c=document.getElementById('qrc');
+    if(c){c.getContext('2d');c.parentNode.replaceChild(img,c);}
+  <\/script>
   </body></html>`);
   w.document.close();
 }
