@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v36-20260401-124842">
+<meta name="version" content="v37-20260401-125148">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -6037,6 +6037,7 @@ function bindAll(){
   // ÉTIQUETTES OUTILS
   // ============================================================
   document.querySelectorAll('[data-etab]').forEach(el=>el.onclick=()=>{S.eTab=el.dataset.etab;render();});
+  document.querySelectorAll('[data-cso-tab]').forEach(el=>el.onclick=()=>{S.csoTab=el.dataset.csoTab;render();});
   document.querySelectorAll('[data-efilter]').forEach(el=>el.onclick=()=>{S.eFilter=el.dataset.efilter;render();});
   document.querySelectorAll('[data-print-label]').forEach(el=>el.onclick=e=>{
     e.stopPropagation();
