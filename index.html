@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v25-20260401-112945">
+<meta name="version" content="v26-20260401-114318">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -2550,31 +2550,49 @@ function renderFamille(){
   const today=new Date();
   function memberCard(mb){
     const docs=mb.documents||[];
-    const expiring=docs.filter(d=>{if(!d.date_expiry)return false;const days=Math.ceil((new Date(d.date_expiry)-today)/86400000);return days>=0&&days<=90;}).length;
-    const expired=docs.filter(d=>d.date_expiry&&new Date(d.date_expiry)<today).length;
+    const events=mb.events||[];
+    const expiring=docs.filter(function(d){
+      if(!d.date_expiry)return false;
+      const days=Math.ceil((new Date(d.date_expiry)-today)/86400000);
+      return days>=0&&days<=90;
+    }).length;
+    const expired=docs.filter(function(d){
+      return d.date_expiry&&new Date(d.date_expiry)<today;
+    }).length;
+    const upcoming=events.filter(function(e){
+      if(!e.date)return false;
+      const days=Math.ceil((new Date(e.date)-today)/86400000);
+      return days>=0&&days<=30;
+    }).length;
     return '<div class="card">'
       +'<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">'
-        +(mb.photo_url?'<img src="'+mb.photo_url+'" style="width:48px;height:48px;border-radius:50%;object-fit:cover;flex-shrink:0">'
+        +(mb.photo_url
+          ?'<img src="'+mb.photo_url+'" style="width:48px;height:48px;border-radius:50%;object-fit:cover;flex-shrink:0">'
           :'<div style="width:48px;height:48px;border-radius:50%;background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">&#128100;</div>')
-        +'<div style="flex:1">'
+        +'<div style="flex:1;min-width:0">'
           +'<div style="font-weight:600;font-size:14px">'+(mb.prenom||'')+' '+(mb.nom||'')+'</div>'
-          +'<div style="font-size:11px;color:var(--text2)">'+(mb.lien||'')+(mb.date_naissance?' · '+dateLabel(mb.date_naissance):'')+'</div>'
+          +'<div style="font-size:11px;color:var(--text2)">'+(mb.lien||'')+(mb.date_naissance?' &middot; n&eacute;(e) le '+dateLabel(mb.date_naissance):'')+'</div>'
         +'</div>'
-        +(isAdmin()?'<button class="btn btn-sm" data-edit-membre="'+mb.id+'">&#9998;</button>':'')
+        +(isAdmin()?'<button class="btn btn-sm" data-edit-membre="'+mb.id+'" style="flex-shrink:0">&#9998;</button>':'')
       +'</div>'
-      +(mb.notes?'<div style="font-size:12px;color:var(--text2);margin-bottom:8px;padding:6px;background:var(--bg2);border-radius:4px">'+mb.notes+'</div>':'')
-      +'<div style="display:flex;align-items:center;justify-content:space-between">'
-        +'<div style="font-size:12px">'
-          +'<span style="font-weight:500">'+docs.length+'</span> doc'+(docs.length>1?'s':'')
-          +(expired>0?'<span class="badge bred" style="font-size:10px;margin-left:4px">'+expired+' expiré'+(expired>1?'s':'')+'</span>':'')
-          +(expiring>0?'<span class="badge bamber" style="font-size:10px;margin-left:4px">'+expiring+' bientôt</span>':'')
-        +'</div>'
-        +'<button class="btn btn-sm btn-p" data-view-docs="'+mb.id+'">&#128196; Documents</button>'
+      +(mb.notes?'<div style="font-size:12px;color:var(--text2);margin-bottom:8px;padding:6px 8px;background:var(--bg2);border-radius:4px">'+mb.notes+'</div>':'')
+      +'<div style="display:flex;gap:6px;flex-wrap:wrap">'
+        +'<button class="btn btn-sm btn-p" data-view-docs="'+mb.id+'" style="flex:1;min-width:100px">'
+          +'&#128196; Docs ('+docs.length+')'
+          +(expired?'<span class="badge bred" style="font-size:9px;margin-left:4px">'+expired+'</span>':'')
+          +(expiring?'<span class="badge bamber" style="font-size:9px;margin-left:4px">'+expiring+'</span>':'')
+        +'</button>'
+        +'<button class="btn btn-sm" data-view-events="'+mb.id+'" style="flex:1;min-width:100px">'
+          +'&#128197; RDV ('+events.length+')'
+          +(upcoming?'<span class="badge bblue" style="font-size:9px;margin-left:4px">'+upcoming+'</span>':'')
+        +'</button>'
       +'</div>'
       +'</div>';
   }
   const cards=membres.map(memberCard).join('');
-  const empty=membres.length===0?'<div style="grid-column:1/-1;text-align:center;padding:30px;color:var(--text2)">Aucun membre. Cliquez + Membre pour commencer.</div>':'';
+  const empty=membres.length===0
+    ?'<div style="grid-column:1/-1;text-align:center;padding:30px;color:var(--text2)">Aucun membre. Cliquez + Membre pour ajouter.</div>'
+    :'';
   return '<div style="display:flex;justify-content:flex-end;margin-bottom:12px">'
     +(isAdmin()?'<button class="btn btn-p" id="btn-add-membre">+ Membre</button>':'')
     +'</div>'
@@ -5842,31 +5860,23 @@ function bindAll(){
     const mb=S.famille.find(x=>x.id===el.dataset.editMembre);
     if(mb){S.modal={type:'edit-membre',membre:mb};render();}
   });
-  document.querySelectorAll('[data-del-membre]').forEach(el=>el.onclick=async()=>{
-    if(!confirm('Supprimer ce membre ?'))return;
-    await sb.from('famille').delete().eq('id',el.dataset.delMembre);
-    S.famille=S.famille.filter(x=>x.id!==el.dataset.delMembre);render();
+  document.querySelectorAll('[data-view-docs]').forEach(el=>el.onclick=()=>{
+    const mb=S.famille.find(x=>x.id===el.dataset.viewDocs);
+    if(mb){S.modal={type:'view-membre-docs',membreId:mb.id};render();}
   });
-  document.querySelectorAll('[data-membre-events]').forEach(el=>el.onclick=()=>{
-    S.modal={type:'view-membre-events',membreId:el.dataset.membreEvents};render();
-  });
-  document.querySelectorAll('[data-membre-docs]').forEach(el=>el.onclick=()=>{
-    S.modal={type:'view-membre-docs',membreId:el.dataset.membreDocs};render();
+  document.querySelectorAll('[data-view-events]').forEach(el=>el.onclick=()=>{
+    const mb=S.famille.find(x=>x.id===el.dataset.viewEvents);
+    if(mb){S.modal={type:'view-membre-events',membreId:mb.id};render();}
   });
   const btnAddEventHere=document.getElementById('btn-add-event-here');
-  if(btnAddEventHere)btnAddEventHere.onclick=()=>{S.modal={type:'add-membre-event',membreId:S.modal.membreId};render();};
-  const btnAddDocHere=document.getElementById('btn-add-doc-here');
-  if(btnAddDocHere)btnAddDocHere.onclick=()=>{S.modal={type:'add-membre-doc',membreId:S.modal.membreId};render();};
+  if(btnAddEventHere)btnAddEventHere.onclick=()=>{S.modal={type:'add-membre-event',membreId:S.modal?.membreId};render();};
   document.querySelectorAll('[data-del-event]').forEach(el=>el.onclick=async()=>{
-    const mb=S.famille.find(x=>x.id===el.dataset.membreId);if(!mb)return;
-    mb.events=mb.events.filter(e=>e.id!==el.dataset.delEvent);
+    if(!confirm('Supprimer ce RDV ?'))return;
+    const mb=S.famille.find(x=>x.id===el.dataset.membreId);
+    if(!mb)return;
+    mb.events=(mb.events||[]).filter(e=>e.id!==el.dataset.delEvent);
     await sb.from('famille').update({events:mb.events}).eq('id',mb.id);render();
-  });
-  document.querySelectorAll('[data-del-fdoc]').forEach(el=>el.onclick=async()=>{
-    const mb=S.famille.find(x=>x.id===el.dataset.membreId);if(!mb)return;
-    mb.documents=mb.documents.filter(d=>d.id!==el.dataset.delFdoc);
-    await sb.from('famille').update({documents:mb.documents}).eq('id',mb.id);render();
-  });
+  })
 
   // ============================================================
   // OUTILS — prêt unique
