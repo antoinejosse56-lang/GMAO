@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v29-20260401-121259">
+<meta name="version" content="v30-20260401-121637">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -3985,7 +3985,7 @@ function renderModal(){
       <div class="form-group"><label>Nom / Raison sociale *</label><input id="bail-bailleur-nom" value="${bail.bailleur_nom||'J&A SAVADUR'}" placeholder="J&A SAVADUR"></div>
       <div class="form-group"><label>Représentant</label><input id="bail-bailleur-rep" value="${bail.bailleur_rep||'Antoine JOSSE, Gérant'}" placeholder="Nom, qualité"></div>
     </div>
-    <div class="form-group"><label>Adresse bailleur</label><input id="bail-bailleur-adr" value="${bail.bailleur_adr||'29 rue Vice-Amiral Bouvet, 56100 Lorient'}" placeholder="Adresse complète"></div>
+    <div class="form-group"><label>Adresse bailleur</label><input id="bail-bailleur-adr" value="${bail.bailleur_adr||'26 rue Général Dubail, 56100 Lorient'}" placeholder="Adresse complète"></div>
 
     <div class="sec" style="margin-top:12px;margin-bottom:8px">👤 Le locataire</div>
     <div class="g2c">
@@ -6481,7 +6481,7 @@ async function sendAccuseEau(releve,cpt,tenant,montant){
     +'.somme{font-size:26px;font-weight:bold;color:#1D9E75;margin:8px 0}'
     +'</style></head><body>'
     +'<div style="display:flex;justify-content:space-between;margin-bottom:24px">'
-    +'<div><strong>J&A SAVADUR</strong><br>29 RUE AMIRAL BOUVET<br>56100 LORIENT</div>'
+    +'<div><strong>J&A SAVADUR</strong><br>26 RUE GÉNÉRAL DUBAIL<br>56100 LORIENT</div>'
     +'<div style="text-align:right"><strong>'+tenant.nom+'</strong><br>'+tenant.logement+'<br>26 Rue Général Dubail<br>56100 LORIENT</div>'
     +'</div>'
     +'<div style="text-align:center;font-size:18px;font-weight:bold;margin:20px 0;text-decoration:underline">ACCUSÉ DE RÉCEPTION DE PAIEMENT</div>'
@@ -6597,7 +6597,7 @@ function buildFactureHtml(tenant,payment,mois,annee,loyer,charges,total,datePaie
     +'<script>try{setTimeout(function(){window.print();},800);}catch(e){}<\/script>';
   return '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>'+css+'</style></head><body>'+(showPrintBar?printBar:'')
     +'<div class="header">'
-    +'<div><strong>J&A SAVADUR</strong><br>29 RUE AMIRAL BOUVET<br>56100 LORIENT<br>savadur56@gmail.com<br>06.30.37.06.88</div>'
+    +'<div><strong>J&A SAVADUR</strong><br>26 RUE GÉNÉRAL DUBAIL<br>56100 LORIENT<br>savadur56@gmail.com<br>06.30.37.06.88</div>'
     +'<div style="text-align:right"><strong>'+tenant.nom+'</strong><br>'+tenant.logement+'<br>26 rue général Dubail<br>56100 Lorient</div>'
     +'</div>'
     +'<div class="title">Facture de loyer</div>'
@@ -6631,7 +6631,7 @@ function buildFactureEauHtml(tenant,cpt,conso,montant,montantHT,montantTVA,prix,
   const eauPrintBar='<div class="print-bar"><div><strong>💧 Facture eau</strong><div class="hint">Cliquez Imprimer pour enregistrer en PDF</div></div><button class="print-btn" onclick="setTimeout(()=>window.print(),300)">🖨 Imprimer / Sauvegarder PDF</button></div>';
   return '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>'+eauCss+'</style></head><body>'+eauPrintBar
     +'<div class="header">'
-    +'<div><strong>J&A SAVADUR</strong><br>29 RUE AMIRAL BOUVET<br>56100 LORIENT<br>savadur56@gmail.com</div>'
+    +'<div><strong>J&A SAVADUR</strong><br>26 RUE GÉNÉRAL DUBAIL<br>56100 LORIENT<br>savadur56@gmail.com</div>'
     +'<div style="text-align:right"><strong>'+tenant.nom+'</strong><br>'+tenant.logement+'<br>26 rue général Dubail<br>56100 Lorient</div>'
     +'</div>'
     +'<div class="title">Facture Eau</div>'
