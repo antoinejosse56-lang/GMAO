@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v31-20260401-122352">
+<meta name="version" content="v32-20260401-123201">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -1225,20 +1225,21 @@ function renderTools(){
     <tbody>
     ${filtered.map(t=>{
       const loan = S.loans.find(l=>l.tool_id===t.id&&!l.returned);
+      const effStatus=loan?'loaned':t.status;
       return `<tr>
         <td><div style="font-weight:500">${t.name}</div><div style="font-size:11px;color:var(--text2)">${t.description||''}</div></td>
         <td><span class="badge bgray">${t.category||''}</span></td>
         <td style="font-size:12px">${t.location||'—'}</td>
         <td>
           <div style="display:flex;align-items:center;gap:6px">
-            <div class="tool-dot ${t.status==='available'?'dot-green':t.status==='loaned'?'dot-amber':'dot-red'}"></div>
-            <span style="font-size:12px">${t.status==='available'?'Disponible':t.status==='loaned'?'Prêté':'Maintenance'}</span>
+            <div class="tool-dot ${effStatus==='available'?'dot-green':effStatus==='loaned'?'dot-amber':'dot-red'}"></div>
+            <span style="font-size:12px">${effStatus==='available'?'Disponible':effStatus==='loaned'?'Prêté':'Maintenance'}</span>
           </div>
           ${loan?`<div style="font-size:11px;color:var(--text3)">→ ${loan.borrower} · retour ${dateLabel(loan.expected_return)}</div>`:''}
         </td>
         <td style="white-space:nowrap">
-          ${canEdit()&&t.status==='available'?`<button class="btn btn-sm" data-lend-tool="${t.id}">Prêter</button> `:''}
-          ${canEdit()&&t.status==='loaned'?`<button class="btn btn-sm" data-return-tool="${t.id}">Retour</button> `:''}
+          ${canEdit()&&effStatus==='available'?`<button class="btn btn-sm" data-lend-tool="${t.id}">Prêter</button> `:''}
+          ${canEdit()&&effStatus==='loaned'?`<button class="btn btn-sm" data-return-tool="${t.id}">Retour</button> `:''}
           <button class="btn btn-sm" data-qr-tool="${t.id}" title="Étiquette QR">◩</button>
           ${isAdmin()?`<button class="btn btn-sm" data-edit-tool="${t.id}">✎</button> <button class="btn btn-d btn-sm" data-del-tool="${t.id}">✕</button>`:''}
         </td>
@@ -7096,6 +7097,10 @@ loadAll().then(async()=>{
     const user=S.users.find(u=>u.email===savedEmail&&u.password===savedPass);
     if(user){S.currentUser=user;console.log('Auto-login:',user.email);}
   }
+  S.loans.filter(l=>!l.returned).forEach(l=>{
+    const t=S.tools.find(x=>x.id===l.tool_id);
+    if(t&&t.status==='available'){t.status='loaned';sb.from('tools').update({status:'loaned'}).eq('id',l.tool_id);}
+  });
   render();
   setTimeout(()=>checkAndSendAlerts(),3000);
 });
