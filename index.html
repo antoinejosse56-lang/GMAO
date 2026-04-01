@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v19-20260401-043403">
+<meta name="version" content="v20-20260401-044623">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -3381,8 +3381,8 @@ function renderFamille(){
         const nextEvent = events[0];
         const daysNext = nextEvent?daysUntil(nextEvent.date):null;
         const docs = m.docs||[];
-        const expiring = docs.filter(d=>d.expiry&&daysUntil(d.expiry)<=90&&daysUntil(d.expiry)>=0);
-        const expired = docs.filter(d=>d.expiry&&daysUntil(d.expiry)<0);
+        const expiring = docs.filter(d=>d.date_expiry&&daysUntil(d.date_expiry)<=90&&daysUntil(d.date_expiry)>=0);
+        const expired = docs.filter(d=>d.date_expiry&&daysUntil(d.date_expiry)<0);
         return `<div class="card" style="padding:14px">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
             <div style="display:flex;align-items:center;gap:10px">
@@ -3467,13 +3467,13 @@ function renderFamille(){
       <thead><tr><th>Document</th><th>Membre</th><th>N°</th><th>Délivré le</th><th>Expire le</th><th>Statut</th></tr></thead>
       <tbody>
       ${allDocs.map(d=>{
-        const days=daysUntil(d.expiry);
+        const days=daysUntil(d.date_expiry);
         return `<tr>
           <td style="font-weight:500">${d.type}</td>
           <td style="font-size:12px">${d.membreNom}</td>
           <td style="font-size:11px;font-family:monospace">${d.numero||'—'}</td>
           <td style="font-size:12px">${d.delivre?dateLabel(d.delivre):'—'}</td>
-          <td style="font-size:12px">${d.expiry?dateLabel(d.expiry):'—'}</td>
+          <td style="font-size:12px">${d.date_expiry?dateLabel(d.date_expiry):'—'}</td>
           <td><span class="badge ${urgencyColor(days)}">${days===null?'—':days<0?'Expiré':days<=30?'Dans '+days+'j':days<=90?'Dans '+days+'j':'Valide'}</span></td>
         </tr>`;
       }).join('')}
@@ -3937,15 +3937,15 @@ function renderModal(){
 
   if(m.type==='view-membre-docs'){
     const mb=S.famille.find(x=>x.id===m.membreId)||{};
-    const docs=(mb.docs||[]);
+    const docs=(mb.documents||[]);
     html=`${mhd('Documents — '+(mb.prenom||''))}
     <button class="btn btn-p btn-sm" style="margin-bottom:12px" id="btn-add-doc-here">+ Document</button>
     ${docs.map(d=>{
-      const days=d.expiry?Math.ceil((new Date(d.expiry)-new Date())/86400000):null;
+      const days=d.date_expiry?Math.ceil((new Date(d.date_expiry)-new Date())/86400000):null;
       return `<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:0.5px solid var(--border)">
         <div style="flex:1">
           <div style="font-size:13px;font-weight:500">${d.type}</div>
-          <div style="font-size:11px;color:var(--text2)">${d.numero||''} ${d.expiry?'· Expire: '+dateLabel(d.expiry):''}</div>
+          <div style="font-size:11px;color:var(--text2)">${d.numero||''} ${d.date_expiry?'· Expire: '+dateLabel(d.date_expiry):''}</div>
         </div>
         ${days!==null?`<span class="badge ${days<0?'bred':days<=90?'bamber':'bgreen'}">${days<0?'Expiré':'Dans '+days+'j'}</span>`:''}
         <button class="btn btn-d btn-sm" data-del-fdoc="${d.id}" data-membre-id="${mb.id}">✕</button>
@@ -6432,8 +6432,8 @@ function bindAll(){
   });
   document.querySelectorAll('[data-del-fdoc]').forEach(el=>el.onclick=async()=>{
     const mb=S.famille.find(x=>x.id===el.dataset.membreId);if(!mb)return;
-    mb.docs=mb.docs.filter(d=>d.id!==el.dataset.delFdoc);
-    await sb.from('famille').update({docs:mb.docs}).eq('id',mb.id);render();
+    mb.documents=mb.documents.filter(d=>d.id!==el.dataset.delFdoc);
+    await sb.from('famille').update({documents:mb.documents}).eq('id',mb.id);render();
   });
 
   // ============================================================
@@ -6658,9 +6658,9 @@ async function checkAndSendAlerts() {
   if (S.famille && S.famille.length > 0) {
     const famAlerts = [];
     S.famille.forEach(mb => {
-      (mb.docs||[]).forEach(d => {
-        if (!d.expiry) return;
-        const days = Math.ceil((new Date(d.expiry) - today) / 86400000);
+      (mb.documents||[]).forEach(d => {
+        if (!d.date_expiry) return;
+        const days = Math.ceil((new Date(d.date_expiry) - today) / 86400000);
         const key = 'fam_' + mb.id + '_' + d.id;
         if (days >= 0 && days <= 60 && !alerted[key]) {
           famAlerts.push({mb, d, days, key});
