@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v24-20260401-053145">
+<meta name="version" content="v25-20260401-111511">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -2218,59 +2218,64 @@ function renderFinances(){
   if(fTab==='revenus'){
     const MONTHS=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
     const colors=['#185FA5','#1D9E75','#9B59B6','#E67E22','#E74C3C','#2ECC71','#3498DB','#F39C12'];
-    const allTenants=S.tenants.filter(t=>t.actif!==false);
-    const allPmts=S.rentPayments.filter(p=>p.annee===year);
+    const allTenants=S.tenants.filter(function(t){return t.actif!==false;});
+    const allPmts=S.rentPayments.filter(function(p){return p.annee===year;});
 
-    // Build one table per property from topology
-    const propBlocks=S.topology.properties.map((prop,pi)=>{
-      const propTenants=allTenants.filter(t=>(t.logement||'').toLowerCase().startsWith(prop.name.toLowerCase()));
+    const propBlocks=S.topology.properties.map(function(prop,pi){
+      const propTenants=allTenants.filter(function(t){
+        return (t.logement||'').toLowerCase().startsWith(prop.name.toLowerCase());
+      });
       if(!propTenants.length) return '';
       const color=colors[pi%colors.length];
-      const propPmts=allPmts.filter(p=>propTenants.some(t=>t.id===p.tenant_id));
-
-      // Stats header
-      const percu=propPmts.filter(p=>p.paye).reduce((s,p)=>s+(p.loyer||0),0);
-      const attendu=propTenants.reduce((s,t)=>s+(t.loyer_ref||0)*12,0);
+      const propPmts=allPmts.filter(function(p){
+        return propTenants.some(function(t){return t.id===p.tenant_id;});
+      });
+      const percu=propPmts.filter(function(p){return p.paye;}).reduce(function(s,p){return s+(p.loyer||0);},0);
+      const attendu=propTenants.reduce(function(s,t){return s+(t.loyer_ref||0)*12;},0);
       const taux=attendu>0?Math.round(percu/attendu*100):0;
 
-      // Rows
-      const rows=propTenants.map(t=>{
-        const monthly=MONTHS.map(m=>{
-          const p=propPmts.find(x=>x.tenant_id===t.id&&x.mois===m);
-          return p?.paye?p.loyer||0:0;
+      const rows=propTenants.map(function(t){
+        const monthly=MONTHS.map(function(m){
+          const p=propPmts.find(function(x){return x.tenant_id===t.id&&x.mois===m;});
+          return p&&p.paye?p.loyer||0:0;
         });
-        const total=monthly.reduce((s,v)=>s+v,0);
-        // Only show tenants with at least one payment this year OR loyer_ref>0
+        const total=monthly.reduce(function(s,v){return s+v;},0);
         if(!total&&!t.loyer_ref) return '';
         const badge=t.type_bail==='commercial'
           ?'<span class="badge bblue" style="font-size:10px">Com.</span>'
           :'<span class="badge bgreen" style="font-size:10px">Hab.</span>';
-        const zone=(t.logement||'').includes(' — ')?(t.logement||'').split(' — ').slice(1).join(' — '):'';
+        const logStr=t.logement||'';
+        const sep=logStr.includes(' — ')?' — ':' - ';
+        const zone=logStr.includes(sep)?logStr.split(sep).slice(1).join(sep):'';
         return '<tr>'
           +'<td style="font-size:12px;color:var(--text2)">'+zone+'</td>'
           +'<td style="font-size:12px;font-weight:500">'+t.nom+'</td>'
           +'<td>'+badge+'</td>'
-          +'<td style="font-size:12px;color:var(--text2)">'+fmt(t.loyer_ref||0)+'</td>'
-          +monthly.map(v=>'<td style="font-size:11px;text-align:right;padding:4px 6px;color:'+(v>0?'var(--green)':'var(--text3)')+'">'+(v>0?v.toFixed(0):'—')+'</td>').join('')
-          +'<td style="font-weight:600;color:var(--green);white-space:nowrap">'+fmt(total)+'</td>'
+          +'<td style="font-size:12px;text-align:right">'+fmt(t.loyer_ref||0)+'</td>'
+          +monthly.map(function(v){
+            return '<td style="font-size:11px;text-align:right;padding:4px 3px;color:'+(v>0?'var(--green)':'var(--text3)')+'">'+(v>0?v.toFixed(0):'—')+'</td>';
+          }).join('')
+          +'<td style="font-weight:600;color:var(--green)">'+fmt(total)+'</td>'
           +'</tr>';
       }).join('');
 
-      // Totals row
       const totalRow='<tr style="border-top:2px solid var(--border);font-weight:600;background:var(--bg2)">'
-        +'<td colspan="3">Total '+prop.name+'</td>'
-        +'<td style="font-size:12px">'+fmt(attendu/12)+'/mois</td>'
-        +MONTHS.map(m=>{
-          const v=propPmts.filter(p=>p.paye&&p.mois===m).reduce((s,p)=>s+(p.loyer||0),0);
-          return '<td style="font-size:11px;text-align:right;padding:4px 6px">'+(v>0?v.toFixed(0):'—')+'</td>';
+        +'<td colspan="3">Total</td>'
+        +'<td style="text-align:right;font-size:12px">'+fmt(attendu/12)+'/mois</td>'
+        +MONTHS.map(function(m){
+          const v=propPmts.filter(function(p){return p.paye&&p.mois===m;}).reduce(function(s,p){return s+(p.loyer||0);},0);
+          return '<td style="font-size:11px;text-align:right;padding:4px 3px">'+(v>0?v.toFixed(0):'—')+'</td>';
         }).join('')
         +'<td style="color:var(--green)">'+fmt(percu)+'</td>'
         +'</tr>';
 
+      const icon=isDubailProfile()?'&#127970;':'&#127968;';
       return '<div class="card" style="margin-bottom:16px">'
-        +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;padding-bottom:8px;border-bottom:2px solid '+color+'">'
-          +'<div style="font-size:13px;font-weight:600;color:'+color+'">🏠 '+prop.name+' — '+propTenants.length+' locataire(s)</div>'
-          +'<div style="display:flex;gap:16px;font-size:12px">'
+        +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;padding-bottom:8px;border-bottom:2px solid '+color+';flex-wrap:wrap;gap:8px">'
+          +'<div style="font-size:13px;font-weight:600;color:'+color+'">'
+            +icon+' '+prop.name+' — '+propTenants.length+' locataire'+(propTenants.length>1?'s':'')
+          +'</div>'
+          +'<div style="display:flex;gap:16px;font-size:12px;flex-wrap:wrap">'
             +'<span>Perçu : <strong style="color:var(--green)">'+fmt(percu)+'</strong></span>'
             +'<span>Attendu : <strong>'+fmt(attendu)+'</strong></span>'
             +'<span>Taux : <strong style="color:'+(taux>=90?'var(--green)':taux>=70?'var(--amber)':'var(--red)')+'">'+taux+'%</strong></span>'
@@ -2281,8 +2286,8 @@ function renderFinances(){
             +'<th style="font-size:11px">Zone</th>'
             +'<th style="font-size:11px">Locataire</th>'
             +'<th style="font-size:11px">Type</th>'
-            +'<th style="font-size:11px">Loyer réf.</th>'
-            +MONTHS.map(m=>'<th style="font-size:10px;padding:4px 3px">'+m.slice(0,3)+'</th>').join('')
+            +'<th style="font-size:11px;text-align:right">Réf.</th>'
+            +MONTHS.map(function(m){return '<th style="font-size:10px;padding:4px 3px">'+m.slice(0,3)+'</th>';}).join('')
             +'<th style="font-size:11px">Total</th>'
           +'</tr></thead>'
           +'<tbody>'+rows+totalRow+'</tbody>'
@@ -2290,17 +2295,15 @@ function renderFinances(){
         +'</div>';
     }).join('');
 
-    // Grand total row across all properties
-    const grandTotal=allPmts.filter(p=>p.paye).reduce((s,p)=>s+(p.loyer||0),0);
-
-    return `${tabBar}${yearBar}
-    ${propBlocks||'<div style="padding:20px;text-align:center;color:var(--text2)">Aucun locataire actif</div>'}
-    <div class="card" style="background:var(--bg2)">
-      <div style="display:flex;justify-content:space-between;font-weight:600;font-size:14px">
-        <span>TOTAL GÉNÉRAL ${year}</span>
-        <span style="color:var(--green)">${fmt(grandTotal)}</span>
-      </div>
-    </div>`;
+    const grandTotal=allPmts.filter(function(p){return p.paye;}).reduce(function(s,p){return s+(p.loyer||0);},0);
+    return tabBar+yearBar
+      +(propBlocks||'<div style="padding:20px;text-align:center;color:var(--text2)">Aucun locataire actif</div>')
+      +'<div class="card" style="background:var(--bg2)">'
+        +'<div style="display:flex;justify-content:space-between;font-weight:600;font-size:14px">'
+          +'<span>TOTAL GÉNÉRAL '+year+'</span>'
+          +'<span style="color:var(--green)">'+fmt(grandTotal)+'</span>'
+        +'</div>'
+      +'</div>';
   }
 
   if(fTab==='membres'){
