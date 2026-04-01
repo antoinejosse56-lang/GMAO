@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v20-20260401-044623">
+<meta name="version" content="v21-20260401-045240">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -1722,10 +1722,34 @@ function renderLocatif(){
       </div>`;
     }
 
+    // Build one block per property (bien) dynamically
+    const colors=['#185FA5','#1D9E75','#9B59B6','#E67E22','#E74C3C','#2ECC71','#3498DB','#F39C12'];
+    
+    // Get all unique logements (properties) that have tenants
+    // Use topology properties order, then fallback to logement prefixes
+    const allProps=[];
+    // First: topology properties
+    S.topology.properties.forEach(p=>{
+      const propTenants=tenants.filter(t=>(t.logement||'').startsWith(p.name));
+      if(propTenants.length>0){
+        allProps.push({name:p.name,tenants:propTenants});
+      }
+    });
+    // Then: tenants not matched by topology (edge case)
+    const matchedIds=new Set(allProps.flatMap(p=>p.tenants.map(t=>t.id)));
+    const unmatched=tenants.filter(t=>!matchedIds.has(t.id));
+    if(unmatched.length>0) allProps.push({name:'Autres',tenants:unmatched});
+    
+    const propBlocks=allProps.map((prop,i)=>{
+      const propPmts=filteredPayments.filter(p=>prop.tenants.some(t=>t.id===p.tenant_id));
+      const isDubail=dubailFilter(prop.name);
+      const icon=isDubail?'🏢':'🏠';
+      const color=colors[i%colors.length];
+      return statsBlock(icon+' '+prop.name,prop.tenants,propPmts,color);
+    }).join('');
+    
     return `${tabBar}${yearBar}
-    ${!isDubailProfile()?statsBlock('🏢 J&A SAVADUR — 26 rue Général Dubail',dubailTenants,dubailPmts,'#185FA5'):''}
-    ${!isDubailProfile()&&persoTenants.length>0?statsBlock('🏠 Biens personnels',persoTenants,persoPmts,'#1D9E75'):''}
-    ${isDubailProfile()?statsBlock('🏢 J&A SAVADUR — 26 rue Général Dubail',tenants,filteredPayments,'#185FA5'):''}
+    ${propBlocks||'<div style="padding:20px;text-align:center;color:var(--text2)">Aucun locataire actif</div>'}
     `;
   }
 
