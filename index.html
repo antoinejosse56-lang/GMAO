@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v25-20260401-111511">
+<meta name="version" content="v25-20260401-112945">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -4103,8 +4103,8 @@ function renderModal(){
       <div class="form-group"><label>Dette actuelle (€)</label><input id="m-tdet" type="number" value="${t.dette||0}"></div>
     </div>
     <div class="g2c">
-      <div class="form-group"><label>Date d'entrée</label><input id="m-tent" type="date" value="${t.date_entree||''}"></div>
-      <div class="form-group"><label>Date de sortie</label><input id="m-tsort" type="date" value="${t.date_sortie||''}"></div>
+      <div class="form-group"><label>Date d'entrée</label><input id="m-tent" type="date" value="${t.date_entree||''}" autocomplete="off"></div>
+      <div class="form-group"><label>Date de sortie</label><input id="m-tsort" type="date" value="${t.date_sortie||''}" autocomplete="off"></div>
     </div>
     <div class="form-group"><label>Bénéficiaire CAF</label>
       <select id="m-tcaf"><option value="false" ${!t.caf?'selected':''}>Non</option><option value="true" ${t.caf?'selected':''}>Oui</option></select>
