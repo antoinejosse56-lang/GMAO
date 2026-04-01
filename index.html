@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v39-20260401-134731">
+<meta name="version" content="v41-20260401-140902">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -6488,13 +6488,17 @@ async function autoSendQuittance(tenant,payment,mois,annee,commentaire=''){
   const fmt=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR',minimumFractionDigits:2}).format(n||0);
   const isCommercial=tenant.type_bail==='commercial';
   const charges=parseFloat(tenant.charges||0);
-  const total=parseFloat(payment.loyer||tenant.loyer_ref||0);
+  // Quittance shows: loyer ref + charges (expected base), total RECU = locataire_part + caf
+  const loyerRef=parseFloat(tenant.loyer_ref||0);
+  const chargesRef=parseFloat(tenant.charges||0);
+  const totalRecu=parseFloat((payment.locataire_part||0)+(payment.caf||0));
+  const total=totalRecu||loyerRef; // show what was received, fallback to ref
   const datePaiement=payment.date_loc?new Date(payment.date_loc).toLocaleDateString('fr-FR'):new Date().toLocaleDateString('fr-FR');
   const moisNum=String(['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'].indexOf(mois)+1).padStart(2,'0');
   const invoiceNum=annee+'-'+moisNum+'-'+tenant.logement.replace(/[^A-Z0-9]/gi,'').toUpperCase().slice(0,6);
   const emailHtml=isCommercial
-    ?buildFactureHtml(tenant,payment,mois,annee,total,charges,total,datePaiement,invoiceNum,fmt,commentaire,true)
-    :buildQuittanceHtml(tenant,payment,mois,annee,total,charges,total,datePaiement,fmt,commentaire,true);
+    ?buildFactureHtml(tenant,payment,mois,annee,loyerRef,chargesRef,totalRecu,datePaiement,invoiceNum,fmt,commentaire,true)
+    :buildQuittanceHtml(tenant,payment,mois,annee,loyerRef,chargesRef,totalRecu,datePaiement,fmt,commentaire,true);
   const subject=isCommercial
     ?'Facture de loyer '+mois+' '+annee+' — '+tenant.logement+' — N°'+invoiceNum
     :'Quittance de loyer '+mois+' '+annee+' — '+tenant.logement;
@@ -6521,8 +6525,8 @@ async function autoSendQuittance(tenant,payment,mois,annee,commentaire=''){
   // Open print preview (with print button enabled)
   try{
     const previewHtml=isCommercial
-      ?buildFactureHtml(tenant,payment,mois,annee,total,charges,total,datePaiement,invoiceNum,fmt,commentaire,false)
-      :buildQuittanceHtml(tenant,payment,mois,annee,total,charges,total,datePaiement,fmt,commentaire,false);
+      ?buildFactureHtml(tenant,payment,mois,annee,loyerRef,chargesRef,totalRecu,datePaiement,invoiceNum,fmt,commentaire,false)
+      :buildQuittanceHtml(tenant,payment,mois,annee,loyerRef,chargesRef,totalRecu,datePaiement,fmt,commentaire,false);
     const blob=new Blob([previewHtml],{type:'text/html;charset=utf-8'});
     const blobUrl=URL.createObjectURL(blob);
     // Use <a> click instead of window.open to bypass popup blocker
@@ -6668,6 +6672,7 @@ function buildQuittanceHtml(tenant,payment,mois,annee,loyer,charges,total,datePa
     +tenant.logement+'<br>26 RUE GÉNÉRAL DUBAIL<br>56100 LORIENT</div>'
     +(chargesRef>0?'<table><tr><td>Loyer nu :</td><td>'+fmt(loyerRef)+'</td></tr><tr><td>Charges :</td><td>'+fmt(chargesRef)+'</td></tr><tr><td><strong>Total :</strong></td><td><strong>'+fmt(loyerRef+chargesRef)+'</strong></td></tr></table>':
     '<table><tr><td>Loyer :</td><td>'+fmt(loyerRef)+'</td></tr></table>')
+    +(tenant.dette>0?'<div style="background:#FFF3CD;border:1.5px solid #F0AD4E;border-radius:6px;padding:10px 14px;margin:12px 0;font-size:13px">'+'<strong>&#9888; Votre dette à ce jour s\'elève à : '+fmt(tenant.dette)+'</strong>'+'<br><span style="font-size:11px;color:#555">Ce montant sera inclus dans votre prochain appel de loyer.</span>'+'</div>':'')
     +'<div class="sig-block">'
     +'<div style="font-size:13px">Fait à Lorient, le '+new Date().toLocaleDateString('fr-FR')+'</div>'
     +'<div class="sig-right"><div>GÉRANT J&A SAVADUR</div><div class="name">JOSSE Antoine</div></div>'
@@ -6721,7 +6726,8 @@ function buildFactureHtml(tenant,payment,mois,annee,loyer,charges,total,datePaie
     +'</tbody></table>'
     +'<p style="font-size:13px">Date de paiement : '+dateLoc+'</p>'
     +(commentaire?'<div style="background:#f5f5f5;border-left:3px solid #185FA5;padding:8px 12px;margin:12px 0;font-size:13px;font-style:italic;color:#444">'+commentaire+'</div>':'')
-    +'<div class="sig-block">SCI J&A SAVADUR<br>savadur56@gmail.com<br><br><strong>JOSSE Antoine — Gérant</strong></div>'
++(tenant.dette>0?'<div style="background:#FFF3CD;border:1.5px solid #F0AD4E;border-radius:6px;padding:10px 14px;margin:12px 0;font-size:13px">'+'<strong>&#9888; Votre dette à ce jour s\'elève à : '+fmt(tenant.dette)+'</strong>'+'<br><span style="font-size:11px;color:#555">Ce montant sera inclus dans votre prochain appel de loyer.</span>'+'</div>':'')
+        +'<div class="sig-block">SCI J&A SAVADUR<br>savadur56@gmail.com<br><br><strong>JOSSE Antoine — Gérant</strong></div>'
     +'<p style="font-size:11px;color:#888;margin-top:24px">Facture établie par J&A SAVADUR. TVA 20% appliquée. Conserver ce document pour votre comptabilité.</p>'
     +'</body></html>';
 }
