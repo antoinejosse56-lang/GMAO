@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v52-20260401-163225">
+<meta name="version" content="v53-20260401-163655">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -2693,12 +2693,17 @@ function renderEtiquettes(){
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px">
       ${locations.map(loc=>{
         const tools = S.tools.filter(t=>t.location===loc);
-        return `<div class="card" style="padding:12px;text-align:center">
+        const rng = (S.rangements||[]).find(r=>r.nom===loc);
+      return `<div class="card" style="padding:12px;text-align:center">
           <canvas id="qr-loc-${btoa(loc).replace(/[^a-z0-9]/gi,'')}" style="width:100px;height:100px"></canvas>
           <div style="font-size:13px;font-weight:500;margin-top:6px">${loc}</div>
+          ${rng?.description?`<div style="font-size:11px;color:var(--text2);margin-top:2px">${rng.description}</div>`:''}
           <div style="font-size:11px;color:var(--text2)">${tools.length} outil${tools.length>1?'s':''}</div>
-          <div style="margin-top:6px;font-size:11px;color:var(--text3)">${tools.slice(0,3).map(t=>t.name).join(', ')}${tools.length>3?'...':''}</div>
-          <button class="btn btn-sm" style="margin-top:8px" data-print-loc="${loc}">🖨 Étiquette</button>
+          <div style="margin-top:6px;display:flex;gap:4px;justify-content:center;flex-wrap:wrap">
+            <button class="btn btn-sm" data-print-loc="${loc}">🖨 Étiquette</button>
+            ${rng&&isAdmin()?`<button class="btn btn-sm" data-edit-rng="${rng.id}" title="Modifier">&#9998;</button>`:''}
+            ${rng&&isAdmin()?`<button class="btn btn-d btn-sm" data-del-rng-loc="${rng.id}" title="Supprimer">&#10005;</button>`:''}
+          </div>
         </div>`;
       }).join('')}
       ${locations.length===0?'<div style="grid-column:1/-1;text-align:center;padding:30px;color:var(--text2)">Aucun emplacement défini. Ajoutez des emplacements dans la fiche de chaque outil.</div>':''}
@@ -6150,6 +6155,15 @@ function bindAll(){
     if(t)printLabel(t,window.location.origin+window.location.pathname);
   });
 
+  document.querySelectorAll('[data-del-rng-loc]').forEach(el=>el.onclick=async()=>{
+    const rng=S.rangements.find(r=>r.id===el.dataset.delRngLoc);
+    if(!rng)return;
+    if(!confirm('Supprimer l\'emplacement "'+rng.nom+'" ?'))return;
+    const {error}=await sb.from('rangements').delete().eq('id',rng.id);
+    if(error){alert('Erreur : '+error.message);return;}
+    S.rangements=S.rangements.filter(r=>r.id!==rng.id);
+    render();
+  });
   document.querySelectorAll('[data-print-loc]').forEach(el=>el.onclick=e=>{
     e.stopPropagation();
     const loc=el.dataset.printLoc;
