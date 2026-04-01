@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v56-20260401-170420">
+<meta name="version" content="v57-20260401-172559">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -2723,8 +2723,8 @@ function renderFamille(){
         +'<td style="font-size:12px;padding:4px 6px;color:'+(isWE?'var(--text3)':'var(--text)')+'">'+(''+d).padStart(2,'0')+'/'+(''+( selMonth+1)).padStart(2,'0')+' '+['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'][dow]+'</td>'
         +'<td style="text-align:center;padding:4px"><input type="time" class="creche-dep" data-day="'+d+'" value="'+depAntic+'" style="width:80px;padding:2px 4px;font-size:11px;border:0.5px solid var(--border2);border-radius:4px;background:var(--bg)"></td>'
         +'<td style="text-align:center;padding:4px"><input type="time" class="creche-rec" data-day="'+d+'" value="'+recTard+'" style="width:80px;padding:2px 4px;font-size:11px;border:0.5px solid var(--border2);border-radius:4px;background:var(--bg)"></td>'
-        +'<td style="text-align:center;padding:4px"><input type="time" class="creche-cont" data-day="'+d+'" value="'+(s?.heure_contrat_dep||contratCreche.heure_dep_defaut||'')+'" style="width:75px;padding:2px 4px;font-size:11px;border:0.5px solid var(--border2);border-radius:4px;background:var(--bg2)"></td>'
-        +'<td style="text-align:center;padding:4px"><input type="time" class="creche-contr" data-day="'+d+'" value="'+(s?.heure_contrat_rec||contratCreche.heure_rec_defaut||'')+'" style="width:75px;padding:2px 4px;font-size:11px;border:0.5px solid var(--border2);border-radius:4px;background:var(--bg2)"></td>'
+        +'<td style="text-align:center;padding:4px"><input type="time" class="creche-cont" data-day="'+d+'" value="'+(s?.heure_contrat_dep||contratCreche.heure_dep_defaut||(!isWE?'09:00':''))+'" style="width:75px;padding:2px 4px;font-size:11px;border:0.5px solid var(--border2);border-radius:4px;background:var(--bg2)"></td>'
+        +'<td style="text-align:center;padding:4px"><input type="time" class="creche-contr" data-day="'+d+'" value="'+(s?.heure_contrat_rec||contratCreche.heure_rec_defaut||(!isWE?'16:30':''))+'" style="width:75px;padding:2px 4px;font-size:11px;border:0.5px solid var(--border2);border-radius:4px;background:var(--bg2)"></td>'
         +'<td style="text-align:center;font-size:12px;font-weight:'+(qh>0?'600':'400')+';color:'+(qh>0?'var(--red)':'var(--text3)')+'">'+( qh>0?'+'+qh+' qh':'—')+'</td>'
         +'<td style="text-align:center;padding:4px">'
           +'<button class="btn btn-sm btn-p creche-save-day" data-day="'+d+'" style="font-size:10px;padding:3px 8px">&#10003;</button>'
