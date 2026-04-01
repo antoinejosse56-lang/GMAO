@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v30-20260401-121637">
+<meta name="version" content="v31-20260401-122352">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -4987,6 +4987,25 @@ async function saveModal(){
       const {error}=await sb.from('compteurs').update(rec).eq('id',m.cpt.id);
       if(error){alert('Erreur : '+error.message);return;}
       Object.assign(m.cpt,rec);
+    }
+  }
+
+  if(m.type==='lend-tool'){
+    const borrower=q('m-lb')?.value?.trim();
+    if(!borrower)return alert('Nom de l\'emprunteur requis');
+    const loanDate=q('m-ld')?.value||new Date().toISOString().slice(0,10);
+    const expectedReturn=q('m-lr')?.value||null;
+    if(!expectedReturn)return alert('Date de retour prévue requise');
+    const notes=q('m-ln')?.value||'';
+    const rec={tool_id:m.toolId,borrower,loan_date:loanDate,expected_return:expectedReturn,notes,returned:false};
+    const {data,error}=await sb.from('loans').insert(rec).select().single();
+    if(error){alert('Erreur prêt : '+error.message);return;}
+    S.loans.push(data);
+    // Update tool status to loaned
+    const tool=S.tools.find(t=>t.id===m.toolId);
+    if(tool){
+      tool.status='loaned';
+      await sb.from('tools').update({status:'loaned'}).eq('id',m.toolId);
     }
   }
 
