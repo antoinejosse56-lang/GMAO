@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v22-20260401-045822">
+<meta name="version" content="v22-20260401-050342">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -2409,6 +2409,169 @@ function renderFinances(){
     </table></div></div>`;
   }
   return '';
+}
+
+function renderCompteurs(){
+  const cTab = S.cTab || 'liste';
+  const compteurs = S.compteurs || [];
+  const releves = S.releves || [];
+  const fmt = n => new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR',minimumFractionDigits:2}).format(n||0);
+
+  function topoLabel(c){
+    if(!c.topo_id) return '—';
+    let label='—';
+    S.topology.properties.forEach(p=>{
+      if('prop_'+p.id===c.topo_id) label=p.name;
+      (p.zones||[]).forEach(z=>{
+        if('zone_'+z.id===c.topo_id) label=p.name+' › '+z.name;
+        (z.subZones||[]).forEach(s=>{if('sub_'+s.id===c.topo_id) label=p.name+' › '+z.name+' › '+s.name;});
+      });
+    });
+    return label;
+  }
+
+  function tenantName(c){
+    if(!c.tenant_id) return '—';
+    const t=S.tenants.find(x=>x.id===c.tenant_id);
+    return t?t.nom+' ('+t.logement+')':'—';
+  }
+
+  const tabBar = `<div class="tab-bar">
+    <div class="tab ${cTab==='liste'?'active':''}" data-ctab="liste">Compteurs</div>
+    <div class="tab ${cTab==='releves'?'active':''}" data-ctab="releves">Relevés & Factures</div>
+    <div class="tab ${cTab==='graphique'?'active':''}" data-ctab="graphique">Graphiques</div>
+  </div>`;
+
+  // === LISTE COMPTEURS ===
+  if(cTab==='liste'){
+    return `${tabBar}
+    <div style="display:flex;justify-content:flex-end;margin-bottom:12px">
+      ${isAdmin()?`<button class="btn btn-p" id="btn-add-cpt">+ Compteur</button>`:''}
+    </div>
+    <div class="card"><div style="overflow-x:auto"><table>
+      <thead><tr><th>Nom</th><th>Type</th><th>Localisation</th><th>Locataire</th><th>N° série</th><th>Dernier index</th><th>Date dernier relevé</th><th></th></tr></thead>
+      <tbody>
+      ${compteurs.map(c=>{
+        const lastRel = releves.filter(r=>r.compteur_id===c.id).sort((a,b)=>new Date(b.date)-new Date(a.date))[0];
+        return `<tr>
+          <td style="font-weight:500">${c.name}</td>
+          <td><span class="badge bteal">${c.type||'Eau'}</span></td>
+          <td style="font-size:12px;color:var(--text2)">${topoLabel(c)}</td>
+          <td style="font-size:12px">${tenantName(c)}</td>
+          <td style="font-size:12px">${c.numero_serie||'—'}</td>
+          <td style="font-weight:500">${lastRel?lastRel.nouvel_index+' '+(c.unite||'m³'):'—'}</td>
+          <td style="font-size:12px">${lastRel?dateLabel(lastRel.date):'—'}</td>
+          <td style="white-space:nowrap">
+            ${canEdit()?`<button class="btn btn-sm btn-p" data-add-releve="${c.id}">+ Relevé</button> `:''}
+            ${canEdit()?`<button class="btn btn-sm" data-edit-cpt="${c.id}">✎ Modifier</button> `:''}
+            ${isAdmin()?`<button class="btn btn-d btn-sm" data-del-cpt="${c.id}">✕</button>`:''}
+          </td>
+        </tr>`;
+      }).join('')}
+      ${compteurs.length===0?'<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--text2)">Aucun compteur. Cliquez "+ Compteur" pour commencer.</td></tr>':''}
+      </tbody>
+    </table></div></div>`;
+  }
+
+  // === RELEVÉS & FACTURES ===
+  if(cTab==='releves'){
+    const sorted = releves.slice().sort((a,b)=>new Date(b.date)-new Date(a.date));
+    return `${tabBar}
+    <div style="display:flex;justify-content:space-between;margin-bottom:12px;align-items:center">
+      <select id="cpt-filter" style="padding:6px 10px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">
+        <option value="">Tous les compteurs</option>
+        ${compteurs.map(c=>`<option value="${c.id}" ${S.cptFilter===c.id?'selected':''}>${c.name}</option>`).join('')}
+      </select>
+      ${canEdit()?`<button class="btn btn-p btn-sm" id="btn-add-releve-any">+ Relevé</button>`:''}
+    </div>
+    <div class="card"><div style="overflow-x:auto"><table>
+      <thead><tr><th>Compteur</th><th>Locataire</th><th>Date relevé</th><th>Ancien index</th><th>Nouvel index</th><th>Conso</th><th>Prix/m³</th><th>Montant</th><th>Facture</th><th>Payé</th><th></th></tr></thead>
+      <tbody>
+      ${sorted.filter(r=>!S.cptFilter||r.compteur_id===S.cptFilter).map(r=>{
+        const cpt=compteurs.find(c=>c.id===r.compteur_id);
+        const tenant=cpt?.tenant_id?S.tenants.find(t=>t.id===cpt.tenant_id):null;
+        const conso=parseFloat((r.nouvel_index-r.ancien_index).toFixed(3));
+        const montant=parseFloat((conso*(r.prix_unitaire||0)).toFixed(2));
+        return `<tr>
+          <td style="font-weight:500">${cpt?.name||'—'}</td>
+          <td style="font-size:12px">${tenant?tenant.nom:'—'}</td>
+          <td style="font-size:12px">${dateLabel(r.date)}</td>
+          <td>${r.ancien_index} ${cpt?.unite||'m³'}</td>
+          <td style="font-weight:500">${r.nouvel_index} ${cpt?.unite||'m³'}</td>
+          <td><span class="badge ${conso>0?'bteal':'bgray'}">${conso} ${cpt?.unite||'m³'}</span></td>
+          <td style="font-size:12px">${r.prix_unitaire?r.prix_unitaire+'€':'—'}</td>
+          <td style="font-weight:500">${montant>0?fmt(montant):'—'}</td>
+          <td>
+            ${r.facture_envoyee?'<span class="badge bgreen">✓ Envoyée</span>':''}
+            ${canEdit()&&!r.facture_envoyee&&montant>0&&tenant?`<button class="btn btn-sm btn-p" data-send-facture-eau="${r.id}">📧 Facturer</button>`:''}
+          </td>
+          <td>
+            ${r.paye?'<span class="badge bgreen">✓ Payé</span>':montant>0?`<button class="btn btn-sm" data-pay-eau="${r.id}">✓ Reçu</button>`:'—'}
+          </td>
+          <td>${isAdmin()?`<button class="btn btn-d btn-sm" data-del-releve="${r.id}">✕</button>`:''}</td>
+        </tr>`;
+      }).join('')}
+      ${sorted.length===0?'<tr><td colspan="11" style="text-align:center;padding:20px;color:var(--text2)">Aucun relevé.</td></tr>':''}
+      </tbody>
+    </table></div></div>`;
+  }
+
+  // === GRAPHIQUES ===
+  if(cTab==='graphique'){
+    const selId = S.selCompteur||(compteurs[0]?.id||null);
+    const selC = compteurs.find(c=>c.id===selId);
+    const selReleves = selId?releves.filter(r=>r.compteur_id===selId).sort((a,b)=>new Date(a.date)-new Date(b.date)):[];
+    return `${tabBar}
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+        <label style="font-size:12px;color:var(--text2)">Compteur :</label>
+        <select id="chart-cpt-sel" style="padding:6px 10px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:13px">
+          ${compteurs.map(c=>`<option value="${c.id}" ${selId===c.id?'selected':''}>${c.name}</option>`).join('')}
+        </select>
+      </div>
+      ${selReleves.length>=2?'<canvas id="cpt-chart" height="250"></canvas>':'<div style="text-align:center;padding:30px;color:var(--text2)">Au moins 2 relevés nécessaires.</div>'}
+    </div>`;
+  }
+  return '';
+}
+
+
+function renderFamille(){
+  const membres=S.famille||[];
+  const today=new Date();
+  function memberCard(mb){
+    const docs=mb.documents||[];
+    const expiring=docs.filter(d=>{if(!d.date_expiry)return false;const days=Math.ceil((new Date(d.date_expiry)-today)/86400000);return days>=0&&days<=90;}).length;
+    const expired=docs.filter(d=>d.date_expiry&&new Date(d.date_expiry)<today).length;
+    return '<div class="card">'
+      +'<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">'
+        +(mb.photo_url?'<img src="'+mb.photo_url+'" style="width:48px;height:48px;border-radius:50%;object-fit:cover;flex-shrink:0">'
+          :'<div style="width:48px;height:48px;border-radius:50%;background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">&#128100;</div>')
+        +'<div style="flex:1">'
+          +'<div style="font-weight:600;font-size:14px">'+(mb.prenom||'')+' '+(mb.nom||'')+'</div>'
+          +'<div style="font-size:11px;color:var(--text2)">'+(mb.lien||'')+(mb.date_naissance?' · '+dateLabel(mb.date_naissance):'')+'</div>'
+        +'</div>'
+        +(isAdmin()?'<button class="btn btn-sm" data-edit-membre="'+mb.id+'">&#9998;</button>':'')
+      +'</div>'
+      +(mb.notes?'<div style="font-size:12px;color:var(--text2);margin-bottom:8px;padding:6px;background:var(--bg2);border-radius:4px">'+mb.notes+'</div>':'')
+      +'<div style="display:flex;align-items:center;justify-content:space-between">'
+        +'<div style="font-size:12px">'
+          +'<span style="font-weight:500">'+docs.length+'</span> doc'+(docs.length>1?'s':'')
+          +(expired>0?'<span class="badge bred" style="font-size:10px;margin-left:4px">'+expired+' expiré'+(expired>1?'s':'')+'</span>':'')
+          +(expiring>0?'<span class="badge bamber" style="font-size:10px;margin-left:4px">'+expiring+' bientôt</span>':'')
+        +'</div>'
+        +'<button class="btn btn-sm btn-p" data-view-docs="'+mb.id+'">&#128196; Documents</button>'
+      +'</div>'
+      +'</div>';
+  }
+  const cards=membres.map(memberCard).join('');
+  const empty=membres.length===0?'<div style="grid-column:1/-1;text-align:center;padding:30px;color:var(--text2)">Aucun membre. Cliquez + Membre pour commencer.</div>':'';
+  return '<div style="display:flex;justify-content:flex-end;margin-bottom:12px">'
+    +(isAdmin()?'<button class="btn btn-p" id="btn-add-membre">+ Membre</button>':'')
+    +'</div>'
+    +'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px">'
+    +empty+cards
+    +'</div>';
 }
 
 function renderSettings(){
