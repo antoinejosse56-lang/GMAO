@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v23-20260401-051233">
+<meta name="version" content="v24-20260401-053145">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -417,6 +417,12 @@ function bindLogin(){
     const email = document.getElementById('le').value.trim();
     const pass  = document.getElementById('lp').value;
     const remember = document.getElementById('lrem').checked;
+    if(S.users.length===0){
+      const el=document.getElementById('lerr');
+      el.style.display='block';
+      el.textContent='Erreur : impossible de charger les utilisateurs. Vérifiez votre connexion.';
+      return;
+    }
     const user  = S.users.find(u => u.email === email && u.password === pass);
     if(user){
       if(remember){
@@ -6998,6 +7004,13 @@ loadAll().then(async()=>{
       document.getElementById('root').innerHTML=html;
     },100);
     return;
+  }
+  // Auto-login if saved credentials exist
+  const savedEmail=localStorage.getItem('gmao_saved_email')||'';
+  const savedPass=localStorage.getItem('gmao_saved_pass')||'';
+  if(savedEmail&&savedPass&&!S.currentUser){
+    const user=S.users.find(u=>u.email===savedEmail&&u.password===savedPass);
+    if(user){S.currentUser=user;console.log('Auto-login:',user.email);}
   }
   render();
   setTimeout(()=>checkAndSendAlerts(),3000);
