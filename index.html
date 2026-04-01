@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v23-20260401-050758">
+<meta name="version" content="v23-20260401-051233">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -5940,6 +5940,20 @@ function bindAll(){
   };
   const btnScanQr=document.getElementById('btn-scan-qr');
   if(btnScanQr)btnScanQr.onclick=()=>{alert('📷 Utilisez l\'appareil photo de votre smartphone pour scanner le QR code — le lien s\'ouvrira dans GMAO Pro.');};
+  const btnSaveInv=document.getElementById('btn-save-inventaire');
+  if(btnSaveInv)btnSaveInv.onclick=async()=>{
+    const inputs=document.querySelectorAll('.inv-qty');
+    for(const inp of inputs){
+      const id=inp.dataset.csoId;
+      const qty=parseFloat(inp.value)||0;
+      const c=S.consommables.find(x=>x.id===id);
+      if(c&&c.stock!==qty){
+        await sb.from('consommables').update({stock:qty}).eq('id',id);
+        c.stock=qty;
+      }
+    }
+    alert('Inventaire enregistré');render();
+  };
 }
 
 // ============================================================
