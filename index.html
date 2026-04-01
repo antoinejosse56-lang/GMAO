@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v50-20260401-161744">
+<meta name="version" content="v51-20260401-162852">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -6074,6 +6074,15 @@ function bindAll(){
   });
   const btnAddDocHere=document.getElementById('btn-add-doc-here');
   if(btnAddDocHere)btnAddDocHere.onclick=()=>{S.modal={type:'add-membre-doc',membreId:S.modal?.membreId};render();};
+  document.querySelectorAll('[data-del-fdoc]').forEach(el=>el.onclick=async()=>{
+    if(!confirm('Supprimer ce document ?'))return;
+    const mb=S.famille.find(x=>x.id===el.dataset.membreId);
+    if(!mb)return;
+    mb.documents=(mb.documents||[]).filter(d=>d.id!==el.dataset.delFdoc);
+    const {error}=await sb.from('famille').update({documents:mb.documents}).eq('id',mb.id);
+    if(error){alert('Erreur : '+error.message);return;}
+    render();
+  });
   const btnAddEventHere=document.getElementById('btn-add-event-here');
   if(btnAddEventHere)btnAddEventHere.onclick=()=>{S.modal={type:'add-membre-event',membreId:S.modal?.membreId};render();};
   document.querySelectorAll('[data-del-event]').forEach(el=>el.onclick=async()=>{
