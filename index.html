@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v27-20260401-114804">
+<meta name="version" content="v28-20260401-115757">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -4726,9 +4726,58 @@ async function saveModal(){
 
 
   if(m.type==='add-releve'){
-    const cpt = S.compteurs.find(c=>c.id===m.cptId)||{};
-    const lastRel = S.releves.filter(r=>r.compteur_id===m.cptId).sort((a,b)=>new Date(b.date)-new Date(a.date))[0];
-    const tenant = cpt.tenant_id?S.tenants.find(t=>t.id===cpt.tenant_id):null;
+    const cptId=q('m-rcpt')?.value||m.cptId;
+    const cpt=S.compteurs.find(c=>c.id===cptId)||{};
+    const dateVal=q('m-rdate')?.value;
+    const newIdx=parseFloat(q('m-rnew')?.value);
+    const oldIdx=parseFloat(q('m-rold')?.value)||0;
+    if(!dateVal)return alert('Date requise');
+    if(isNaN(newIdx))return alert('Nouvel index requis');
+    if(newIdx<oldIdx)return alert('Le nouvel index doit être supérieur à l\'ancien ('+oldIdx+')');
+    const conso=Math.round((newIdx-oldIdx)*1000)/1000;
+    const prix=parseFloat(q('m-rprix')?.value)||cpt.prix_unitaire||0;
+    const montant=Math.round(conso*prix*100)/100;
+    const rec={
+      compteur_id:cptId,
+      date:dateVal,
+      index_old:oldIdx,
+      nouvel_index:newIdx,
+      consommation:conso,
+      prix_unitaire:prix,
+      montant,
+      notes:q('m-rnotes')?.value||null
+    };
+    const {data:relData,error:relErr}=await sb.from('releves').insert(rec).select().single();
+    if(relErr){alert('Erreur relevé : '+relErr.message);return;}
+    S.releves.unshift(relData);
+    // Generate facture if tenant linked and montant > 0
+    if(cpt.tenant_id&&montant>0){
+      const tenant=S.tenants.find(t=>t.id===cpt.tenant_id);
+      if(tenant){
+        const dateObj=new Date(dateVal);
+        const moisNoms=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+        const moisLabel=moisNoms[dateObj.getMonth()]+' '+dateObj.getFullYear();
+        const facRec={
+          date:dateVal,
+          fournisseur:cpt.name||'Compteur',
+          description:'Relevé '+( cpt.type||'eau')+' — '+conso+' '+(cpt.unite||'m³')+' (idx '+oldIdx+' → '+newIdx+')',
+          montant_ht:montant,
+          tva_pct:0,
+          montant_ttc:montant,
+          compte:dubailFilter(tenant.logement||'')?'savadur':'perso',
+          categorie:'Fluides',
+          rapproche:false,
+          notes:'Généré automatiquement depuis relevé compteur — '+tenant.nom+' — '+moisLabel,
+          tenant_id:cpt.tenant_id,
+          releve_id:relData.id
+        };
+        const {data:facData,error:facErr}=await sb.from('factures').insert(facRec).select().single();
+        if(facErr){console.warn('Facture auto non créée:',facErr.message);}
+        else if(facData){S.factures.unshift(facData);alert('✓ Relevé enregistré + facture créée ('+new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(montant)+')');}
+      }
+    } else {
+      alert('✓ Relevé enregistré — Consommation : '+conso+' '+(cpt.unite||'m³')+' — Montant : '+new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(montant));
+    }
   }
 
   if(m.type==='add-revenue'){
