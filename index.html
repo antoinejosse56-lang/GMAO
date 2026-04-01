@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v53-20260401-163655">
+<meta name="version" content="v54-20260401-164320">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -5054,7 +5054,9 @@ async function saveModal(){
     }else{
       const {error}=await sb.from('rangements').update(rec).eq('id',m.rng.id);
       if(error){alert('Erreur : '+error.message);return;}
-      Object.assign(m.rng,rec);
+      // Update in S.rangements array
+      const rngRef=S.rangements.find(r=>r.id===m.rng.id);
+      if(rngRef)Object.assign(rngRef,rec);
     }
   }
 
