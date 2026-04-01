@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v43-20260401-145831">
+<meta name="version" content="v44-20260401-150731">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -6671,7 +6671,7 @@ function buildQuittanceHtml(tenant,payment,mois,annee,loyer,charges,total,datePa
     +'<div class="subtitle">LOYER '+mois.toUpperCase()+' '+annee+'</div>'
     +'<div class="montant-box">'
     +'<div>REÇU LA SOMME DE</div>'
-    +'<div class="somme">'+fmt(parseFloat(payment.loyer||0)||loyerRef+chargesRef)+'</div>'
+    +'<div class="somme">'+fmt(total||loyerRef+chargesRef)+'</div>'
     +'<div>LE '+dateLoc+'</div>'
     +(caf>0?'<div style="font-size:13px;color:#555;margin-top:8px">dont part CAF : '+fmt(caf)+' — part locataire : '+fmt(locPart)+'</div>':'')
     +(commentaire?'<div style="font-size:12px;color:#666;margin-top:8px;font-style:italic">'+commentaire+'</div>':'')
