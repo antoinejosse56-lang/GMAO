@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v47-20260401-152201">
+<meta name="version" content="v48-20260401-152601">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -5117,6 +5117,29 @@ async function saveModal(){
     if(tool){
       tool.status='loaned';
       await sb.from('tools').update({status:'loaned'}).eq('id',m.toolId);
+    }
+  }
+
+  if(m.type==='add-membre'||m.type==='edit-membre'){
+    const prenom=q('m-fprenom')?.value?.trim();
+    if(!prenom)return alert('Prénom requis');
+    const rec={
+      prenom,
+      nom:q('m-fnom')?.value?.trim()||null,
+      lien:q('m-frelation')?.value?.trim()||null,
+      date_naissance:q('m-fnaissance')?.value||null,
+      notes:q('m-fnotes')?.value?.trim()||null,
+      documents:m.type==='edit-membre'?(m.membre?.documents||[]):[],
+      events:m.type==='edit-membre'?(m.membre?.events||[]):[]
+    };
+    if(m.type==='add-membre'){
+      const {data,error}=await sb.from('famille').insert(rec).select().single();
+      if(error){alert('Erreur : '+error.message);return;}
+      if(data)S.famille.push(data);
+    }else{
+      const {error}=await sb.from('famille').update(rec).eq('id',m.membre.id);
+      if(error){alert('Erreur : '+error.message);return;}
+      Object.assign(m.membre,rec);
     }
   }
 
