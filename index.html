@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v34-20260401-123948">
+<meta name="version" content="v35-20260401-124343">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -1556,35 +1556,81 @@ function renderLocatif(){
 
   // ====== LOCATAIRES ======
   if(tab==='tenants'){
-    return `${tabBar}
-    <div style="display:flex;justify-content:flex-end;margin-bottom:12px">
-      ${isAdmin()?`<button class="btn btn-p" id="btn-add-tenant">+ Locataire</button>`:''}
-    </div>
-    <div class="card"><div style="overflow-x:auto"><table>
-      <thead><tr><th>Logement</th><th>Locataire</th><th>Email</th><th>Type</th><th>Loyer réf.</th><th>Charges</th><th>Entrée</th><th>Statut</th><th></th></tr></thead>
-      <tbody>
-      ${tenants.length===0?`<tr><td colspan="9" style="text-align:center;padding:24px;color:var(--text2)">
-        Aucun locataire. Cliquez "+ Locataire" pour commencer.
-      </td></tr>`:''}
-      ${tenants.map(t=>`<tr>
-        <td style="font-weight:500">${t.logement||'—'}</td>
-        <td>${t.nom}</td>
-        <td style="font-size:12px;color:var(--text2)">${t.email||'—'}</td>
-        <td><span class="badge ${t.type_bail==='commercial'?'bblue':'bgreen'}">${t.type_bail==='commercial'?'Commercial':'Habitation'}</span></td>
-        <td style="font-weight:500">${fmt(t.loyer_ref)}</td>
-        <td style="font-size:12px">${t.charges?fmt(t.charges):'—'}</td>
-        <td style="font-size:12px">${t.date_entree?new Date(t.date_entree).toLocaleDateString('fr-FR'):'—'}</td>
-        <td><span class="badge ${t.actif!==false?'bgreen':'bgray'}">${t.actif!==false?'Actif':'Parti'}</span></td>
-        <td style="white-space:nowrap">
-          ${canEdit()?`<button class="btn btn-sm" data-edit-tenant="${t.id}">✎</button> `:''}
-          ${isAdmin()?`<button class="btn btn-d btn-sm" data-del-tenant="${t.id}">✕</button>`:''}
-        </td>
-      </tr>`).join('')}
-      </tbody>
-    </table></div></div>`;
+    const colors=['#185FA5','#1D9E75','#9B59B6','#E67E22','#E74C3C'];
+    // Group tenants by property from topology
+    const propBlocks=S.topology.properties.map(function(prop,pi){
+      const propTenants=tenants.filter(function(t){
+        return (t.logement||'').toLowerCase().startsWith(prop.name.toLowerCase());
+      });
+      if(!propTenants.length) return '';
+      // Sort: actifs first, then by zone name, then by nom
+      propTenants.sort(function(a,b){
+        if(a.actif===false&&b.actif!==false) return 1;
+        if(b.actif===false&&a.actif!==false) return -1;
+        const za=(a.logement||'').split(' — ').slice(1).join(' — ')||'';
+        const zb=(b.logement||'').split(' — ').slice(1).join(' — ')||'';
+        return za.localeCompare(zb,'fr')||a.nom.localeCompare(b.nom,'fr');
+      });
+      const color=colors[pi%colors.length];
+      const actifCount=propTenants.filter(function(t){return t.actif!==false;}).length;
+      const rows=propTenants.map(function(t){
+        const zone=(t.logement||'').includes(' — ')?(t.logement||'').split(' — ').slice(1).join(' — '):'';
+        const inactive=t.actif===false;
+        return '<tr style="'+(inactive?'opacity:0.5':'')+'">'
+          +'<td style="font-size:12px;color:var(--text2)">'+zone+'</td>'
+          +'<td style="font-weight:500">'+t.nom+'</td>'
+          +'<td style="font-size:12px;color:var(--text2)">'+(t.email||'—')+'</td>'
+          +'<td><span class="badge '+(t.type_bail==='commercial'?'bblue':'bgreen')+'">'+(t.type_bail==='commercial'?'Commercial':'Habitation')+'</span></td>'
+          +'<td style="font-weight:500">'+fmt(t.loyer_ref)+'</td>'
+          +'<td style="font-size:12px">'+(t.charges?fmt(t.charges):'—')+'</td>'
+          +'<td style="font-size:12px">'+(t.date_entree?new Date(t.date_entree).toLocaleDateString('fr-FR'):'—')+'</td>'
+          +'<td><span class="badge '+(inactive?'bgray':t.actif===false?'bgray':'bgreen')+'">'+(inactive?'Inactif':'Actif')+'</span></td>'
+          +'<td style="white-space:nowrap">'
+            +(canEdit()?'<button class="btn btn-sm" data-edit-tenant="'+t.id+'">&#9998;</button> ':'')
+            +(isAdmin()?'<button class="btn btn-d btn-sm" data-del-tenant="'+t.id+'">&#10005;</button>':'')
+          +'</td>'
+          +'</tr>';
+      }).join('');
+      return '<div class="card" style="margin-bottom:16px">'
+        +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;padding-bottom:8px;border-bottom:2px solid '+color+'">'
+          +'<div style="font-size:13px;font-weight:600;color:'+color+'">&#127968; '+prop.name+'</div>'
+          +'<div style="font-size:12px;color:var(--text2)">'+actifCount+' actif'+(actifCount>1?'s':'')+' / '+propTenants.length+' total</div>'
+        +'</div>'
+        +'<div style="overflow-x:auto"><table>'
+          +'<thead><tr>'
+            +'<th style="font-size:11px">Zone</th>'
+            +'<th style="font-size:11px">Locataire</th>'
+            +'<th style="font-size:11px">Email</th>'
+            +'<th style="font-size:11px">Type</th>'
+            +'<th style="font-size:11px">Loyer réf.</th>'
+            +'<th style="font-size:11px">Charges</th>'
+            +'<th style="font-size:11px">Entrée</th>'
+            +'<th style="font-size:11px">Statut</th>'
+            +'<th></th>'
+          +'</tr></thead>'
+          +'<tbody>'+rows+'</tbody>'
+        +'</table></div>'
+        +'</div>';
+    }).join('');
+    // Tenants not matched by any topology property
+    const matchedIds=new Set(S.topology.properties.flatMap(function(p){
+      return tenants.filter(function(t){return (t.logement||'').toLowerCase().startsWith(p.name.toLowerCase());}).map(function(t){return t.id;});
+    }));
+    const unmatched=tenants.filter(function(t){return !matchedIds.has(t.id);});
+    const unmatchedBlock=unmatched.length?'<div class="card" style="margin-bottom:16px">'
+      +'<div style="font-size:13px;font-weight:600;color:var(--text2);margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--border)">❓ Logement non identifié</div>'
+      +'<div style="overflow-x:auto"><table><thead><tr><th>Logement</th><th>Locataire</th><th>Type</th><th>Loyer</th><th></th></tr></thead><tbody>'
+      +unmatched.map(function(t){return '<tr><td style="font-size:12px">'+(t.logement||'—')+'</td><td>'+t.nom+'</td><td>'+fmt(t.loyer_ref)+'</td><td>'+(canEdit()?'<button class="btn btn-sm" data-edit-tenant="'+t.id+'">&#9998;</button>':'')+'</td></tr>';}).join('')
+      +'</tbody></table></div></div>':'';
+    return tabBar
+      +'<div style="display:flex;justify-content:flex-end;margin-bottom:12px">'
+        +(isAdmin()?'<button class="btn btn-p" id="btn-add-tenant">+ Locataire</button>':'')
+      +'</div>'
+      +(propBlocks||'')
+      +unmatchedBlock
+      +(tenants.length===0?'<div style="text-align:center;padding:30px;color:var(--text2)">Aucun locataire. Cliquez "+ Locataire" pour commencer.</div>':'');
   }
 
-  // ====== SAISIE LOYERS ======
   if(tab==='loyers'){
     const allowedTenantIds=new Set(tenants.map(t=>t.id));
     const filteredPayments=S.rentPayments.filter(p=>allowedTenantIds.has(p.tenant_id));
