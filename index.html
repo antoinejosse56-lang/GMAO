@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v55-20260401-164725">
+<meta name="version" content="v56-20260401-170420">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -202,7 +202,7 @@ let S = {
   // data
   users: [], assets: [], tasks: [], tools: [], loans: [],
   workOrders: [], maintenanceTemplates: [], topology: {properties: []},
-  factures: [], revenues: [], factures: [], finTab: 'overview', compteurs: [], releves: [], rangements: [], famille: [], consommables: []
+  factures: [], revenues: [], factures: [], finTab: 'overview', compteurs: [], releves: [], rangements: [], famille: [], consommables: [], crecheSaisies: [], ecoleSaisies: [], familleTab: 'membres', familleEnfant: null
 };
 
 async function loadAll() {
@@ -221,7 +221,7 @@ async function loadAll() {
     const test = await sb.from('users').select('count', {count:'exact',head:true});
     if (test.error) { showError(test.error.message || JSON.stringify(test.error)); return; }
 
-    const [u, a, t, tl, l, wo, mt, topo, rev, cpt, rel, ten, rp, wr, rng, fam, conso, facturesRes] = await Promise.all([
+    const [u, a, t, tl, l, wo, mt, topo, rev, cpt, rel, ten, rp, wr, rng, fam, conso, facturesRes, crecheRes, ecoleRes] = await Promise.all([
       sb.from('users').select('*'),
       sb.from('assets').select('*'),
       sb.from('tasks').select('*'),
@@ -238,6 +238,8 @@ async function loadAll() {
       sb.from('water_readings').select('*'),
       sb.from('rangements').select('*').order('nom'),
       sb.from('famille').select('*').order('prenom'),
+      sb.from('creche_saisies').select('*').order('date',{ascending:false}),
+      sb.from('ecole_saisies').select('*').order('date',{ascending:false}),
       sb.from('consommables').select('*').order('nom'),
       sb.from('factures').select('*').order('date',{ascending:false})
     ]);
@@ -268,6 +270,8 @@ async function loadAll() {
     S.waterReadings = wr.error ? [] : (wr.data || []);
     S.rangements = rng.error ? [] : (rng.data || []);
     S.famille = fam.error ? [] : (fam.data || []);
+    S.crecheSaisies = crecheRes?.error ? [] : (crecheRes?.data || []);
+    S.ecoleSaisies = ecoleRes?.error ? [] : (ecoleRes?.data || []);
     S.consommables = conso.error ? [] : (conso.data || []);
     S.factures = facturesRes?.error ? [] : (facturesRes?.data || []);
     const loadedTopo = topo.data?.[0]?.data;
@@ -2596,58 +2600,265 @@ function renderCompteurs(){
 
 function renderFamille(){
   const membres=S.famille||[];
+  const fTab=S.familleTab||'membres';
   const today=new Date();
-  function memberCard(mb){
-    const docs=mb.documents||[];
-    const events=mb.events||[];
-    const expiring=docs.filter(function(d){
-      if(!d.date_expiry)return false;
-      const days=Math.ceil((new Date(d.date_expiry)-today)/86400000);
-      return days>=0&&days<=90;
-    }).length;
-    const expired=docs.filter(function(d){
-      return d.date_expiry&&new Date(d.date_expiry)<today;
-    }).length;
-    const upcoming=events.filter(function(e){
-      if(!e.date)return false;
-      const days=Math.ceil((new Date(e.date)-today)/86400000);
-      return days>=0&&days<=30;
-    }).length;
-    return '<div class="card">'
-      +'<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">'
-        +(mb.photo_url
-          ?'<img src="'+mb.photo_url+'" style="width:48px;height:48px;border-radius:50%;object-fit:cover;flex-shrink:0">'
-          :'<div style="width:48px;height:48px;border-radius:50%;background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">&#128100;</div>')
-        +'<div style="flex:1;min-width:0">'
-          +'<div style="font-weight:600;font-size:14px">'+(mb.prenom||'')+' '+(mb.nom||'')+'</div>'
-          +'<div style="font-size:11px;color:var(--text2)">'+(mb.relation||'')+(mb.naissance?' &middot; n&eacute;(e) le '+dateLabel(mb.naissance):'')+'</div>'
-        +'</div>'
-        +(isAdmin()?'<button class="btn btn-sm" data-edit-membre="'+mb.id+'" style="flex-shrink:0">&#9998;</button>'+'<button class="btn btn-d btn-sm" data-del-membre="'+mb.id+'" style="flex-shrink:0" title="Supprimer">&#10005;</button>':'')
-      +'</div>'
-      +(mb.notes?'<div style="font-size:12px;color:var(--text2);margin-bottom:8px;padding:6px 8px;background:var(--bg2);border-radius:4px">'+mb.notes+'</div>':'')
-      +'<div style="display:flex;gap:6px;flex-wrap:wrap">'
-        +'<button class="btn btn-sm btn-p" data-view-docs="'+mb.id+'" style="flex:1;min-width:100px">'
-          +'&#128196; Docs ('+docs.length+')'
-          +(expired?'<span class="badge bred" style="font-size:9px;margin-left:4px">'+expired+'</span>':'')
-          +(expiring?'<span class="badge bamber" style="font-size:9px;margin-left:4px">'+expiring+'</span>':'')
-        +'</button>'
-        +'<button class="btn btn-sm" data-view-events="'+mb.id+'" style="flex:1;min-width:100px">'
-          +'&#128197; RDV ('+events.length+')'
-          +(upcoming?'<span class="badge bblue" style="font-size:9px;margin-left:4px">'+upcoming+'</span>':'')
-        +'</button>'
-      +'</div>'
-      +'</div>';
-  }
-  const cards=membres.map(memberCard).join('');
-  const empty=membres.length===0
-    ?'<div style="grid-column:1/-1;text-align:center;padding:30px;color:var(--text2)">Aucun membre. Cliquez + Membre pour ajouter.</div>'
-    :'';
-  return '<div style="display:flex;justify-content:flex-end;margin-bottom:12px">'
-    +(isAdmin()?'<button class="btn btn-p" id="btn-add-membre">+ Membre</button>':'')
-    +'</div>'
-    +'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px">'
-    +empty+cards
+  const fmt2=(n)=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR',minimumFractionDigits:2}).format(n||0);
+
+  // Tab bar
+  const tabBar='<div class="tab-bar" style="margin-bottom:14px">'
+    +'<div class="tab '+(fTab==='membres'?'active':'')+'" data-ftab="membres">&#128100; Membres</div>'
+    +'<div class="tab '+(fTab==='creche'?'active':'')+'" data-ftab="creche">&#128118; Cr\u00e8che</div>'
+    +'<div class="tab '+(fTab==='ecole'?'active':'')+'" data-ftab="ecole">&#127979; \u00c9cole</div>'
     +'</div>';
+
+  // ===== MEMBRES =====
+  if(fTab==='membres'){
+    function memberCard(mb){
+      const docs=mb.documents||[];
+      const events=mb.events||[];
+      const expiring=docs.filter(function(d){
+        if(!d.date_expiry)return false;
+        const days=Math.ceil((new Date(d.date_expiry)-today)/86400000);
+        return days>=0&&days<=90;
+      }).length;
+      const expired=docs.filter(function(d){return d.date_expiry&&new Date(d.date_expiry)<today;}).length;
+      const upcoming=events.filter(function(e){
+        if(!e.date)return false;
+        const days=Math.ceil((new Date(e.date)-today)/86400000);
+        return days>=0&&days<=30;
+      }).length;
+      return '<div class="card">'
+        +'<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">'
+          +(mb.photo_url?'<img src="'+mb.photo_url+'" style="width:48px;height:48px;border-radius:50%;object-fit:cover;flex-shrink:0">'
+            :'<div style="width:48px;height:48px;border-radius:50%;background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">&#128100;</div>')
+          +'<div style="flex:1;min-width:0">'
+            +'<div style="font-weight:600;font-size:14px">'+(mb.prenom||'')+' '+(mb.nom||'')+'</div>'
+            +'<div style="font-size:11px;color:var(--text2)">'+(mb.relation||'')+(mb.naissance?' &middot; n&eacute;(e) le '+dateLabel(mb.naissance):'')+'</div>'
+          +'</div>'
+          +(isAdmin()?'<button class="btn btn-sm" data-edit-membre="'+mb.id+'" style="flex-shrink:0">&#9998;</button>'
+            +'<button class="btn btn-d btn-sm" data-del-membre="'+mb.id+'" style="flex-shrink:0" title="Supprimer">&#10005;</button>':'')
+        +'</div>'
+        +(mb.notes?'<div style="font-size:12px;color:var(--text2);margin-bottom:8px;padding:6px 8px;background:var(--bg2);border-radius:4px">'+mb.notes+'</div>':'')
+        +'<div style="display:flex;gap:6px;flex-wrap:wrap">'
+          +'<button class="btn btn-sm btn-p" data-view-docs="'+mb.id+'" style="flex:1;min-width:100px">'
+            +'&#128196; Docs ('+docs.length+')'
+            +(expired?'<span class="badge bred" style="font-size:9px;margin-left:4px">'+expired+'</span>':'')
+            +(expiring?'<span class="badge bamber" style="font-size:9px;margin-left:4px">'+expiring+'</span>':'')
+          +'</button>'
+          +'<button class="btn btn-sm" data-view-events="'+mb.id+'" style="flex:1;min-width:100px">'
+            +'&#128197; RDV ('+events.length+')'
+            +(upcoming?'<span class="badge bblue" style="font-size:9px;margin-left:4px">'+upcoming+'</span>':'')
+          +'</button>'
+        +'</div>'
+        +'</div>';
+    }
+    const cards=membres.map(memberCard).join('');
+    const empty=membres.length===0?'<div style="grid-column:1/-1;text-align:center;padding:30px;color:var(--text2)">Aucun membre. Cliquez + Membre pour ajouter.</div>':'';
+    return tabBar
+      +'<div style="display:flex;justify-content:flex-end;margin-bottom:12px">'+(isAdmin()?'<button class="btn btn-p" id="btn-add-membre">+ Membre</button>':'')+'</div>'
+      +'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px">'+empty+cards+'</div>';
+  }
+
+  // ===== CRÈCHE / ÉCOLE - enfant selector =====
+  const enfants=membres; // tous les membres peuvent avoir crèche/école
+  const selEnfantId=S.familleEnfant||(enfants[0]?.id||null);
+  const selEnfant=enfants.find(m=>m.id===selEnfantId)||enfants[0]||null;
+
+  const enfantBar=enfants.length>1
+    ?'<div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">'
+      +enfants.map(m=>'<button class="btn btn-sm '+(m.id===selEnfantId?'btn-p':'')+'" data-sel-enfant="'+m.id+'">'+(m.prenom||m.nom||'Enfant')+'</button>').join('')
+      +'</div>'
+    :'';
+
+  if(!selEnfant){
+    return tabBar+enfantBar+'<div style="text-align:center;padding:30px;color:var(--text2)">Aucun membre. Ajoutez un membre d\'abord.</div>';
+  }
+
+  // Contrat stored in membre.contrat_creche or membre.contrat_ecole (jsonb)
+  const contratCreche=selEnfant.contrat_creche||{};
+  const contratEcole=selEnfant.contrat_ecole||{};
+
+  // Current month
+  const now=new Date();
+  const selYear=S.familleYear||now.getFullYear();
+  const selMonth=S.familleMonth!=null?S.familleMonth:now.getMonth(); // 0-based
+  const MOIS=['Janvier','F\u00e9vrier','Mars','Avril','Mai','Juin','Juillet','Ao\u00fbt','Septembre','Octobre','Novembre','D\u00e9cembre'];
+
+  const monthBar='<div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap">'
+    +'<button class="btn btn-sm" id="btn-prev-month">&larr;</button>'
+    +'<span style="font-weight:600;font-size:14px">'+MOIS[selMonth]+' '+selYear+'</span>'
+    +'<button class="btn btn-sm" id="btn-next-month">&rarr;</button>'
+    +'</div>';
+
+  // ===== CRÈCHE =====
+  if(fTab==='creche'){
+    const saisies=S.crecheSaisies.filter(s=>s.enfant_id===selEnfant.id&&s.annee===selYear&&s.mois===selMonth+1);
+    const txNormal=parseFloat(contratCreche.taux_normal||0);
+    const txMajore=parseFloat(contratCreche.taux_majore||0);
+
+    // Days in month
+    const daysInMonth=new Date(selYear,selMonth+1,0).getDate();
+    const days=Array.from({length:daysInMonth},(_,i)=>i+1);
+
+    // Calc totals
+    let totalHSup=0, totalMinutes=0;
+    saisies.forEach(s=>{
+      totalMinutes+=Math.ceil((s.minutes_sup||0)/15)*15;
+    });
+    totalHSup=totalMinutes/60;
+    const montantCalc=totalHSup*txNormal+(contratCreche.heures_majorees||0)*txMajore;
+
+    // Day rows
+    const rows=days.map(d=>{
+      const date=new Date(selYear,selMonth,d);
+      const dow=date.getDay();
+      const isWE=dow===0||dow===6;
+      const s=saisies.find(x=>x.jour===d);
+      const minSup=s?.minutes_sup||0;
+      const depAntic=s?.depose_anticipee||'';
+      const recTard=s?.recuperation_tardive||'';
+      const bg=isWE?'background:var(--bg2)':'';
+      const qh=minSup>0?Math.ceil(minSup/15):0;
+      return '<tr style="'+bg+'">'
+        +'<td style="font-size:12px;padding:4px 6px;color:'+(isWE?'var(--text3)':'var(--text)')+'">'+(''+d).padStart(2,'0')+'/'+(''+( selMonth+1)).padStart(2,'0')+' '+['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'][dow]+'</td>'
+        +'<td style="text-align:center;padding:4px"><input type="time" class="creche-dep" data-day="'+d+'" value="'+depAntic+'" style="width:80px;padding:2px 4px;font-size:11px;border:0.5px solid var(--border2);border-radius:4px;background:var(--bg)"></td>'
+        +'<td style="text-align:center;padding:4px"><input type="time" class="creche-rec" data-day="'+d+'" value="'+recTard+'" style="width:80px;padding:2px 4px;font-size:11px;border:0.5px solid var(--border2);border-radius:4px;background:var(--bg)"></td>'
+        +'<td style="text-align:center;padding:4px"><input type="time" class="creche-cont" data-day="'+d+'" value="'+(s?.heure_contrat_dep||contratCreche.heure_dep_defaut||'')+'" style="width:75px;padding:2px 4px;font-size:11px;border:0.5px solid var(--border2);border-radius:4px;background:var(--bg2)"></td>'
+        +'<td style="text-align:center;padding:4px"><input type="time" class="creche-contr" data-day="'+d+'" value="'+(s?.heure_contrat_rec||contratCreche.heure_rec_defaut||'')+'" style="width:75px;padding:2px 4px;font-size:11px;border:0.5px solid var(--border2);border-radius:4px;background:var(--bg2)"></td>'
+        +'<td style="text-align:center;font-size:12px;font-weight:'+(qh>0?'600':'400')+';color:'+(qh>0?'var(--red)':'var(--text3)')+'">'+( qh>0?'+'+qh+' qh':'—')+'</td>'
+        +'<td style="text-align:center;padding:4px">'
+          +'<button class="btn btn-sm btn-p creche-save-day" data-day="'+d+'" style="font-size:10px;padding:3px 8px">&#10003;</button>'
+          +(s?'<button class="btn btn-sm btn-d creche-del-day" data-day="'+d+'" style="font-size:10px;padding:3px 6px;margin-left:2px">&#10005;</button>':'')
+        +'</td>'
+        +'</tr>';
+    }).join('');
+
+    const hTotal=Math.floor(totalMinutes/60);
+    const mTotal=Math.ceil(totalMinutes%60/15)*15;
+    const montantEstime=txNormal>0?totalHSup*txNormal:0;
+
+    return tabBar+enfantBar
+      +'<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px">'
+        +monthBar
+        +'<button class="btn btn-sm" id="btn-creche-contrat">&#9881; Contrat</button>'
+        +'<button class="btn btn-sm" id="btn-creche-pdf" style="background:var(--green);color:#fff">&#128196; PDF mensuel</button>'
+      +'</div>'
+      +'<div class="card" style="margin-bottom:12px;padding:10px 14px">'
+        +'<div style="display:flex;gap:20px;flex-wrap:wrap;font-size:12px">'
+          +'<div>Taux normal : <strong>'+fmt2(txNormal)+'/h</strong></div>'
+          +'<div>Taux major\u00e9 : <strong>'+fmt2(txMajore)+'/h</strong></div>'
+          +'<div>H. suppl\u00e9mentaires : <strong style="color:var(--red)">'+hTotal+'h'+( mTotal>0?mTotal+'min':'')+'</strong></div>'
+          +(txNormal>0?'<div>Montant estim\u00e9 : <strong style="color:var(--red)">'+fmt2(montantEstime)+'</strong></div>':'')
+          +'<div style="display:flex;gap:6px;align-items:center">Facture re\u00e7ue : <input id="creche-facture-recue" type="number" step="0.01" value="'+(contratCreche.facture_recue||'')+'" placeholder="0.00" style="width:80px;padding:3px 6px;font-size:11px;border:0.5px solid var(--border2);border-radius:4px;background:var(--bg)"> \u20ac</div>'
+          +(contratCreche.facture_recue?'<div style="font-weight:600;color:'+(Math.abs(montantEstime-(contratCreche.facture_recue||0))<0.1?'var(--green)':'var(--red)')+'">Diff\u00e9rence : '+fmt2(montantEstime-(contratCreche.facture_recue||0))+'</div>':'')
+        +'</div>'
+      +'</div>'
+      +'<div class="card"><div style="overflow-x:auto"><table style="min-width:600px">'
+        +'<thead><tr>'
+          +'<th style="font-size:11px">Date</th>'
+          +'<th style="font-size:11px">D\u00e9pose anticip\u00e9e</th>'
+          +'<th style="font-size:11px">Rec. tardive</th>'
+          +'<th style="font-size:11px;background:var(--bg2)">Contrat dep.</th>'
+          +'<th style="font-size:11px;background:var(--bg2)">Contrat rec.</th>'
+          +'<th style="font-size:11px">H. sup (1/4h)</th>'
+          +'<th></th>'
+        +'</tr></thead>'
+        +'<tbody>'+rows+'</tbody>'
+      +'</table></div></div>';
+  }
+
+  // ===== ÉCOLE =====
+  if(fTab==='ecole'){
+    const saisies=S.ecoleSaisies.filter(s=>s.enfant_id===selEnfant.id&&s.annee===selYear&&s.mois===selMonth+1);
+    const txPeriPrev=parseFloat(contratEcole.taux_peri_prevu||0);
+    const txPeriNonPrev=parseFloat(contratEcole.taux_peri_non_prevu||0);
+    const txCantine=parseFloat(contratEcole.taux_cantine||0);
+    const txCentreJ=parseFloat(contratEcole.taux_centre_journee||0);
+
+    const daysInMonth=new Date(selYear,selMonth+1,0).getDate();
+    const days=Array.from({length:daysInMonth},(_,i)=>i+1);
+
+    let totalPeriMin=0,totalPeriNPMin=0,totalCantine=0,totalCentreJ=0;
+    saisies.forEach(s=>{
+      totalPeriMin+=Math.ceil((s.peri_matin_min||0)/15)*15+Math.ceil((s.peri_soir_min||0)/15)*15;
+      totalPeriNPMin+=Math.ceil((s.peri_matin_np_min||0)/15)*15+Math.ceil((s.peri_soir_np_min||0)/15)*15;
+      if(s.cantine)totalCantine++;
+      if(s.centre_loisir)totalCentreJ++;
+    });
+    const montantPeri=(totalPeriMin/60)*txPeriPrev+(totalPeriNPMin/60)*txPeriNonPrev;
+    const montantCantine=totalCantine*txCantine;
+    const montantCentre=totalCentreJ*txCentreJ;
+    const montantEcoleTotal=montantPeri+montantCantine;
+    const montantCentreTotal=montantCentre;
+
+    const rows=days.map(d=>{
+      const date=new Date(selYear,selMonth,d);
+      const dow=date.getDay();
+      const isWE=dow===0||dow===6;
+      const isMer=dow===3;
+      const s=saisies.find(x=>x.jour===d);
+      const bg=isWE?'background:var(--bg2)':'';
+      const isCentre=s?.centre_loisir||false;
+      return '<tr style="'+bg+'">'
+        +'<td style="font-size:11px;padding:3px 6px;color:'+(isWE?'var(--text3)':'var(--text)')+'">'+(''+d).padStart(2,'0')+'/'+('+'+ (selMonth+1)).padStart(2,'0')+' '+['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'][dow]+'</td>'
+        +(isCentre?'<td colspan="4" style="text-align:center;font-size:11px;color:var(--blue);font-weight:500">Centre de loisirs (journ\u00e9e)</td>'
+          :'<td style="text-align:center;padding:2px"><input type="time" class="ecole-pmat" data-day="'+d+'" value="'+(s?.peri_matin_dep||'')+'" style="width:70px;font-size:10px;padding:2px 3px;border:0.5px solid var(--border2);border-radius:3px;background:var(--bg)"></td>'
+           +'<td style="text-align:center;padding:2px"><input type="time" class="ecole-pmatf" data-day="'+d+'" value="'+(s?.peri_matin_fin||'')+'" style="width:70px;font-size:10px;padding:2px 3px;border:0.5px solid var(--border2);border-radius:3px;background:var(--bg)"></td>'
+           +'<td style="text-align:center;padding:2px"><input type="time" class="ecole-psod" data-day="'+d+'" value="'+(s?.peri_soir_dep||'')+'" style="width:70px;font-size:10px;padding:2px 3px;border:0.5px solid var(--border2);border-radius:3px;background:var(--bg)"></td>'
+           +'<td style="text-align:center;padding:2px"><input type="time" class="ecole-psof" data-day="'+d+'" value="'+(s?.peri_soir_fin||'')+'" style="width:70px;font-size:10px;padding:2px 3px;border:0.5px solid var(--border2);border-radius:3px;background:var(--bg)"></td>')
+        +'<td style="text-align:center;padding:2px"><input type="checkbox" class="ecole-cant" data-day="'+d+'" '+(s?.cantine?'checked':'')+' style="width:16px;height:16px"></td>'
+        +'<td style="text-align:center;padding:2px"><input type="checkbox" class="ecole-centre" data-day="'+d+'" '+(isCentre?'checked':'')+' style="width:16px;height:16px"></td>'
+        +'<td style="text-align:center;padding:2px">'
+          +'<select class="ecole-type-peri" data-day="'+d+'" style="font-size:10px;padding:2px 3px;border:0.5px solid var(--border2);border-radius:3px;background:var(--bg);width:60px">'
+            +'<option value="prevu" '+((!s||s.type_peri==='prevu')?'selected':'')+'>Pr\u00e9vu</option>'
+            +'<option value="non_prevu" '+(s?.type_peri==='non_prevu'?'selected':'')+'>N.Pr\u00e9vu</option>'
+          +'</select></td>'
+        +'<td style="text-align:center;padding:2px">'
+          +'<button class="btn btn-sm btn-p ecole-save-day" data-day="'+d+'" style="font-size:10px;padding:3px 7px">&#10003;</button>'
+          +(s?'<button class="btn btn-sm btn-d ecole-del-day" data-day="'+d+'" style="font-size:10px;padding:3px 5px;margin-left:2px">&#10005;</button>':'')
+        +'</td>'
+        +'</tr>';
+    }).join('');
+
+    return tabBar+enfantBar
+      +'<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px">'
+        +monthBar
+        +'<button class="btn btn-sm" id="btn-ecole-contrat">&#9881; Tarifs</button>'
+        +'<button class="btn btn-sm" id="btn-ecole-pdf-ecole" style="background:#185FA5;color:#fff">&#128196; PDF \u00c9cole+Cantine</button>'
+        +'<button class="btn btn-sm" id="btn-ecole-pdf-centre" style="background:#9B59B6;color:#fff">&#128196; PDF Centre loisirs</button>'
+      +'</div>'
+      +'<div class="card" style="margin-bottom:12px;padding:10px 14px">'
+        +'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;font-size:12px">'
+          +'<div>P\u00e9riscolaire pr\u00e9vu : <strong>'+( totalPeriMin/60).toFixed(2)+'h &rarr; '+fmt2(montantPeri)+'</strong></div>'
+          +'<div>Cantine : <strong>'+totalCantine+' repas &rarr; '+fmt2(montantCantine)+'</strong></div>'
+          +'<div>Centre loisirs : <strong>'+totalCentreJ+' j &rarr; '+fmt2(montantCentreTotal)+'</strong></div>'
+          +'<div style="font-weight:600;color:var(--blue)">Total \u00e9cole+cantine : '+fmt2(montantEcoleTotal)+'</div>'
+          +'<div style="font-weight:600;color:#9B59B6">Total centre : '+fmt2(montantCentreTotal)+'</div>'
+        +'</div>'
+        +'<div style="margin-top:8px;display:flex;gap:12px;flex-wrap:wrap;font-size:12px">'
+          +'<div style="display:flex;gap:4px;align-items:center">Facture \u00e9cole+cantine : <input id="ecole-facture-ecole" type="number" step="0.01" value="'+(contratEcole.facture_ecole||'')+'" placeholder="0.00" style="width:75px;padding:3px 6px;font-size:11px;border:0.5px solid var(--border2);border-radius:4px;background:var(--bg)"> \u20ac</div>'
+          +'<div style="display:flex;gap:4px;align-items:center">Facture centre : <input id="ecole-facture-centre" type="number" step="0.01" value="'+(contratEcole.facture_centre||'')+'" placeholder="0.00" style="width:75px;padding:3px 6px;font-size:11px;border:0.5px solid var(--border2);border-radius:4px;background:var(--bg)"> \u20ac</div>'
+          +(contratEcole.facture_ecole?'<div style="font-weight:600;color:'+(Math.abs(montantEcoleTotal-(contratEcole.facture_ecole||0))<0.1?'var(--green)':'var(--red)')+'">Diff \u00e9cole : '+fmt2(montantEcoleTotal-(contratEcole.facture_ecole||0))+'</div>':'')
+          +(contratEcole.facture_centre?'<div style="font-weight:600;color:'+(Math.abs(montantCentreTotal-(contratEcole.facture_centre||0))<0.1?'var(--green)':'var(--red)')+'">Diff centre : '+fmt2(montantCentreTotal-(contratEcole.facture_centre||0))+'</div>':'')
+        +'</div>'
+      +'</div>'
+      +'<div class="card"><div style="overflow-x:auto"><table style="min-width:700px">'
+        +'<thead><tr>'
+          +'<th style="font-size:10px">Date</th>'
+          +'<th style="font-size:10px">P\u00e9ri mat. d\u00e9b</th>'
+          +'<th style="font-size:10px">P\u00e9ri mat. fin</th>'
+          +'<th style="font-size:10px">P\u00e9ri soir d\u00e9b</th>'
+          +'<th style="font-size:10px">P\u00e9ri soir fin</th>'
+          +'<th style="font-size:10px">Cantine</th>'
+          +'<th style="font-size:10px">Centre</th>'
+          +'<th style="font-size:10px">Type</th>'
+          +'<th></th>'
+        +'</tr></thead>'
+        +'<tbody>'+rows+'</tbody>'
+      +'</table></div></div>';
+  }
+
+  return tabBar+'<div style="text-align:center;padding:20px;color:var(--text2)">Onglet inconnu</div>';
 }
 
 function renderEtiquettes(){
@@ -2845,6 +3056,142 @@ function printCsoLabel(c, siteUrl){
     '</body></html>'
   ];
   const html=parts.join('');
+  const blob=new Blob([html],{type:'text/html'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');a.href=url;a.target='_blank';
+  document.body.appendChild(a);a.click();document.body.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(url),60000);
+}
+
+function buildCrechePdf(){
+  const enf=S.famille.find(x=>x.id===(S.familleEnfant||(S.famille[0]?.id)));
+  if(!enf){alert('Aucun enfant s\u00e9lectionn\u00e9');return;}
+  const y=S.familleYear||new Date().getFullYear();
+  const mo=(S.familleMonth!=null?S.familleMonth:new Date().getMonth());
+  const MOIS=['Janvier','F\u00e9vrier','Mars','Avril','Mai','Juin','Juillet','Ao\u00fbt','Septembre','Octobre','Novembre','D\u00e9cembre'];
+  const c=enf.contrat_creche||{};
+  const txN=parseFloat(c.taux_normal||0);
+  const txM=parseFloat(c.taux_majore||0);
+  const saisies=S.crecheSaisies.filter(s=>s.enfant_id===enf.id&&s.annee===y&&s.mois===mo+1);
+  let totalMin=0;
+  saisies.forEach(s=>{totalMin+=Math.ceil((s.minutes_sup||0)/15)*15;});
+  const totalH=totalMin/60;
+  const montant=txN>0?totalH*txN:0;
+  const facRecu=parseFloat(c.facture_recue||0);
+  const diff=montant-facRecu;
+  const rows=saisies.sort((a,b)=>a.jour-b.jour).map(s=>{
+    const qh=Math.ceil((s.minutes_sup||0)/15);
+    const d=new Date(y,mo,s.jour);
+    const dow=['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'][d.getDay()];
+    return '<tr><td>'+(''+s.jour).padStart(2,'0')+'/'+('+'+(mo+1)).padStart(2,'0')+'/'+y+' '+dow+'</td>'
+      +'<td>'+(s.heure_contrat_dep||c.heure_dep_defaut||'\u2014')+'</td>'
+      +'<td>'+(s.depose_anticipee||'\u2014')+'</td>'
+      +'<td>'+(s.heure_contrat_rec||c.heure_rec_defaut||'\u2014')+'</td>'
+      +'<td>'+(s.recuperation_tardive||'\u2014')+'</td>'
+      +'<td style="font-weight:600;color:'+(qh>0?'#C0392B':'#888')+'">'+(qh>0?'+'+qh+' \u00d7 1/4h':'\u2014')+'</td>'
+      +'</tr>';
+  }).join('');
+  const html='<!DOCTYPE html><html><head><meta charset="UTF-8">'
+    +'<style>body{font-family:Arial,sans-serif;padding:20px;color:#222}h1{font-size:16px;margin-bottom:4px}h2{font-size:13px;color:#555;margin-top:0}'
+    +'table{width:100%;border-collapse:collapse;margin:16px 0;font-size:12px}th{background:#1D9E75;color:#fff;padding:6px 8px;text-align:left}td{padding:5px 8px;border-bottom:1px solid #eee}'
+    +'.total{background:#f9f9f9;font-weight:600}.recap{margin-top:16px;padding:12px;background:#f0f9f4;border-radius:6px;font-size:13px}'
+    +'.diff-ok{color:#1D9E75;font-weight:700}.diff-ko{color:#C0392B;font-weight:700}'
+    +'.printbtn{position:fixed;top:12px;right:12px;background:#1D9E75;color:#fff;border:none;padding:8px 18px;border-radius:6px;cursor:pointer;font-weight:700}'
+    +'@media print{.printbtn{display:none}}</style></head><body>'
+    +'<button class="printbtn" onclick="window.print()">&#128424; Imprimer / PDF</button>'
+    +'<h1>&#128118; Cr\u00e8che \u2014 '+MOIS[mo]+' '+y+'</h1>'
+    +'<h2>Enfant : '+enf.prenom+' '+(enf.nom||'')+(enf.naissance?' &middot; n\u00e9(e) le '+enf.naissance:'')+'</h2>'
+    +'<table><thead><tr><th>Date</th><th>Contrat d\u00e9pose</th><th>D\u00e9pose effective</th><th>Contrat r\u00e9cup</th><th>R\u00e9cup effective</th><th>H. sup.</th></tr></thead>'
+    +'<tbody>'+rows+'</tbody>'
+    +'<tfoot><tr class="total"><td colspan="5">TOTAL heures suppl\u00e9mentaires</td><td>'+(Math.floor(totalMin/60))+'h'+(totalMin%60>0?totalMin%60+'min':'')
+    +' = '+totalMin/15+' quarts</td></tr></tfoot></table>'
+    +'<div class="recap">'
+    +'<div>Taux normal : <strong>'+txN.toFixed(2)+' \u20ac/h</strong>'+(txM?' &nbsp;|&nbsp; Taux major\u00e9 : <strong>'+txM.toFixed(2)+' \u20ac/h</strong>':'')+'</div>'
+    +'<div style="margin-top:6px">Montant calcul\u00e9 : <strong>'+montant.toFixed(2)+' \u20ac</strong></div>'
+    +(facRecu>0?'<div>Facture re\u00e7ue : <strong>'+facRecu.toFixed(2)+' \u20ac</strong></div>'
+      +'<div>Diff\u00e9rence : <span class="'+(Math.abs(diff)<0.01?'diff-ok':'diff-ko')+'">'+( diff>0?'+':'')+diff.toFixed(2)+' \u20ac</span>'
+      +' '+(Math.abs(diff)<0.01?'&#10003; Facture conforme':'&#9888; Diff\u00e9rence \u00e0 v\u00e9rifier')+'</div>':'')
+    +'</div></body></html>';
+  const blob=new Blob([html],{type:'text/html'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');a.href=url;a.target='_blank';
+  document.body.appendChild(a);a.click();document.body.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(url),60000);
+}
+
+function buildEcolePdf(type){
+  const enf=S.famille.find(x=>x.id===(S.familleEnfant||(S.famille[0]?.id)));
+  if(!enf){alert('Aucun enfant s\u00e9lectionn\u00e9');return;}
+  const y=S.familleYear||new Date().getFullYear();
+  const mo=(S.familleMonth!=null?S.familleMonth:new Date().getMonth());
+  const MOIS=['Janvier','F\u00e9vrier','Mars','Avril','Mai','Juin','Juillet','Ao\u00fbt','Septembre','Octobre','Novembre','D\u00e9cembre'];
+  const c=enf.contrat_ecole||{};
+  const txPP=parseFloat(c.taux_peri_prevu||0);
+  const txPNP=parseFloat(c.taux_peri_non_prevu||0);
+  const txCant=parseFloat(c.taux_cantine||0);
+  const txCentreJ=parseFloat(c.taux_centre_journee||0);
+  const saisies=S.ecoleSaisies.filter(s=>s.enfant_id===enf.id&&s.annee===y&&s.mois===mo+1);
+  let totPMin=0,totPNPMin=0,totCant=0,totCentre=0;
+  saisies.forEach(s=>{
+    totPMin+=Math.ceil((s.peri_matin_min||0)/15)*15+Math.ceil((s.peri_soir_min||0)/15)*15;
+    totPNPMin+=Math.ceil((s.peri_matin_np_min||0)/15)*15+Math.ceil((s.peri_soir_np_min||0)/15)*15;
+    if(s.cantine)totCant++;
+    if(s.centre_loisir)totCentre++;
+  });
+  const montPeri=(totPMin/60)*txPP+(totPNPMin/60)*txPNP;
+  const montCant=totCant*txCant;
+  const montCentre=totCentre*txCentreJ;
+  const isEcole=type==='ecole';
+  const color=isEcole?'#185FA5':'#9B59B6';
+  const titre=isEcole?'\u00c9cole + Cantine':'Centre de Loisirs';
+  const montantTotal=isEcole?montPeri+montCant:montCentre;
+  const facRecu=parseFloat(isEcole?(c.facture_ecole||0):(c.facture_centre||0));
+  const diff=montantTotal-facRecu;
+  const filtSaisies=isEcole
+    ?saisies.filter(s=>s.peri_matin_min||s.peri_soir_min||s.peri_matin_np_min||s.peri_soir_np_min||s.cantine)
+    :saisies.filter(s=>s.centre_loisir);
+  const rows=filtSaisies.sort((a,b)=>a.jour-b.jour).map(s=>{
+    const d=new Date(y,mo,s.jour);
+    const dow=['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'][d.getDay()];
+    const moStr=String(mo+1).padStart(2,'0');const dt=String(s.jour).padStart(2,'0')+'/'+moStr+'/'+y+' '+dow;
+    if(!isEcole)return '<tr><td>'+dt+'</td><td colspan="5" style="text-align:center">Journ\u00e9e centre loisirs</td><td style="font-weight:600">'+txCentreJ.toFixed(2)+' \u20ac</td></tr>';
+    const pmMin=(s.peri_matin_min||0)+(s.peri_matin_np_min||0);
+    const psMin=(s.peri_soir_min||0)+(s.peri_soir_np_min||0);
+    const type_peri=s.type_peri==='non_prevu'?'N.Pr\u00e9vu':'Pr\u00e9vu';
+    return '<tr><td>'+dt+'</td>'
+      +'<td>'+(s.peri_matin_dep||'\u2014')+' \u2192 '+(s.peri_matin_fin||'\u2014')+'</td>'
+      +'<td>'+(pmMin>0?(pmMin/60).toFixed(2)+'h':'\u2014')+'</td>'
+      +'<td>'+(s.peri_soir_dep||'\u2014')+' \u2192 '+(s.peri_soir_fin||'\u2014')+'</td>'
+      +'<td>'+(psMin>0?(psMin/60).toFixed(2)+'h':'\u2014')+'</td>'
+      +'<td style="font-size:10px">'+type_peri+'</td>'
+      +'<td style="text-align:center">'+(s.cantine?'&#10003; '+txCant.toFixed(2)+' \u20ac':'\u2014')+'</td>'
+      +'</tr>';
+  }).join('');
+  const thead=isEcole
+    ?'<tr><th>Date</th><th>P\u00e9ri matin</th><th>Dur\u00e9e</th><th>P\u00e9ri soir</th><th>Dur\u00e9e</th><th>Type</th><th>Cantine</th></tr>'
+    :'<tr><th>Date</th><th colspan="6">D\u00e9tail</th><th>Montant</th></tr>';
+  const recapRows=isEcole
+    ?'<div>P\u00e9riscolaire pr\u00e9vu : '+(totPMin/60).toFixed(2)+'h \u00d7 '+txPP.toFixed(3)+' \u20ac = <strong>'+montPeri.toFixed(2)+' \u20ac</strong></div>'
+     +'<div>Cantine : '+totCant+' repas \u00d7 '+txCant.toFixed(2)+' \u20ac = <strong>'+montCant.toFixed(2)+' \u20ac</strong></div>'
+    :'<div>Centre loisirs : '+totCentre+' journ\u00e9e(s) \u00d7 '+txCentreJ.toFixed(2)+' \u20ac = <strong>'+montCentre.toFixed(2)+' \u20ac</strong></div>';
+  const html='<!DOCTYPE html><html><head><meta charset="UTF-8">'
+    +'<style>body{font-family:Arial,sans-serif;padding:20px;color:#222}h1{font-size:16px;margin-bottom:4px;color:'+color+'}h2{font-size:13px;color:#555;margin-top:0}'
+    +'table{width:100%;border-collapse:collapse;margin:16px 0;font-size:11px}th{background:'+color+';color:#fff;padding:6px 8px;text-align:left}td{padding:5px 8px;border-bottom:1px solid #eee}'
+    +'.total{background:#f5f5f5;font-weight:600}.recap{margin-top:16px;padding:12px;background:#f0f4ff;border-radius:6px;font-size:13px}'
+    +'.diff-ok{color:#1D9E75;font-weight:700}.diff-ko{color:#C0392B;font-weight:700}'
+    +'.printbtn{position:fixed;top:12px;right:12px;background:'+color+';color:#fff;border:none;padding:8px 18px;border-radius:6px;cursor:pointer;font-weight:700}'
+    +'@media print{.printbtn{display:none}}</style></head><body>'
+    +'<button class="printbtn" onclick="window.print()">&#128424; Imprimer / PDF</button>'
+    +'<h1>&#127979; '+titre+' \u2014 '+MOIS[mo]+' '+y+'</h1>'
+    +'<h2>Enfant : '+enf.prenom+' '+(enf.nom||'')+'</h2>'
+    +'<table><thead>'+thead+'</thead><tbody>'+rows+'</tbody>'
+    +'<tfoot><tr class="total"><td colspan="6">TOTAL</td><td style="font-weight:700;color:'+color+'">'+montantTotal.toFixed(2)+' \u20ac</td></tr></tfoot></table>'
+    +'<div class="recap">'+recapRows
+    +'<div style="margin-top:8px;font-size:14px;font-weight:600">Total calcul\u00e9 : '+montantTotal.toFixed(2)+' \u20ac</div>'
+    +(facRecu>0?'<div>Facture re\u00e7ue : <strong>'+facRecu.toFixed(2)+' \u20ac</strong></div>'
+      +'<div>Diff\u00e9rence : <span class="'+(Math.abs(diff)<0.01?'diff-ok':'diff-ko')+'">'+( diff>0?'+':'')+diff.toFixed(2)+' \u20ac</span>'
+      +' '+(Math.abs(diff)<0.01?'&#10003; Conforme':'&#9888; \u00c0 v\u00e9rifier')+'</div>':'')
+    +'</div></body></html>';
   const blob=new Blob([html],{type:'text/html'});
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a');a.href=url;a.target='_blank';
@@ -5153,6 +5500,39 @@ async function saveModal(){
     }
   }
 
+  // ── Crèche contrat save
+  if(m.type==='creche-contrat'){
+    const mb=S.famille.find(x=>x.id===m.enfantId);
+    if(!mb)return;
+    const prev=mb.contrat_creche||{};
+    const upd={...prev,
+      heure_dep_defaut:q('cc-dep')?.value||null,
+      heure_rec_defaut:q('cc-rec')?.value||null,
+      taux_normal:parseFloat(q('cc-tn')?.value)||0,
+      taux_majore:parseFloat(q('cc-tm')?.value)||0,
+      facture_recue:parseFloat(q('cc-fr')?.value)||0
+    };
+    const {error}=await sb.from('famille').update({contrat_creche:upd}).eq('id',mb.id);
+    if(error){alert('Erreur : '+error.message);return;}
+    mb.contrat_creche=upd;
+  }
+
+  // ── École contrat save
+  if(m.type==='ecole-contrat'){
+    const mb=S.famille.find(x=>x.id===m.enfantId);
+    if(!mb)return;
+    const prev=mb.contrat_ecole||{};
+    const upd={...prev,
+      taux_peri_prevu:parseFloat(q('ec-pp')?.value)||0,
+      taux_peri_non_prevu:parseFloat(q('ec-pnp')?.value)||0,
+      taux_cantine:parseFloat(q('ec-cant')?.value)||0,
+      taux_centre_journee:parseFloat(q('ec-centre')?.value)||0
+    };
+    const {error}=await sb.from('famille').update({contrat_ecole:upd}).eq('id',mb.id);
+    if(error){alert('Erreur : '+error.message);return;}
+    mb.contrat_ecole=upd;
+  }
+
   closeModal();
   render();
 }
@@ -6064,7 +6444,160 @@ function bindAll(){
   // ============================================================
   // FAMILLE
   // ============================================================
-  document.querySelectorAll('[data-ftab]').forEach(el=>el.onclick=()=>{S.fTab=el.dataset.ftab;render();});
+  document.querySelectorAll('[data-ftab]').forEach(el=>el.onclick=()=>{S.familleTab=el.dataset.ftab;render();});
+  document.querySelectorAll('[data-sel-enfant]').forEach(el=>el.onclick=()=>{S.familleEnfant=el.dataset.selEnfant;render();});
+  const btnPrevMonth=document.getElementById('btn-prev-month');
+  if(btnPrevMonth)btnPrevMonth.onclick=()=>{
+    let m=S.familleMonth!=null?S.familleMonth:new Date().getMonth();
+    let y=S.familleYear||new Date().getFullYear();
+    m--;if(m<0){m=11;y--;}
+    S.familleMonth=m;S.familleYear=y;render();
+  };
+  const btnNextMonth=document.getElementById('btn-next-month');
+  if(btnNextMonth)btnNextMonth.onclick=()=>{
+    let m=S.familleMonth!=null?S.familleMonth:new Date().getMonth();
+    let y=S.familleYear||new Date().getFullYear();
+    m++;if(m>11){m=0;y++;}
+    S.familleMonth=m;S.familleYear=y;render();
+  };
+  // Crèche buttons
+  const btnCrecheContrat=document.getElementById('btn-creche-contrat');
+  if(btnCrecheContrat)btnCrecheContrat.onclick=()=>{
+    const id=S.familleEnfant||(S.famille[0]?.id);
+    S.modal={type:'creche-contrat',enfantId:id};render();
+  };
+  const btnCrechePdf=document.getElementById('btn-creche-pdf');
+  if(btnCrechePdf)btnCrechePdf.onclick=()=>buildCrechePdf();
+  // Crèche day save
+  document.querySelectorAll('.creche-save-day').forEach(el=>el.onclick=async()=>{
+    const d=parseInt(el.dataset.day);
+    const enf=S.famille.find(x=>x.id===(S.familleEnfant||(S.famille[0]?.id)));
+    if(!enf)return;
+    const y=S.familleYear||new Date().getFullYear();
+    const mo=(S.familleMonth!=null?S.familleMonth:new Date().getMonth())+1;
+    const depAntic=document.querySelector('.creche-dep[data-day="'+d+'"]')?.value||null;
+    const recTard=document.querySelector('.creche-rec[data-day="'+d+'"]')?.value||null;
+    const contDep=document.querySelector('.creche-cont[data-day="'+d+'"]')?.value||null;
+    const contRec=document.querySelector('.creche-contr[data-day="'+d+'"]')?.value||null;
+    // Calc minutes sup (arrondi quart superieur)
+    function toMin(t){if(!t)return null;const[h,m]=t.split(':').map(Number);return h*60+m;}
+    const depM=toMin(depAntic),cdM=toMin(contDep);
+    const recM=toMin(recTard),crM=toMin(contRec);
+    let minSup=0;
+    if(depM!==null&&cdM!==null&&depM<cdM)minSup+=Math.ceil((cdM-depM)/15)*15;
+    if(recM!==null&&crM!==null&&recM>crM)minSup+=Math.ceil((recM-crM)/15)*15;
+    const existing=S.crecheSaisies.find(s=>s.enfant_id===enf.id&&s.annee===y&&s.mois===mo&&s.jour===d);
+    const rec={enfant_id:enf.id,annee:y,mois:mo,jour:d,
+      depose_anticipee:depAntic||null,recuperation_tardive:recTard||null,
+      heure_contrat_dep:contDep||null,heure_contrat_rec:contRec||null,
+      minutes_sup:minSup};
+    if(existing){
+      await sb.from('creche_saisies').update(rec).eq('id',existing.id);
+      Object.assign(existing,rec);
+    }else{
+      const{data,error}=await sb.from('creche_saisies').insert(rec).select().single();
+      if(error){alert('Erreur : '+error.message);return;}
+      if(data)S.crecheSaisies.push(data);
+    }
+    render();
+  });
+  // Crèche day delete
+  document.querySelectorAll('.creche-del-day').forEach(el=>el.onclick=async()=>{
+    const d=parseInt(el.dataset.day);
+    const enf=S.famille.find(x=>x.id===(S.familleEnfant||(S.famille[0]?.id)));
+    if(!enf)return;
+    const y=S.familleYear||new Date().getFullYear();
+    const mo=(S.familleMonth!=null?S.familleMonth:new Date().getMonth())+1;
+    const s=S.crecheSaisies.find(x=>x.enfant_id===enf.id&&x.annee===y&&x.mois===mo&&x.jour===d);
+    if(!s)return;
+    await sb.from('creche_saisies').delete().eq('id',s.id);
+    S.crecheSaisies=S.crecheSaisies.filter(x=>x.id!==s.id);
+    render();
+  });
+  // École buttons
+  const btnEcoleContrat=document.getElementById('btn-ecole-contrat');
+  if(btnEcoleContrat)btnEcoleContrat.onclick=()=>{
+    const id=S.familleEnfant||(S.famille[0]?.id);
+    S.modal={type:'ecole-contrat',enfantId:id};render();
+  };
+  const btnEcolePdf=document.getElementById('btn-ecole-pdf-ecole');
+  if(btnEcolePdf)btnEcolePdf.onclick=()=>buildEcolePdf('ecole');
+  const btnCentrePdf=document.getElementById('btn-ecole-pdf-centre');
+  if(btnCentrePdf)btnCentrePdf.onclick=()=>buildEcolePdf('centre');
+  // École day save
+  document.querySelectorAll('.ecole-save-day').forEach(el=>el.onclick=async()=>{
+    const d=parseInt(el.dataset.day);
+    const enf=S.famille.find(x=>x.id===(S.familleEnfant||(S.famille[0]?.id)));
+    if(!enf)return;
+    const y=S.familleYear||new Date().getFullYear();
+    const mo=(S.familleMonth!=null?S.familleMonth:new Date().getMonth())+1;
+    function toMin(t){if(!t)return 0;const[h,m]=t.split(':').map(Number);return h*60+m;}
+    const isCentre=document.querySelector('.ecole-centre[data-day="'+d+'"]')?.checked||false;
+    const typePeri=document.querySelector('.ecole-type-peri[data-day="'+d+'"]')?.value||'prevu';
+    const isPrev=typePeri==='prevu';
+    const pmd=document.querySelector('.ecole-pmat[data-day="'+d+'"]')?.value||null;
+    const pmf=document.querySelector('.ecole-pmatf[data-day="'+d+'"]')?.value||null;
+    const psd=document.querySelector('.ecole-psod[data-day="'+d+'"]')?.value||null;
+    const psf=document.querySelector('.ecole-psof[data-day="'+d+'"]')?.value||null;
+    const pmMin=pmd&&pmf?Math.ceil(Math.max(0,toMin(pmf)-toMin(pmd))/15)*15:0;
+    const psMin=psd&&psf?Math.ceil(Math.max(0,toMin(psf)-toMin(psd))/15)*15:0;
+    const rec={enfant_id:enf.id,annee:y,mois:mo,jour:d,
+      peri_matin_dep:pmd||null,peri_matin_fin:pmf||null,
+      peri_soir_dep:psd||null,peri_soir_fin:psf||null,
+      peri_matin_min:isPrev?pmMin:0,peri_soir_min:isPrev?psMin:0,
+      peri_matin_np_min:isPrev?0:pmMin,peri_soir_np_min:isPrev?0:psMin,
+      type_peri:typePeri,
+      cantine:document.querySelector('.ecole-cant[data-day="'+d+'"]')?.checked||false,
+      centre_loisir:isCentre};
+    const existing=S.ecoleSaisies.find(s=>s.enfant_id===enf.id&&s.annee===y&&s.mois===mo&&s.jour===d);
+    if(existing){
+      await sb.from('ecole_saisies').update(rec).eq('id',existing.id);
+      Object.assign(existing,rec);
+    }else{
+      const{data,error}=await sb.from('ecole_saisies').insert(rec).select().single();
+      if(error){alert('Erreur : '+error.message);return;}
+      if(data)S.ecoleSaisies.push(data);
+    }
+    render();
+  });
+  // École day delete
+  document.querySelectorAll('.ecole-del-day').forEach(el=>el.onclick=async()=>{
+    const d=parseInt(el.dataset.day);
+    const enf=S.famille.find(x=>x.id===(S.familleEnfant||(S.famille[0]?.id)));
+    if(!enf)return;
+    const y=S.familleYear||new Date().getFullYear();
+    const mo=(S.familleMonth!=null?S.familleMonth:new Date().getMonth())+1;
+    const s=S.ecoleSaisies.find(x=>x.enfant_id===enf.id&&x.annee===y&&x.mois===mo&&x.jour===d);
+    if(!s)return;
+    await sb.from('ecole_saisies').delete().eq('id',s.id);
+    S.ecoleSaisies=S.ecoleSaisies.filter(x=>x.id!==s.id);
+    render();
+  });
+  // Facture reçue creche save on blur
+  const crFact=document.getElementById('creche-facture-recue');
+  if(crFact)crFact.onblur=async()=>{
+    const enf=S.famille.find(x=>x.id===(S.familleEnfant||(S.famille[0]?.id)));
+    if(!enf)return;
+    const upd={...(enf.contrat_creche||{}),facture_recue:parseFloat(crFact.value)||0};
+    await sb.from('famille').update({contrat_creche:upd}).eq('id',enf.id);
+    enf.contrat_creche=upd;render();
+  };
+  const ecFact=document.getElementById('ecole-facture-ecole');
+  if(ecFact)ecFact.onblur=async()=>{
+    const enf=S.famille.find(x=>x.id===(S.familleEnfant||(S.famille[0]?.id)));
+    if(!enf)return;
+    const upd={...(enf.contrat_ecole||{}),facture_ecole:parseFloat(ecFact.value)||0};
+    await sb.from('famille').update({contrat_ecole:upd}).eq('id',enf.id);
+    enf.contrat_ecole=upd;render();
+  };
+  const ecFactC=document.getElementById('ecole-facture-centre');
+  if(ecFactC)ecFactC.onblur=async()=>{
+    const enf=S.famille.find(x=>x.id===(S.familleEnfant||(S.famille[0]?.id)));
+    if(!enf)return;
+    const upd={...(enf.contrat_ecole||{}),facture_centre:parseFloat(ecFactC.value)||0};
+    await sb.from('famille').update({contrat_ecole:upd}).eq('id',enf.id);
+    enf.contrat_ecole=upd;render();
+  };
   const btnAddMembre=document.getElementById('btn-add-membre')||document.getElementById('btn-add-membre2');
   if(btnAddMembre)btnAddMembre.onclick=()=>{S.modal={type:'add-membre'};render();};
   const btnAddMembre2=document.getElementById('btn-add-membre2');
@@ -7278,3 +7811,35 @@ loadAll().then(async()=>{
 </script>
 </body>
 </html>
+  if(m.type==='creche-contrat'){
+    const mb=S.famille.find(x=>x.id===m.enfantId)||{};
+    const c=mb.contrat_creche||{};
+    html=`${mhd('Contrat crèche — '+(mb.prenom||''))}
+    <div class="g2c">
+      <div class="form-group"><label>Heure dépose contrat (défaut)</label><input id="cc-dep" type="time" value="${c.heure_dep_defaut||''}"></div>
+      <div class="form-group"><label>Heure récup contrat (défaut)</label><input id="cc-rec" type="time" value="${c.heure_rec_defaut||''}"></div>
+    </div>
+    <div class="g2c">
+      <div class="form-group"><label>Taux normal (€/h)</label><input id="cc-tn" type="number" step="0.01" value="${c.taux_normal||''}"></div>
+      <div class="form-group"><label>Taux majoré (€/h)</label><input id="cc-tm" type="number" step="0.01" value="${c.taux_majore||''}"></div>
+    </div>
+    <div class="form-group"><label>Facture reçue ce mois (€)</label><input id="cc-fr" type="number" step="0.01" value="${c.facture_recue||''}"></div>
+    ${mf}`;
+  }
+
+  if(m.type==='ecole-contrat'){
+    const mb=S.famille.find(x=>x.id===m.enfantId)||{};
+    const c=mb.contrat_ecole||{};
+    html=`${mhd('Tarifs école — '+(mb.prenom||''))}
+    <div class="g2c">
+      <div class="form-group"><label>Périscolaire prévu (€/1äh)</label><input id="ec-pp" type="number" step="0.001" value="${c.taux_peri_prevu||''}"></div>
+      <div class="form-group"><label>Périscolaire non prévu (€/1äh)</label><input id="ec-pnp" type="number" step="0.001" value="${c.taux_peri_non_prevu||''}"></div>
+    </div>
+    <div class="g2c">
+      <div class="form-group"><label>Cantine (€/repas)</label><input id="ec-cant" type="number" step="0.01" value="${c.taux_cantine||''}"></div>
+      <div class="form-group"><label>Centre loisirs (€/journée)</label><input id="ec-centre" type="number" step="0.01" value="${c.taux_centre_journee||''}"></div>
+    </div>
+    ${mf}`;
+  }
+
+
