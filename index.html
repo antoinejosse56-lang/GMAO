@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v42-20260401-141428">
+<meta name="version" content="v43-20260401-145831">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -4924,12 +4924,19 @@ async function saveModal(){
     // Update tenant dette field
     if(!paye&&solde>0){await sb.from('tenants').update({dette:solde}).eq('id',t.id);if(t)t.dette=solde;}
     else if(paye){await sb.from('tenants').update({dette:0}).eq('id',t.id);if(t)t.dette=0;}
-    if(paye&&t.email&&payment){
-      try{await autoSendQuittance(t,payment,m.mois,m.annee,commentaire);alert('\u2713 Enregistr\u00e9 !\n\n&#128196; Document ouvert.');}
-      catch(e){alert('\u2713 Enregistr\u00e9\n\n'+e.message);}
+    const hasPayment=totalPaye>0;
+    if(t.email&&payment&&hasPayment){
+      // Always generate document if something was paid (full or partial)
+      const partialComment=!paye?('[Règlement partiel — Solde restant : '
+        +new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(solde)
+        +']'+(commentaire?' '+commentaire:'')):commentaire;
+      try{
+        await autoSendQuittance(t,payment,m.mois,m.annee,partialComment,!paye);
+        alert('✓ Enregistré ! Document ouvert.');
+      }catch(e){alert('✓ Enregistré : '+e.message);}
     } else {
       const fmtM=new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'});
-      alert(solde>0?'\u2713 Enregistr\u00e9\n\nSolde restant : '+fmtM.format(solde):'\u2713 Enregistr\u00e9 !');
+      alert(solde>0?'✓ Enregistré - Solde restant : '+fmtM.format(solde):'✓ Enregistré !');
     }
   }
 
@@ -6479,7 +6486,7 @@ function _openPicker(callback){
 // ============================================================
 // QUITTANCES & FACTURES
 // ============================================================
-async function autoSendQuittance(tenant,payment,mois,annee,commentaire=''){
+async function autoSendQuittance(tenant,payment,mois,annee,commentaire='',isPartial=false){
   // Sender depends on property type
   const isDubailQ = dubailFilter(tenant.logement||'');
   const SEND_FROM_EMAIL = isDubailQ ? 'savadur56@gmail.com'   : 'antoinejosse56@gmail.com';
@@ -6499,9 +6506,10 @@ async function autoSendQuittance(tenant,payment,mois,annee,commentaire=''){
   const emailHtml=isCommercial
     ?buildFactureHtml(tenant,payment,mois,annee,loyerRef,chargesRef,totalRecu,datePaiement,invoiceNum,fmt,commentaire,true)
     :buildQuittanceHtml(tenant,payment,mois,annee,loyerRef,chargesRef,totalRecu,datePaiement,fmt,commentaire,true);
+  const docLabel=isPartial?'Règlement partiel':'Quittance de loyer';
   const subject=isCommercial
-    ?'Facture de loyer '+mois+' '+annee+' — '+tenant.logement+' — N°'+invoiceNum
-    :'Quittance de loyer '+mois+' '+annee+' — '+tenant.logement;
+    ?docLabel+' — '+mois+' '+annee+' — '+tenant.logement+' — N°'+invoiceNum
+    :docLabel+' — '+mois+' '+annee+' — '+tenant.logement;
   // Copie savadur56 uniquement pour biens Dubail
   const isDubailTenant = dubailFilter(tenant.logement||'');
   const copyBcc = isDubailTenant ? [{email:'savadur56@gmail.com'}] : [];
