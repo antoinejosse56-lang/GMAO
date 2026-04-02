@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v72-20260402-053348">
+<meta name="version" content="v73-20260402-054529">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -6732,25 +6732,31 @@ function bindAll(){
         absence_autorisee:absent,minutes_sup:minSup};
       updates.push({existing,rec});
     }
+    let saveErrors=[];
     for(const{existing,rec}of updates){
       if(existing){
-        await sb.from('creche_saisies').update(rec).eq('id',existing.id);
-        Object.assign(existing,rec);
+        const{error}=await sb.from('creche_saisies').update(rec).eq('id',existing.id);
+        if(error)saveErrors.push(error.message);
+        else Object.assign(existing,rec);
       }else{
         const{data,error}=await sb.from('creche_saisies').insert(rec).select().single();
-        if(!error&&data)S.crecheSaisies.push(data);
+        if(error)saveErrors.push(error.message);
+        else if(data)S.crecheSaisies.push(data);
       }
+    }
+    if(saveErrors.length){
+      alert('Erreurs lors de la sauvegarde :\n'+[...new Set(saveErrors)].join('\n'));
+      return;
     }
     // Save taux if changed
     const tauxEl=document.getElementById('creche-taux-normal');
     const factEl=document.getElementById('creche-facture-recue');
-    if(tauxEl||factEl){
-      const updContrat={...(enf.contrat_creche||{})};
-      if(tauxEl)updContrat.taux_normal=parseFloat(tauxEl.value)||0;
-      if(factEl)updContrat.facture_recue=parseFloat(factEl.value)||0;
-      await sb.from('famille').update({contrat_creche:updContrat}).eq('id',enf.id);
-      enf.contrat_creche=updContrat;
-    }
+    const updContrat={...(enf.contrat_creche||{})};
+    if(tauxEl)updContrat.taux_normal=parseFloat(tauxEl.value)||0;
+    if(factEl)updContrat.facture_recue=parseFloat(factEl.value)||0;
+    const{error:contratErr}=await sb.from('famille').update({contrat_creche:updContrat}).eq('id',enf.id);
+    if(contratErr)console.warn('Contrat save error:',contratErr.message);
+    else enf.contrat_creche=updContrat;
     render();
     alert('✓ Planning enregistré !');
   }
@@ -8111,35 +8117,3 @@ loadAll().then(async()=>{
 </script>
 </body>
 </html>
-  if(m.type==='creche-contrat'){
-    const mb=S.famille.find(x=>x.id===m.enfantId)||{};
-    const c=mb.contrat_creche||{};
-    html=`${mhd('Contrat crèche — '+(mb.prenom||''))}
-    <div class="g2c">
-      <div class="form-group"><label>Heure dépose contrat (défaut)</label><input id="cc-dep" type="time" value="${c.heure_dep_defaut||''}"></div>
-      <div class="form-group"><label>Heure récup contrat (défaut)</label><input id="cc-rec" type="time" value="${c.heure_rec_defaut||''}"></div>
-    </div>
-    <div class="g2c">
-      <div class="form-group"><label>Taux normal (€/h)</label><input id="cc-tn" type="number" step="0.01" value="${c.taux_normal||''}"></div>
-      <div class="form-group"><label>Taux majoré (€/h)</label><input id="cc-tm" type="number" step="0.01" value="${c.taux_majore||''}"></div>
-    </div>
-    <div class="form-group"><label>Facture reçue ce mois (€)</label><input id="cc-fr" type="number" step="0.01" value="${c.facture_recue||''}"></div>
-    ${mf}`;
-  }
-
-  if(m.type==='ecole-contrat'){
-    const mb=S.famille.find(x=>x.id===m.enfantId)||{};
-    const c=mb.contrat_ecole||{};
-    html=`${mhd('Tarifs école — '+(mb.prenom||''))}
-    <div class="g2c">
-      <div class="form-group"><label>Périscolaire prévu (€/1äh)</label><input id="ec-pp" type="number" step="0.001" value="${c.taux_peri_prevu||''}"></div>
-      <div class="form-group"><label>Périscolaire non prévu (€/1äh)</label><input id="ec-pnp" type="number" step="0.001" value="${c.taux_peri_non_prevu||''}"></div>
-    </div>
-    <div class="g2c">
-      <div class="form-group"><label>Cantine (€/repas)</label><input id="ec-cant" type="number" step="0.01" value="${c.taux_cantine||''}"></div>
-      <div class="form-group"><label>Centre loisirs (€/journée)</label><input id="ec-centre" type="number" step="0.01" value="${c.taux_centre_journee||''}"></div>
-    </div>
-    ${mf}`;
-  }
-
-
