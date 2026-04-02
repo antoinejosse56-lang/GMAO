@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v77-20260402-063344">
+<meta name="version" content="v78-20260402-071834">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -2882,29 +2882,23 @@ function renderFamille(){
       const bg=isWE?'background:var(--bg2)':'';
       const isCentre=s?.centre_loisir||false;
       const isPrev=!s||s.type_peri==='prevu';
-      // Stored durations in minutes (already rounded to 1/4h at save time)
       const durMat=s?(isPrev?s.peri_matin_min||0:s.peri_matin_np_min||0):0;
       const durSoir=s?(isPrev?s.peri_soir_min||0:s.peri_soir_np_min||0):0;
-      const inStyle='width:55px;font-size:11px;padding:2px 4px;border:0.5px solid var(--border2);border-radius:3px;background:var(--bg);text-align:right'+(isWE?';opacity:0.3':'');
+      const inStyle='width:55px;font-size:11px;padding:2px 4px;border:0.5px solid var(--border2);border-radius:3px;background:var(--bg);text-align:right'+(isWE||isCentre?';opacity:0.4':'');
       return '<tr style="'+bg+'">'
-        +'<td style="font-size:11px;padding:3px 6px;color:'+(isWE?'var(--text3)':'var(--text)')+'">'+(''+d).padStart(2,'0')+'/'+('+'+(selMonth+1)).padStart(2,'0')+' '+['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'][dow]+'</td>'
-        +(isCentre?'<td colspan="4" style="text-align:center;font-size:11px;color:var(--blue);font-weight:500">Centre de loisirs (journée)</td>'
-          :'<td style="text-align:center;padding:2px"><input type="number" min="0" step="15" class="ecole-dur-mat" data-day="'+d+'" value="'+(durMat||'')+'" placeholder="0" style="'+inStyle+'"></td>'
-          +'<td style="text-align:center;padding:2px"><input type="number" min="0" step="15" class="ecole-dur-soir" data-day="'+d+'" value="'+(durSoir||'')+'" placeholder="0" style="'+inStyle+'"></td>'
-          +'<td style="text-align:center;padding:2px">'
-            +'<select class="ecole-type-peri" data-day="'+d+'" style="font-size:10px;padding:2px 3px;border:0.5px solid var(--border2);border-radius:3px;background:var(--bg);width:65px">'
-              +'<option value="prevu" '+(isPrev?'selected':'')+'>Prévu</option>'
-              +'<option value="non_prevu" '+(!isPrev?'selected':'')+'>N.Prévu</option>'
-            +'</select>'
-          +'</td>')
-        +'<td style="text-align:center;padding:2px"><input type="checkbox" class="ecole-cant" data-day="'+d+'" '+(s?.cantine?'checked':'')+' style="width:15px;height:15px"></td>'
-        +'<td style="text-align:center;padding:2px"><input type="checkbox" class="ecole-centre" data-day="'+d+'" '+(isCentre?'checked':'')+' style="width:15px;height:15px"></td>'
+        +'<td style="font-size:11px;padding:3px 6px;color:'+(isWE?'var(--text3)':isCentre?'var(--blue)':'var(--text)')+'">'+(''+d).padStart(2,'0')+'/'+('+'+(selMonth+1)).padStart(2,'0')+' '+['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'][dow]+'</td>'
+        +'<td style="text-align:center;padding:2px"><input type="number" min="0" step="15" class="ecole-dur-mat" data-day="'+d+'" value="'+(isCentre?'':durMat||'')+'" placeholder="0" '+(isCentre?'disabled':'')+' style="'+inStyle+'"></td>'
+        +'<td style="text-align:center;padding:2px"><input type="number" min="0" step="15" class="ecole-dur-soir" data-day="'+d+'" value="'+(isCentre?'':durSoir||'')+'" placeholder="0" '+(isCentre?'disabled':'')+' style="'+inStyle+'"></td>'
         +'<td style="text-align:center;padding:2px">'
-          +'<button class="btn btn-sm btn-p ecole-save-day" data-day="'+d+'" style="font-size:10px;padding:3px 7px">&#10003;</button>'
-          +(s?'<button class="btn btn-sm btn-d ecole-del-day" data-day="'+d+'" style="font-size:10px;padding:3px 5px;margin-left:2px">&#10005;</button>':'')
+          +'<select class="ecole-type-peri" data-day="'+d+'" '+(isCentre?'disabled':'')+' style="font-size:10px;padding:2px 3px;border:0.5px solid var(--border2);border-radius:3px;background:var(--bg);width:65px;opacity:'+(isCentre?'0.4':'1')+'">'
+            +'<option value="prevu" '+(isPrev?'selected':'')+'>Prévu</option>'
+            +'<option value="non_prevu" '+(!isPrev?'selected':'')+'>N.Prévu</option>'
+          +'</select>'
         +'</td>'
+        +'<td style="text-align:center;padding:2px"><input type="checkbox" class="ecole-cant" data-day="'+d+'" '+(s?.cantine?'checked':'')+' '+(isCentre?'disabled':'')+' style="width:15px;height:15px;opacity:'+(isCentre?'0.4':'1')+'"></td>'
+        +'<td style="text-align:center;padding:2px"><input type="checkbox" class="ecole-centre" data-day="'+d+'" '+(isCentre?'checked':'')+' style="width:15px;height:15px;accent-color:var(--blue)"></td>'
         +'</tr>';
-    }).join('');;
+    }).join('');;;
 
     return tabBar+enfantBar
       +'<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px">'
@@ -2975,7 +2969,9 @@ function renderFamille(){
           +'<th></th>'
         +'</tr></thead>'
         +'<tbody>'+rows+'</tbody>'
-      +'</table></div></div>';
+      +'</table></div>'
+      +'<button class="btn btn-p btn-sm" id="btn-ecole-save-all-bot" style="width:100%;margin-top:8px">&#10003; Tout enregistrer</button>'
+      +'</div>';
   }
 
   return tabBar+'<div style="text-align:center;padding:20px;color:var(--text2)">Onglet inconnu</div>';
@@ -6859,6 +6855,60 @@ function bindAll(){
   const btnCentrePdf=document.getElementById('btn-ecole-pdf-centre');
   if(btnCentrePdf)btnCentrePdf.onclick=()=>buildEcolePdf('centre');
   // École day save
+  // Global save for école
+  window.saveEcoleAll=async function(){
+    const ecoleMembers=S.famille.filter(m=>m.type_membre==='ecole');
+    const enf=S.famille.find(x=>x.id===S.familleEnfant)||(ecoleMembers[0]||null);
+    if(!enf){alert('Aucun enfant école trouvé');return;}
+    const y=S.familleYear||new Date().getFullYear();
+    const mo=(S.familleMonth!=null?S.familleMonth:new Date().getMonth())+1;
+    const daysInM=new Date(y,mo,0).getDate();
+    let errors=[];
+    for(let d=1;d<=daysInM;d++){
+      const isCentre=document.querySelector('.ecole-centre[data-day="'+d+'"]')?.checked||false;
+      const durMat=parseInt(document.querySelector('.ecole-dur-mat[data-day="'+d+'"]')?.value)||0;
+      const durSoir=parseInt(document.querySelector('.ecole-dur-soir[data-day="'+d+'"]')?.value)||0;
+      const typePeri=document.querySelector('.ecole-type-peri[data-day="'+d+'"]')?.value||'prevu';
+      const cantine=document.querySelector('.ecole-cant[data-day="'+d+'"]')?.checked||false;
+      const existing=S.ecoleSaisies.find(s=>s.enfant_id===enf.id&&s.annee===y&&s.mois===mo&&s.jour===d);
+      const hasData=isCentre||durMat>0||durSoir>0||cantine;
+      if(!hasData&&!existing)continue;
+      const isPrev=typePeri==='prevu';
+      const durMatQ=Math.ceil(durMat/15)*15;
+      const durSoirQ=Math.ceil(durSoir/15)*15;
+      const rec={enfant_id:enf.id,annee:y,mois:mo,jour:d,
+        peri_matin_dep:null,peri_matin_fin:null,peri_soir_dep:null,peri_soir_fin:null,
+        peri_matin_min:isPrev&&!isCentre?durMatQ:0,peri_soir_min:isPrev&&!isCentre?durSoirQ:0,
+        peri_matin_np_min:!isPrev&&!isCentre?durMatQ:0,peri_soir_np_min:!isPrev&&!isCentre?durSoirQ:0,
+        type_peri:typePeri,cantine:isCentre?false:cantine,centre_loisir:isCentre};
+      if(existing){
+        const{error}=await sb.from('ecole_saisies').update(rec).eq('id',existing.id);
+        if(error)errors.push(error.message);else Object.assign(existing,rec);
+      }else{
+        const{data,error}=await sb.from('ecole_saisies').insert(rec).select().single();
+        if(error)errors.push(error.message);else if(data)S.ecoleSaisies.push(data);
+      }
+    }
+    // Save tarifs
+    const t=S._ecoleTarifs||{};
+    function readV(id){const el=document.getElementById(id);return el?parseFloat(el.value):(t[id]!=null?t[id]:null);}
+    const prev=enf.contrat_ecole||{};
+    const upd={...prev};
+    const _pp=readV('ecole-taux-pp');if(_pp!=null&&!isNaN(_pp))upd.taux_peri_prevu=_pp;
+    const _pnp=readV('ecole-taux-pnp');if(_pnp!=null&&!isNaN(_pnp))upd.taux_peri_non_prevu=_pnp;
+    const _cant=readV('ecole-taux-cant');if(_cant!=null&&!isNaN(_cant))upd.taux_cantine=_cant;
+    const _cj=readV('ecole-taux-centre');if(_cj!=null&&!isNaN(_cj))upd.taux_centre_journee=_cj;
+    const _fe=readV('ecole-facture-ecole');if(_fe!=null&&!isNaN(_fe))upd.facture_ecole=_fe;
+    const _fc=readV('ecole-facture-centre');if(_fc!=null&&!isNaN(_fc))upd.facture_centre=_fc;
+    const{error:contratErr}=await sb.from('famille').update({contrat_ecole:upd}).eq('id',enf.id);
+    if(contratErr)errors.push(contratErr.message);else enf.contrat_ecole=upd;
+    if(errors.length){alert('Erreurs :\n'+[...new Set(errors)].join('\n'));return;}
+    render();
+    alert('✓ Planning école enregistré !');
+  };
+  const btnEcoleSaveAllBot=document.getElementById('btn-ecole-save-all-bot');
+  if(btnEcoleSaveAllBot)btnEcoleSaveAllBot.onclick=window.saveEcoleAll;
+  // Keep per-day save for backward compat
   document.querySelectorAll('.ecole-save-day').forEach(el=>el.onclick=async()=>{
     const d=parseInt(el.dataset.day);
     const enf=S.famille.find(x=>x.id===(S.familleEnfant||(S.famille[0]?.id)));
@@ -6894,6 +6944,16 @@ function bindAll(){
     render();
   });
   // École day delete
+  // Centre loisirs checkbox: disable peri fields when checked
+  document.querySelectorAll('.ecole-centre').forEach(el=>el.onchange=function(){
+    const d=el.dataset.day;
+    const isCentre=el.checked;
+    const fields=['.ecole-dur-mat','.ecole-dur-soir','.ecole-cant','.ecole-type-peri'];
+    fields.forEach(function(cls){
+      const f=document.querySelector(cls+'[data-day="'+d+'"]');
+      if(f){f.disabled=isCentre;f.style.opacity=isCentre?'0.4':'1';if(isCentre&&f.type!=='select-one')f.value='';}
+    });
+  });
   document.querySelectorAll('.ecole-del-day').forEach(el=>el.onclick=async()=>{
     const d=parseInt(el.dataset.day);
     const enf=S.famille.find(x=>x.id===(S.familleEnfant||(S.famille[0]?.id)));
