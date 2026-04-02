@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v70-20260402-051637">
+<meta name="version" content="v72-20260402-053348">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -2713,116 +2713,142 @@ function renderFamille(){
   if(fTab==='creche'){
     const saisies=S.crecheSaisies.filter(s=>s.enfant_id===selEnfant.id&&s.annee===selYear&&s.mois===selMonth+1);
     const txNormal=parseFloat(contratCreche.taux_normal||0);
-    const txMajore=parseFloat(contratCreche.taux_majore||0);
-
-    // Days in month
+    const depDef=contratCreche.heure_dep_defaut||'09:00';
+    const recDef=contratCreche.heure_rec_defaut||'16:30';
+    function toMin(t){if(!t)return null;const[h,m2]=t.split(':').map(Number);return h*60+m2;}
     const daysInMonth=new Date(selYear,selMonth+1,0).getDate();
     const days=Array.from({length:daysInMonth},(_,i)=>i+1);
 
-    // Calc totals
-    let totalHSup=0, totalMinutes=0;
-    saisies.forEach(s=>{
-      totalMinutes+=Math.ceil((s.minutes_sup||0)/15)*15;
+    // Totals
+    let totalContratMin=0,totalSupMin=0,totalDeduitMin=0;
+    let joursContrat=0;
+    days.forEach(function(d){
+      const dow=new Date(selYear,selMonth,d).getDay();
+      if(dow===0||dow===6)return;
+      const s=saisies.find(x=>x.jour===d);
+      if(s&&s.absence_autorisee)return; // absent = not counted
+      const depC=s?.heure_contrat_dep||depDef;
+      const recC=s?.heure_contrat_rec||recDef;
+      const minContrat=Math.max(0,(toMin(recC)||0)-(toMin(depC)||0));
+      joursContrat++;
+      totalContratMin+=minContrat;
+      // Heures sup (arrivee tardive recup tardive)
+      if(s?.depose_anticipee){const dm=toMin(depC)-toMin(s.depose_anticipee);if(dm>0)totalSupMin+=Math.ceil(dm/15)*15;}
+      if(s?.recuperation_tardive){const dm=toMin(s.recuperation_tardive)-toMin(recC);if(dm>0)totalSupMin+=Math.ceil(dm/15)*15;}
+      // Heures deduites (arrivee tardive ou depart anticipe)
+      if(s?.arrivee_tardive){const dm=toMin(s.arrivee_tardive)-toMin(depC);if(dm>0)totalDeduitMin+=Math.ceil(dm/15)*15;}
+      if(s?.depart_anticipe){const dm=toMin(recC)-toMin(s.depart_anticipe);if(dm>0)totalDeduitMin+=Math.ceil(dm/15)*15;}
     });
-    totalHSup=totalMinutes/60;
-    const montantCalc=totalHSup*txNormal+(contratCreche.heures_majorees||0)*txMajore;
+
+    const hContrat=totalContratMin/60;
+    const hSup=totalSupMin/60;
+    const hDeduit=totalDeduitMin/60;
+    const montantContrat=txNormal*hContrat;
+    const montantSup=txNormal*hSup;
+    const montantDeduit=txNormal*hDeduit;
+    const montantTotal=montantContrat+montantSup-montantDeduit;
+    const facRecu=parseFloat(contratCreche.facture_recue||0);
+    const diff=montantTotal-facRecu;
+    const fmt2=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(n||0);
+
+    // Header card
+    const headerCard='<div class="card" style="margin-bottom:12px;padding:12px 14px">'
+      +'<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--border)">'
+        +'<div style="display:flex;flex-direction:column;gap:2px">'
+          +'<label style="font-size:10px;color:var(--text2)">TAUX HORAIRE (€/h)</label>'
+          +'<input id="creche-taux-normal" type="number" step="0.01" value="'+(txNormal||'')+'" placeholder="0.00" style="width:80px;padding:4px 8px;font-size:13px;font-weight:600;border:1.5px solid var(--border2);border-radius:6px;background:var(--bg)">'
+        +'</div>'
+        +'<div style="display:flex;flex-direction:column;gap:2px">'
+          +'<label style="font-size:10px;color:var(--text2)">H. CONTRAT/JOUR</label>'
+          +'<div style="padding:4px 10px;background:var(--bg2);border-radius:6px;font-size:13px;font-weight:600">'+(toMin(recDef)-toMin(depDef))/60+'h <span style="font-size:10px;color:var(--text2)">('+depDef+'→'+recDef+')</span></div>'
+        +'</div>'
+        +'<div style="display:flex;flex-direction:column;gap:2px">'
+          +'<label style="font-size:10px;color:var(--text2)">FACTURE REÇUE (€)</label>'
+          +'<input id="creche-facture-recue" type="number" step="0.01" value="'+(contratCreche.facture_recue||'')+'" placeholder="0.00" style="width:90px;padding:4px 8px;font-size:13px;font-weight:600;border:1.5px solid var(--border2);border-radius:6px;background:var(--bg)">'
+        +'</div>'
+        +(facRecu>0?'<div style="padding:6px 12px;border-radius:6px;font-weight:700;font-size:13px;background:'+(Math.abs(diff)<0.01?'#1D9E75':'#E74C3C')+';color:#fff;align-self:flex-end">Diff : '+(diff>0?'+':'')+fmt2(diff)+' '+(Math.abs(diff)<0.01?'&#10003;':'&#9888;')+'</div>':'')
+        +'<button class="btn btn-p btn-sm" id="btn-creche-save-all" style="align-self:flex-end">&#10003; Tout enregistrer</button>'
+      +'</div>'
+      +'<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">'
+        +'<div style="padding:8px;background:var(--bg2);border-radius:6px;text-align:center">'
+          +'<div style="font-size:10px;color:var(--text2)">CONTRAT ('+joursContrat+' j)</div>'
+          +'<div style="font-weight:700;font-size:15px">'+hContrat.toFixed(2)+'h</div>'
+          +'<div style="font-weight:600;color:var(--blue);font-size:12px">'+fmt2(montantContrat)+'</div>'
+        +'</div>'
+        +'<div style="padding:8px;background:var(--bg2);border-radius:6px;text-align:center">'
+          +'<div style="font-size:10px;color:var(--text2)">H. SUP</div>'
+          +'<div style="font-weight:700;font-size:15px;color:var(--red)">+'+hSup.toFixed(2)+'h</div>'
+          +'<div style="font-weight:600;color:var(--red);font-size:12px">+'+fmt2(montantSup)+'</div>'
+        +'</div>'
+        +'<div style="padding:8px;background:var(--bg2);border-radius:6px;text-align:center">'
+          +'<div style="font-size:10px;color:var(--text2)">H. DÉDUITES</div>'
+          +'<div style="font-weight:700;font-size:15px;color:var(--amber)">-'+hDeduit.toFixed(2)+'h</div>'
+          +'<div style="font-weight:600;color:var(--amber);font-size:12px">-'+fmt2(montantDeduit)+'</div>'
+        +'</div>'
+        +'<div style="padding:8px;background:var(--green);border-radius:6px;text-align:center">'
+          +'<div style="font-size:10px;color:rgba(255,255,255,0.8)">TOTAL DÛ</div>'
+          +'<div style="font-weight:700;font-size:18px;color:#fff">'+fmt2(montantTotal)+'</div>'
+          +'<div style="font-size:10px;color:rgba(255,255,255,0.75)">@ '+txNormal.toFixed(2)+'€/h</div>'
+        +'</div>'
+      +'</div>'
+    +'</div>';
 
     // Day rows
-    const rows=days.map(d=>{
+    const rows=days.map(function(d){
       const date=new Date(selYear,selMonth,d);
       const dow=date.getDay();
       const isWE=dow===0||dow===6;
       const s=saisies.find(x=>x.jour===d);
-      const minSup=s?.minutes_sup||0;
-      const depAntic=s?.depose_anticipee||'';
-      const recTard=s?.recuperation_tardive||'';
-      const bg=isWE?'background:var(--bg2)':'';
-      const qh=minSup>0?Math.ceil(minSup/15):0;
+      const absent=s?.absence_autorisee||false;
+      const bg=isWE?'background:var(--bg2)':absent?'background:#FFF3CD':'';
+      const dowLabel=['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'][dow];
+      const depC=s?.heure_contrat_dep||(!isWE?depDef:'');
+      const recC=s?.heure_contrat_rec||(!isWE?recDef:'');
       return '<tr style="'+bg+'">'
-        +'<td style="font-size:12px;padding:4px 6px;color:'+(isWE?'var(--text3)':'var(--text)')+'">'+(''+d).padStart(2,'0')+'/'+(''+( selMonth+1)).padStart(2,'0')+' '+['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'][dow]+'</td>'
-        +'<td style="text-align:center;padding:4px"><input type="time" class="creche-dep" data-day="'+d+'" value="'+depAntic+'" style="width:80px;padding:2px 4px;font-size:11px;border:0.5px solid var(--border2);border-radius:4px;background:var(--bg)"></td>'
-        +'<td style="text-align:center;padding:4px"><input type="time" class="creche-rec" data-day="'+d+'" value="'+recTard+'" style="width:80px;padding:2px 4px;font-size:11px;border:0.5px solid var(--border2);border-radius:4px;background:var(--bg)"></td>'
-        +'<td style="text-align:center;padding:4px"><input type="time" class="creche-cont" data-day="'+d+'" value="'+(s?.heure_contrat_dep||contratCreche.heure_dep_defaut||(!isWE?'09:00':''))+'" style="width:75px;padding:2px 4px;font-size:11px;border:0.5px solid var(--border2);border-radius:4px;background:var(--bg2)"></td>'
-        +'<td style="text-align:center;padding:4px"><input type="time" class="creche-contr" data-day="'+d+'" value="'+(s?.heure_contrat_rec||contratCreche.heure_rec_defaut||(!isWE?'16:30':''))+'" style="width:75px;padding:2px 4px;font-size:11px;border:0.5px solid var(--border2);border-radius:4px;background:var(--bg2)"></td>'
-        +'<td style="text-align:center;font-size:12px;font-weight:'+(qh>0?'600':'400')+';color:'+(qh>0?'var(--red)':'var(--text3)')+'">'+( qh>0?'+'+qh+' qh':'—')+'</td>'
-        +'<td style="text-align:center;padding:4px">'
-          +'<button class="btn btn-sm btn-p creche-save-day" data-day="'+d+'" style="font-size:10px;padding:3px 8px">&#10003;</button>'
-          +(s?'<button class="btn btn-sm btn-d creche-del-day" data-day="'+d+'" style="font-size:10px;padding:3px 6px;margin-left:2px">&#10005;</button>':'')
-        +'</td>'
+        +'<td style="font-size:12px;padding:3px 6px;color:'+(isWE?'var(--text3)':absent?'var(--amber)':'var(--text)')+'">'+(''+d).padStart(2,'0')+'/'+('+'+(selMonth+1)).padStart(2,'0')+' '+dowLabel+'</td>'
+        // Dépose anticipée
+        +'<td style="padding:2px 3px;text-align:center"><input type="time" class="creche-dep" data-day="'+d+'" value="'+(s?.depose_anticipee||'')+'" style="width:75px;font-size:11px;padding:2px 3px;border:0.5px solid var(--border2);border-radius:3px;background:var(--bg)'+(isWE?';opacity:0.3':'')+'"></td>'
+        // Récup tardive
+        +'<td style="padding:2px 3px;text-align:center"><input type="time" class="creche-rec" data-day="'+d+'" value="'+(s?.recuperation_tardive||'')+'" style="width:75px;font-size:11px;padding:2px 3px;border:0.5px solid var(--border2);border-radius:3px;background:var(--bg)'+(isWE?';opacity:0.3':'')+'"></td>'
+        // Horaire contrat dep
+        +'<td style="padding:2px 3px;text-align:center"><input type="time" class="creche-cont" data-day="'+d+'" value="'+depC+'" style="width:75px;font-size:11px;padding:2px 3px;border:0.5px solid var(--border2);border-radius:3px;background:var(--bg2)'+(isWE?';opacity:0.3':'')+'"></td>'
+        // Horaire contrat rec
+        +'<td style="padding:2px 3px;text-align:center"><input type="time" class="creche-contr" data-day="'+d+'" value="'+recC+'" style="width:75px;font-size:11px;padding:2px 3px;border:0.5px solid var(--border2);border-radius:3px;background:var(--bg2)'+(isWE?';opacity:0.3':'')+'"></td>'
+        // Arrivée tardive (déduire)
+        +'<td style="padding:2px 3px;text-align:center"><input type="time" class="creche-arr-tard" data-day="'+d+'" value="'+(s?.arrivee_tardive||'')+'" style="width:75px;font-size:11px;padding:2px 3px;border:0.5px solid var(--amber);border-radius:3px;background:var(--bg)'+(isWE?';opacity:0.3':'')+'"></td>'
+        // Départ anticipé (déduire)
+        +'<td style="padding:2px 3px;text-align:center"><input type="time" class="creche-dep-antic" data-day="'+d+'" value="'+(s?.depart_anticipe||'')+'" style="width:75px;font-size:11px;padding:2px 3px;border:0.5px solid var(--amber);border-radius:3px;background:var(--bg)'+(isWE?';opacity:0.3':'')+'"></td>'
+        // Absence autorisée
+        +'<td style="padding:2px 3px;text-align:center"><input type="checkbox" class="creche-absent" data-day="'+d+'" '+(absent?'checked':'')+' style="width:15px;height:15px;accent-color:var(--amber)"></td>'
         +'</tr>';
     }).join('');
 
-    // Contract hours calc
-    const depDef=contratCreche.heure_dep_defaut||'09:00';
-    const recDef=contratCreche.heure_rec_defaut||'16:30';
-    function toMin2(t){if(!t)return 0;const[h,m2]=t.split(':').map(Number);return h*60+m2;}
-    const minParJour=Math.max(0,toMin2(recDef)-toMin2(depDef));
-    const daysInM2=new Date(selYear,selMonth+1,0).getDate();
-    let joursContrat=0;
-    for(let d2=1;d2<=daysInM2;d2++){const dow2=new Date(selYear,selMonth,d2).getDay();if(dow2>=1&&dow2<=5)joursContrat++;}
-    const hContratTotal=(joursContrat*minParJour)/60;
-    const montantContrat=txNormal>0?hContratTotal*txNormal:0;
-    const hSupH=totalMinutes/60;
-    const montantSup=txNormal>0?hSupH*txNormal:0;
-    const montantTotal2=montantContrat+montantSup;
-    const hTotalInt=Math.floor(totalMinutes/60);
-    const mTotalRem=totalMinutes%60;
-    const facRecu2=parseFloat(contratCreche.facture_recue||0);
-    const diff2=montantTotal2-facRecu2;
+    const saveBtn='<button class="btn btn-p btn-sm" id="btn-creche-save-all-bot" style="width:100%;margin-top:8px">&#10003; Tout enregistrer</button>';
 
     return tabBar+enfantBar
       +'<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px">'
         +monthBar
-        +'<button class="btn btn-sm" id="btn-creche-contrat">&#9881; Horaires</button>'
-        +'<button class="btn btn-sm" id="btn-creche-pdf" style="background:var(--green);color:#fff">&#128196; PDF mensuel</button>'
+        +'<button class="btn btn-sm" id="btn-creche-contrat">&#9881; Horaires contrat</button>'
+        +'<button class="btn btn-sm" id="btn-creche-pdf" style="background:var(--green);color:#fff">&#128196; PDF</button>'
       +'</div>'
-      +'<div class="card" style="margin-bottom:12px;padding:12px 14px">'
-        +'<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--border)">'
-          +'<div style="display:flex;flex-direction:column;gap:2px">'
-            +'<label style="font-size:10px;color:var(--text2)">TAUX HORAIRE (€/h)</label>'
-            +'<input id="creche-taux-normal" type="number" step="0.01" value="'+(txNormal||'')+'" placeholder="0.00" style="width:80px;padding:4px 8px;font-size:13px;font-weight:600;border:1.5px solid var(--border2);border-radius:6px;background:var(--bg)">'
-          +'</div>'
-          +'<div style="display:flex;flex-direction:column;gap:2px">'
-            +'<label style="font-size:10px;color:var(--text2)">H. CONTRAT/JOUR</label>'
-            +'<div style="font-size:13px;font-weight:600;padding:4px 10px;background:var(--bg2);border-radius:6px">'+(minParJour/60).toFixed(2)+'h <span style="font-size:10px;color:var(--text2)">('+depDef+'→'+recDef+')</span></div>'
-          +'</div>'
-          +'<div style="display:flex;flex-direction:column;gap:2px">'
-            +'<label style="font-size:10px;color:var(--text2)">FACTURE REÇUE (€)</label>'
-            +'<input id="creche-facture-recue" type="number" step="0.01" value="'+(contratCreche.facture_recue||'')+'" placeholder="0.00" style="width:90px;padding:4px 8px;font-size:13px;font-weight:600;border:1.5px solid var(--border2);border-radius:6px;background:var(--bg)">'
-          +'</div>'
-          +(facRecu2>0?'<div style="padding:6px 12px;border-radius:6px;font-weight:700;font-size:13px;background:'+(Math.abs(diff2)<0.01?'#1D9E75':'#E74C3C')+';color:#fff;align-self:flex-end">Diff : '+(diff2>0?'+':'')+fmt2(diff2)+' '+(Math.abs(diff2)<0.01?'&#10003;':'&#9888;')+'</div>':'')
-        +'</div>'
-        +'<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">'
-          +'<div style="padding:10px;background:var(--bg2);border-radius:6px;text-align:center">'
-            +'<div style="font-size:10px;color:var(--text2);margin-bottom:2px">CONTRAT ('+joursContrat+' jours)</div>'
-            +'<div style="font-weight:700;font-size:15px">'+hContratTotal.toFixed(2)+'h</div>'
-            +'<div style="font-weight:600;color:var(--blue);font-size:13px">'+fmt2(montantContrat)+'</div>'
-          +'</div>'
-          +'<div style="padding:10px;background:var(--bg2);border-radius:6px;text-align:center">'
-            +'<div style="font-size:10px;color:var(--text2);margin-bottom:2px">H. SUP ('+(totalMinutes/15)+' qh)</div>'
-            +'<div style="font-weight:700;font-size:15px;color:var(--red)">'+hTotalInt+'h'+(mTotalRem>0?mTotalRem+'m':'')+'</div>'
-            +'<div style="font-weight:600;color:var(--red);font-size:13px">'+fmt2(montantSup)+'</div>'
-          +'</div>'
-          +'<div style="padding:10px;background:var(--green);border-radius:6px;text-align:center">'
-            +'<div style="font-size:10px;color:rgba(255,255,255,0.85);margin-bottom:2px">TOTAL DÛ</div>'
-            +'<div style="font-weight:700;font-size:18px;color:#fff">'+fmt2(montantTotal2)+'</div>'
-            +'<div style="font-size:10px;color:rgba(255,255,255,0.75)">@ '+txNormal.toFixed(2)+' €/h</div>'
-          +'</div>'
-        +'</div>'
-      +'</div>'
-      +'<div class="card"><div style="overflow-x:auto"><table style="min-width:600px">'
+      +headerCard
+      +'<div class="card"><div style="overflow-x:auto"><table style="min-width:700px">'
         +'<thead><tr>'
-          +'<th style="font-size:11px">Date</th>'
-          +'<th style="font-size:11px">D\u00e9pose anticip\u00e9e</th>'
-          +'<th style="font-size:11px">Rec. tardive</th>'
-          +'<th style="font-size:11px;background:var(--bg2)">Contrat dep.</th>'
-          +'<th style="font-size:11px;background:var(--bg2)">Contrat rec.</th>'
-          +'<th style="font-size:11px">H. sup (1/4h)</th>'
-          +'<th></th>'
+          +'<th style="font-size:10px">Date</th>'
+          +'<th style="font-size:10px;color:var(--red)">Dépose anticipée</th>'
+          +'<th style="font-size:10px;color:var(--red)">Récup. tardive</th>'
+          +'<th style="font-size:10px;background:var(--bg2);color:var(--text)">Contrat dep.</th>'
+          +'<th style="font-size:10px;background:var(--bg2);color:var(--text)">Contrat récup.</th>'
+          +'<th style="font-size:10px;color:var(--amber)">Arrivée tardive</th>'
+          +'<th style="font-size:10px;color:var(--amber)">Départ anticipé</th>'
+          +'<th style="font-size:10px;color:var(--amber)">Absent</th>'
         +'</tr></thead>'
         +'<tbody>'+rows+'</tbody>'
-      +'</table></div></div>';
+      +'</table></div>'
+      +saveBtn
+      +'</div>';
   }
+
 
   // ===== ÉCOLE =====
   if(fTab==='ecole'){
@@ -2880,24 +2906,58 @@ function renderFamille(){
     return tabBar+enfantBar
       +'<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px">'
         +monthBar
-        +'<button class="btn btn-sm" id="btn-ecole-contrat">&#9881; Tarifs</button>'
-        +'<button class="btn btn-sm" id="btn-ecole-pdf-ecole" style="background:#185FA5;color:#fff">&#128196; PDF \u00c9cole+Cantine</button>'
+        +'<button class="btn btn-sm" id="btn-ecole-pdf-ecole" style="background:#185FA5;color:#fff">&#128196; PDF École+Cantine</button>'
         +'<button class="btn btn-sm" id="btn-ecole-pdf-centre" style="background:#9B59B6;color:#fff">&#128196; PDF Centre loisirs</button>'
       +'</div>'
-      +'<div class="card" style="margin-bottom:12px;padding:10px 14px">'
-        +'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;font-size:12px">'
-          +'<div>P\u00e9riscolaire pr\u00e9vu : <strong>'+( totalPeriMin/60).toFixed(2)+'h &rarr; '+fmt2(montantPeri)+'</strong></div>'
-          +'<div>Cantine : <strong>'+totalCantine+' repas &rarr; '+fmt2(montantCantine)+'</strong></div>'
-          +'<div>Centre loisirs : <strong>'+totalCentreJ+' j &rarr; '+fmt2(montantCentreTotal)+'</strong></div>'
-          +'<div style="font-weight:600;color:var(--blue)">Total \u00e9cole+cantine : '+fmt2(montantEcoleTotal)+'</div>'
-          +'<div style="font-weight:600;color:#9B59B6">Total centre : '+fmt2(montantCentreTotal)+'</div>'
+      +'<div class="card" style="margin-bottom:12px;padding:12px 14px">'
+        +'<div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:8px">TARIFS</div>'
+        +'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:8px;margin-bottom:10px">'
+          +'<div style="display:flex;flex-direction:column;gap:2px">'
+            +'<label style="font-size:10px;color:var(--text2)">PÉRI PRÉVU (€/¼H)</label>'
+            +'<input id="ecole-taux-pp" type="number" step="0.001" value="'+(txPeriPrev||'')+'" placeholder="0.000" style="padding:4px 8px;font-size:13px;font-weight:600;border:1.5px solid var(--border2);border-radius:6px;background:var(--bg)">'
+          +'</div>'
+          +'<div style="display:flex;flex-direction:column;gap:2px">'
+            +'<label style="font-size:10px;color:var(--text2)">PÉRI NON PRÉVU (€/¼H)</label>'
+            +'<input id="ecole-taux-pnp" type="number" step="0.001" value="'+(txPeriNonPrev||'')+'" placeholder="0.000" style="padding:4px 8px;font-size:13px;font-weight:600;border:1.5px solid var(--border2);border-radius:6px;background:var(--bg)">'
+          +'</div>'
+          +'<div style="display:flex;flex-direction:column;gap:2px">'
+            +'<label style="font-size:10px;color:var(--text2)">CANTINE (€/repas)</label>'
+            +'<input id="ecole-taux-cant" type="number" step="0.01" value="'+(txCantine||'')+'" placeholder="0.00" style="padding:4px 8px;font-size:13px;font-weight:600;border:1.5px solid var(--border2);border-radius:6px;background:var(--bg)">'
+          +'</div>'
+          +'<div style="display:flex;flex-direction:column;gap:2px">'
+            +'<label style="font-size:10px;color:var(--text2)">CENTRE LOISIRS (€/j)</label>'
+            +'<input id="ecole-taux-centre" type="number" step="0.01" value="'+(txCentreJ||'')+'" placeholder="0.00" style="padding:4px 8px;font-size:13px;font-weight:600;border:1.5px solid var(--border2);border-radius:6px;background:var(--bg)">'
+          +'</div>'
+          +'<div style="display:flex;flex-direction:column;gap:2px">'
+            +'<label style="font-size:10px;color:var(--text2)">FACTURE ÉCOLE (€)</label>'
+            +'<input id="ecole-facture-ecole" type="number" step="0.01" value="'+(contratEcole.facture_ecole||'')+'" placeholder="0.00" style="padding:4px 8px;font-size:13px;font-weight:600;border:1.5px solid var(--border2);border-radius:6px;background:var(--bg)">'
+          +'</div>'
+          +'<div style="display:flex;flex-direction:column;gap:2px">'
+            +'<label style="font-size:10px;color:var(--text2)">FACTURE CENTRE (€)</label>'
+            +'<input id="ecole-facture-centre" type="number" step="0.01" value="'+(contratEcole.facture_centre||'')+'" placeholder="0.00" style="padding:4px 8px;font-size:13px;font-weight:600;border:1.5px solid var(--border2);border-radius:6px;background:var(--bg)">'
+          +'</div>'
         +'</div>'
-        +'<div style="margin-top:8px;display:flex;gap:12px;flex-wrap:wrap;font-size:12px">'
-          +'<div style="display:flex;gap:4px;align-items:center">Facture \u00e9cole+cantine : <input id="ecole-facture-ecole" type="number" step="0.01" value="'+(contratEcole.facture_ecole||'')+'" placeholder="0.00" style="width:75px;padding:3px 6px;font-size:11px;border:0.5px solid var(--border2);border-radius:4px;background:var(--bg)"> \u20ac</div>'
-          +'<div style="display:flex;gap:4px;align-items:center">Facture centre : <input id="ecole-facture-centre" type="number" step="0.01" value="'+(contratEcole.facture_centre||'')+'" placeholder="0.00" style="width:75px;padding:3px 6px;font-size:11px;border:0.5px solid var(--border2);border-radius:4px;background:var(--bg)"> \u20ac</div>'
-          +(contratEcole.facture_ecole?'<div style="font-weight:600;color:'+(Math.abs(montantEcoleTotal-(contratEcole.facture_ecole||0))<0.1?'var(--green)':'var(--red)')+'">Diff \u00e9cole : '+fmt2(montantEcoleTotal-(contratEcole.facture_ecole||0))+'</div>':'')
-          +(contratEcole.facture_centre?'<div style="font-weight:600;color:'+(Math.abs(montantCentreTotal-(contratEcole.facture_centre||0))<0.1?'var(--green)':'var(--red)')+'">Diff centre : '+fmt2(montantCentreTotal-(contratEcole.facture_centre||0))+'</div>':'')
+        +'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px;font-size:11px;margin-bottom:8px">'
+          +'<div style="padding:6px 8px;background:var(--bg2);border-radius:4px">'
+            +'<div style="color:var(--text2)">Périscolaire prévu</div>'
+            +'<div style="font-weight:600;color:var(--blue)">'+(totalPeriMin/60).toFixed(2)+'h → '+fmt2(montantPeri)+'</div>'
+          +'</div>'
+          +'<div style="padding:6px 8px;background:var(--bg2);border-radius:4px">'
+            +'<div style="color:var(--text2)">Cantine</div>'
+            +'<div style="font-weight:600;color:var(--blue)">'+totalCantine+' repas → '+fmt2(montantCantine)+'</div>'
+          +'</div>'
+          +'<div style="padding:6px 8px;background:#185FA5;border-radius:4px">'
+            +'<div style="color:rgba(255,255,255,0.8)">École+Cantine</div>'
+            +'<div style="font-weight:700;color:#fff;font-size:13px">'+fmt2(montantEcoleTotal)+'</div>'
+            +((contratEcole.facture_ecole)?'<div style="font-size:10px;color:'+(Math.abs(montantEcoleTotal-(contratEcole.facture_ecole||0))<0.01?'#90EE90':'#FFB6C1')+'">'+(montantEcoleTotal-(contratEcole.facture_ecole||0)>0?'+':'')+fmt2(montantEcoleTotal-(contratEcole.facture_ecole||0))+'</div>':'')
+          +'</div>'
+          +'<div style="padding:6px 8px;background:#9B59B6;border-radius:4px">'
+            +'<div style="color:rgba(255,255,255,0.8)">Centre loisirs</div>'
+            +'<div style="font-weight:700;color:#fff;font-size:13px">'+fmt2(montantCentreTotal)+'</div>'
+            +((contratEcole.facture_centre)?'<div style="font-size:10px;color:'+(Math.abs(montantCentreTotal-(contratEcole.facture_centre||0))<0.01?'#90EE90':'#FFB6C1')+'">'+(montantCentreTotal-(contratEcole.facture_centre||0)>0?'+':'')+fmt2(montantCentreTotal-(contratEcole.facture_centre||0))+'</div>':'')
+          +'</div>'
         +'</div>'
+        +'<button class="btn btn-p btn-sm" id="btn-ecole-save-tarifs">&#10003; Enregistrer les tarifs</button>'
       +'</div>'
       +'<div class="card"><div style="overflow-x:auto"><table style="min-width:700px">'
         +'<thead><tr>'
@@ -3559,7 +3619,6 @@ function woUpdateSubZone(){
   }
   if(subWrap) subWrap.style.display=subs.length?'':'none';
 }
-
 
 function renderModal(){
   const m = S.modal;
@@ -5005,6 +5064,37 @@ function renderModal(){
 
   if(m.type==='add-prop'){html=`${mhd('Nouveau bien')}
     <div class="form-group"><label>Nom *</label><input id="m-pn" placeholder="Ex: Immeuble 26 rue Dubail..."></div>${mf}`;}
+
+  if(m.type==='creche-contrat'){
+    const mb=S.famille.find(x=>x.id===m.enfantId)||{};
+    const c=mb.contrat_creche||{};
+    html=mhd('Contrat crèche — '+(mb.prenom||''))
+      +'<div class="g2c">'
+        +'<div class="form-group"><label>H. dépose contrat (défaut)</label><input id="cc-dep" type="time" value="'+(c.heure_dep_defaut||'')+'"></div>'
+        +'<div class="form-group"><label>H. récup contrat (défaut)</label><input id="cc-rec" type="time" value="'+(c.heure_rec_defaut||'')+'"></div>'
+      +'</div>'
+      +'<div class="g2c">'
+        +'<div class="form-group"><label>Taux horaire (€/h)</label><input id="cc-tn" type="number" step="0.01" value="'+(c.taux_normal||'')+'"></div>'
+        +'<div class="form-group"><label>Taux majoré (€/h)</label><input id="cc-tm" type="number" step="0.01" value="'+(c.taux_majore||'')+'"></div>'
+      +'</div>'
+      +mf;
+  }
+
+  if(m.type==='ecole-contrat'){
+    const mb=S.famille.find(x=>x.id===m.enfantId)||{};
+    const c=mb.contrat_ecole||{};
+    html=mhd('Tarifs école — '+(mb.prenom||''))
+      +'<div class="g2c">'
+        +'<div class="form-group"><label>Périscolaire prévu (€/¼H)</label><input id="ec-pp" type="number" step="0.001" value="'+(c.taux_peri_prevu||'')+'"></div>'
+        +'<div class="form-group"><label>Périscolaire non prévu (€/¼H)</label><input id="ec-pnp" type="number" step="0.001" value="'+(c.taux_peri_non_prevu||'')+'"></div>'
+      +'</div>'
+      +'<div class="g2c">'
+        +'<div class="form-group"><label>Cantine (€/repas)</label><input id="ec-cant" type="number" step="0.01" value="'+(c.taux_cantine||'')+'"></div>'
+        +'<div class="form-group"><label>Centre loisirs (€/j)</label><input id="ec-centre" type="number" step="0.01" value="'+(c.taux_centre_journee||'')+'"></div>'
+      +'</div>'
+      +mf;
+  }
+
 
   return `<div class="modal-ov" id="mov"><div class="modal">${html}</div></div>`;
 }
@@ -6606,6 +6696,70 @@ function bindAll(){
   const btnCrechePdf=document.getElementById('btn-creche-pdf');
   if(btnCrechePdf)btnCrechePdf.onclick=()=>buildCrechePdf();
   // Crèche day save
+
+  // Global save for creche (top and bottom buttons)
+  async function saveCrecheAll(){
+    const enf=S.famille.find(x=>x.id===(S.familleEnfant||(S.famille[0]?.id)));
+    if(!enf)return;
+    const y=S.familleYear||new Date().getFullYear();
+    const mo=(S.familleMonth!=null?S.familleMonth:new Date().getMonth())+1;
+    const daysInM=new Date(y,mo,0).getDate();
+    function toMinL(t){if(!t)return null;const[h,m2]=t.split(':').map(Number);return h*60+m2;}
+    const updates=[];
+    for(let d=1;d<=daysInM;d++){
+      const dow=new Date(y,mo-1,d).getDay();
+      const depAntic=document.querySelector('.creche-dep[data-day="'+d+'"]')?.value||null;
+      const recTard=document.querySelector('.creche-rec[data-day="'+d+'"]')?.value||null;
+      const contDep=document.querySelector('.creche-cont[data-day="'+d+'"]')?.value||null;
+      const contRec=document.querySelector('.creche-contr[data-day="'+d+'"]')?.value||null;
+      const arrTard=document.querySelector('.creche-arr-tard[data-day="'+d+'"]')?.value||null;
+      const depAnticD=document.querySelector('.creche-dep-antic[data-day="'+d+'"]')?.value||null;
+      const absent=document.querySelector('.creche-absent[data-day="'+d+'"]')?.checked||false;
+      // Only save if something is set (or row already exists)
+      const existing=S.crecheSaisies.find(s=>s.enfant_id===enf.id&&s.annee===y&&s.mois===mo&&s.jour===d);
+      const hasData=depAntic||recTard||arrTard||depAnticD||absent||
+        (contDep&&contDep!=='09:00')||(contRec&&contRec!=='16:30');
+      if(!hasData&&!existing)continue;
+      // Calc minutes sup (arrondi quart sup)
+      let minSup=0;
+      const depCM=toMinL(contDep||'09:00'),recCM=toMinL(contRec||'16:30');
+      if(depAntic){const d2=depCM-toMinL(depAntic);if(d2>0)minSup+=Math.ceil(d2/15)*15;}
+      if(recTard){const d2=toMinL(recTard)-recCM;if(d2>0)minSup+=Math.ceil(d2/15)*15;}
+      const rec={enfant_id:enf.id,annee:y,mois:mo,jour:d,
+        depose_anticipee:depAntic||null,recuperation_tardive:recTard||null,
+        heure_contrat_dep:contDep||null,heure_contrat_rec:contRec||null,
+        arrivee_tardive:arrTard||null,depart_anticipe:depAnticD||null,
+        absence_autorisee:absent,minutes_sup:minSup};
+      updates.push({existing,rec});
+    }
+    for(const{existing,rec}of updates){
+      if(existing){
+        await sb.from('creche_saisies').update(rec).eq('id',existing.id);
+        Object.assign(existing,rec);
+      }else{
+        const{data,error}=await sb.from('creche_saisies').insert(rec).select().single();
+        if(!error&&data)S.crecheSaisies.push(data);
+      }
+    }
+    // Save taux if changed
+    const tauxEl=document.getElementById('creche-taux-normal');
+    const factEl=document.getElementById('creche-facture-recue');
+    if(tauxEl||factEl){
+      const updContrat={...(enf.contrat_creche||{})};
+      if(tauxEl)updContrat.taux_normal=parseFloat(tauxEl.value)||0;
+      if(factEl)updContrat.facture_recue=parseFloat(factEl.value)||0;
+      await sb.from('famille').update({contrat_creche:updContrat}).eq('id',enf.id);
+      enf.contrat_creche=updContrat;
+    }
+    render();
+    alert('✓ Planning enregistré !');
+  }
+  const btnCrecheSaveAll=document.getElementById('btn-creche-save-all');
+  if(btnCrecheSaveAll)btnCrecheSaveAll.onclick=saveCrecheAll;
+  const btnCrecheSaveAllBot=document.getElementById('btn-creche-save-all-bot');
+  if(btnCrecheSaveAllBot)btnCrecheSaveAllBot.onclick=saveCrecheAll;
+
+  // Unused: per-day save (replaced by global)
   document.querySelectorAll('.creche-save-day').forEach(el=>el.onclick=async()=>{
     const d=parseInt(el.dataset.day);
     const enf=S.famille.find(x=>x.id===(S.familleEnfant||(S.famille[0]?.id)));
@@ -6652,6 +6806,22 @@ function bindAll(){
     render();
   });
   // École buttons
+  const btnEcoleSaveTarifs=document.getElementById('btn-ecole-save-tarifs');
+  if(btnEcoleSaveTarifs)btnEcoleSaveTarifs.onclick=async()=>{
+    const enf=S.famille.find(x=>x.id===(S.familleEnfant||(S.famille[0]?.id)));
+    if(!enf)return;
+    const upd={...(enf.contrat_ecole||{}),
+      taux_peri_prevu:parseFloat(document.getElementById('ecole-taux-pp')?.value)||0,
+      taux_peri_non_prevu:parseFloat(document.getElementById('ecole-taux-pnp')?.value)||0,
+      taux_cantine:parseFloat(document.getElementById('ecole-taux-cant')?.value)||0,
+      taux_centre_journee:parseFloat(document.getElementById('ecole-taux-centre')?.value)||0
+    };
+    const {error}=await sb.from('famille').update({contrat_ecole:upd}).eq('id',enf.id);
+    if(error){alert('Erreur : '+error.message);return;}
+    enf.contrat_ecole=upd;
+    render();
+    alert('✓ Tarifs enregistrés !');
+  };
   const btnEcoleContrat=document.getElementById('btn-ecole-contrat');
   if(btnEcoleContrat)btnEcoleContrat.onclick=()=>{
     const id=S.familleEnfant||(S.famille[0]?.id);
@@ -6727,22 +6897,7 @@ function bindAll(){
     await sb.from('famille').update({contrat_creche:upd}).eq('id',enf.id);
     enf.contrat_creche=upd;render();
   };
-  const ecFact=document.getElementById('ecole-facture-ecole');
-  if(ecFact)ecFact.onblur=async()=>{
-    const enf=S.famille.find(x=>x.id===(S.familleEnfant||(S.famille[0]?.id)));
-    if(!enf)return;
-    const upd={...(enf.contrat_ecole||{}),facture_ecole:parseFloat(ecFact.value)||0};
-    await sb.from('famille').update({contrat_ecole:upd}).eq('id',enf.id);
-    enf.contrat_ecole=upd;render();
-  };
-  const ecFactC=document.getElementById('ecole-facture-centre');
-  if(ecFactC)ecFactC.onblur=async()=>{
-    const enf=S.famille.find(x=>x.id===(S.familleEnfant||(S.famille[0]?.id)));
-    if(!enf)return;
-    const upd={...(enf.contrat_ecole||{}),facture_centre:parseFloat(ecFactC.value)||0};
-    await sb.from('famille').update({contrat_ecole:upd}).eq('id',enf.id);
-    enf.contrat_ecole=upd;render();
-  };
+;
   const btnAddMembre=document.getElementById('btn-add-membre')||document.getElementById('btn-add-membre2');
   if(btnAddMembre)btnAddMembre.onclick=()=>{S.modal={type:'add-membre'};render();};
   const btnAddMembre2=document.getElementById('btn-add-membre2');
