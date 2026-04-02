@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v94-20260402-154651">
+<meta name="version" content="v95-20260402-155717">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -2171,17 +2171,19 @@ function renderCompteurs(){
       const tenant=cpt.tenant_id?S.tenants.find(t=>t.id===cpt.tenant_id):null;
       const conso=Math.round((r.nouvel_index-r.ancien_index)*1000)/1000;
       const montant=Math.round(conso*(r.prix_unitaire||cpt.prix_unitaire||0)*100)/100;
+      const st=r.paye?'bgreen':r.facture_envoyee?'bblue':'bgray';
+      const sl=r.paye?'✓ Acquittée':r.facture_envoyee?'&#128438; Facturée':'● En attente';
       return '<tr>'
         +'<td style="font-size:11px">'+dateLabel(r.date)+'</td>'
         +'<td style="font-size:12px">'+cpt.name+'</td>'
-        +'<td style="font-size:11px;color:var(--text2)">'+(tenant?.nom||'\u2014')+'</td>'
+        +'<td style="font-size:11px;color:var(--text2)">'+(tenant?.nom||'—')+'</td>'
         +'<td style="text-align:right;font-size:11px">'+(r.ancien_index||0)+'</td>'
         +'<td style="text-align:right;font-size:11px;font-weight:500">'+r.nouvel_index+'</td>'
-        +'<td style="text-align:right;font-size:11px">'+conso+' '+(cpt.unite||'m\u00b3')+'</td>'
+        +'<td style="text-align:right;font-size:11px">'+conso+' '+(cpt.unite||'m³')+'</td>'
         +'<td style="text-align:right;font-size:11px">'+fmt(montant)+'</td>'
-        +'<td style="text-align:center"><span class="badge '+(r.paye?'bgreen':'bgray')+'">'+( r.paye?'Pay\u00e9':'En att.')+'</span></td>'
+        +'<td style="text-align:center"><span class="badge '+st+'" data-releve-status="'+r.id+'" style="cursor:pointer">'+sl+'</span></td>'
         +'</tr>';
-    }).join('');
+    }).join('');;
     return tabBar
       +'<div class="card"><div style="overflow-x:auto"><table>'
         +'<thead><tr><th style="font-size:11px">Date</th><th style="font-size:11px">Compteur</th><th style="font-size:11px">Locataire</th><th style="font-size:11px;text-align:right">Ancien idx</th><th style="font-size:11px;text-align:right">Nouvel idx</th><th style="font-size:11px;text-align:right">Conso</th><th style="font-size:11px;text-align:right">Montant</th><th style="font-size:11px">Statut</th></tr></thead>'
@@ -6242,6 +6244,7 @@ function bindAll(){
   // Compteurs
   if(!S.cTab) S.cTab='liste';
   document.querySelectorAll('[data-ctab]').forEach(el=>el.onclick=()=>{S.cTab=el.dataset.ctab;render();});
+  document.querySelectorAll('[data-releve-status]').forEach(el=>el.onclick=async()=>{const r=S.releves.find(x=>x.id===el.dataset.releveStatus);if(!r)return;const upd=(!r.facture_envoyee&&!r.paye)?{facture_envoyee:true,paye:false}:(!r.paye)?{facture_envoyee:true,paye:true}:{facture_envoyee:true,paye:false};const{error}=await sb.from('releves').update(upd).eq('id',r.id);if(error){alert('Erreur : '+error.message);return;}Object.assign(r,upd);render();});
   const btnAddCpt=document.getElementById('btn-add-cpt');
   if(btnAddCpt)btnAddCpt.onclick=()=>{S.modal={type:'add-cpt'};render();};
   const btnAddRelAny=document.getElementById('btn-add-releve-any');
