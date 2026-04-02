@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v75-20260402-061409">
+<meta name="version" content="v76-20260402-062859">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -6699,9 +6699,10 @@ function bindAll(){
 
   // Global save for creche (top and bottom buttons)
   window.saveCrecheAll = async function(){
-    const enf=S.famille.find(x=>x.id===(S.familleEnfant||(S.famille[0]?.id)));
-    console.log('[CRECHE SAVE] enf=',enf?.prenom,'familleEnfant=',S.familleEnfant,'famille=',S.famille?.length);
-    if(!enf){console.error('[CRECHE SAVE] Aucun enfant!');return;}
+    const crecheMembers=S.famille.filter(m=>m.type_membre==='creche');
+    const enf=S.famille.find(x=>x.id===S.familleEnfant)||(crecheMembers[0]||null);
+    console.log('[CRECHE SAVE] enf=',enf?.prenom,'familleEnfant=',S.familleEnfant);
+    if(!enf){alert('Aucun enfant crèche trouvé. Vérifiez le type dans la fiche membre.');return;}
     const y=S.familleYear||new Date().getFullYear();
     const mo=(S.familleMonth!=null?S.familleMonth:new Date().getMonth())+1;
     const daysInM=new Date(y,mo,0).getDate();
@@ -6824,9 +6825,10 @@ function bindAll(){
   });
   const btnEcoleSaveTarifs=document.getElementById('btn-ecole-save-tarifs');
   if(btnEcoleSaveTarifs)btnEcoleSaveTarifs.onclick=async()=>{
-    const enf=S.famille.find(x=>x.id===(S.familleEnfant||(S.famille[0]?.id)));
-    console.log('[ECOLE SAVE TARIFS] enf=',enf?.prenom,'familleEnfant=',S.familleEnfant);
-    if(!enf){console.error('[ECOLE SAVE] Aucun enfant!');return;}
+    const ecoleMembers=S.famille.filter(m=>m.type_membre==='ecole');
+    const enf=S.famille.find(x=>x.id===S.familleEnfant)||(ecoleMembers[0]||null);
+    console.log('[ECOLE SAVE TARIFS] enf=',enf?.prenom);
+    if(!enf){alert('Aucun enfant école trouvé. Vérifiez le type dans la fiche membre.');return;}
     const t=S._ecoleTarifs||{};
     function readV(id){const el=document.getElementById(id);return el?parseFloat(el.value):(t[id]!=null?t[id]:null);}
     const prev=enf.contrat_ecole||{};
