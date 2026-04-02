@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v73d-20260402-055926">
+<meta name="version" content="v74-20260402-060611">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -6698,7 +6698,7 @@ function bindAll(){
   // Crèche day save
 
   // Global save for creche (top and bottom buttons)
-  async function saveCrecheAll(){
+  window.saveCrecheAll = async function(){
     const enf=S.famille.find(x=>x.id===(S.familleEnfant||(S.famille[0]?.id)));
     console.log('[CRECHE SAVE] enf=',enf?.prenom,'familleEnfant=',S.familleEnfant,'famille=',S.famille?.length);
     if(!enf){console.error('[CRECHE SAVE] Aucun enfant!');return;}
@@ -6764,9 +6764,9 @@ function bindAll(){
     alert('✓ Planning enregistré !');
   }
   const btnCrecheSaveAll=document.getElementById('btn-creche-save-all');
-  if(btnCrecheSaveAll)btnCrecheSaveAll.onclick=saveCrecheAll;
+  if(btnCrecheSaveAll)btnCrecheSaveAll.onclick=window.saveCrecheAll;
   const btnCrecheSaveAllBot=document.getElementById('btn-creche-save-all-bot');
-  if(btnCrecheSaveAllBot)btnCrecheSaveAllBot.onclick=saveCrecheAll;
+  if(btnCrecheSaveAllBot)btnCrecheSaveAllBot.onclick=window.saveCrecheAll;
 
   // Unused: per-day save (replaced by global)
   document.querySelectorAll('.creche-save-day').forEach(el=>el.onclick=async()=>{
