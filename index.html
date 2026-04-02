@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v69-20260402-051214">
+<meta name="version" content="v70-20260402-051637">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -3816,6 +3816,15 @@ function renderModal(){
       <div class="form-group"><label>Relation</label><select id="m-frelation">
         ${['Conjoint(e)','Enfant','Parent','Frère/Sœur','Autre'].map(r=>`<option ${mb.relation===r?'selected':''}>${r}</option>`).join('')}
       </select></div>
+      <div class="form-group"><label>Type</label>
+        <select id="m-ftype">
+          <option value="" ${!mb.type_membre?'selected':''}>-- Non défini --</option>
+          <option value="creche" ${mb.type_membre==='creche'?'selected':''}>&#128118; Crèche</option>
+          <option value="ecole" ${mb.type_membre==='ecole'?'selected':''}>&#127979; École</option>
+          <option value="travail" ${mb.type_membre==='travail'?'selected':''}>&#128188; Travail</option>
+          <option value="autre" ${mb.type_membre==='autre'?'selected':''}>&#128100; Autre</option>
+        </select>
+      </div>
       <div class="form-group"><label>Date de naissance</label><input id="m-fnaissance" type="date" value="${mb.naissance||''}"></div>
     </div>
     <div class="g2c">
