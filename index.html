@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v82-20260402-093606">
+<meta name="version" content="v83-20260402-094219">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -2940,7 +2940,11 @@ function renderFamille(){
         +'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px;font-size:11px;margin-bottom:8px">'
           +'<div style="padding:6px 8px;background:var(--bg2);border-radius:4px">'
             +'<div style="color:var(--text2)">Périscolaire prévu</div>'
-            +'<div style="font-weight:600;color:var(--blue)">'+(totalPeriMin/60).toFixed(2)+'h → '+fmt2(montantPeri)+'</div>'
+            +'<div style="font-weight:600;color:var(--blue)">'+(totalPeriMin/60).toFixed(2)+'h → '+fmt2((totalPeriMin/60)*txPeriPrev)+'</div>'
+          +'</div>'
+          +'<div style="padding:6px 8px;background:var(--bg2);border-radius:4px">'
+            +'<div style="color:var(--text2)">Périscolaire non prévu</div>'
+            +'<div style="font-weight:600;color:var(--amber)">'+(totalPeriNPMin/60).toFixed(2)+'h → '+fmt2((totalPeriNPMin/60)*txPeriNonPrev)+'</div>'
           +'</div>'
           +'<div style="padding:6px 8px;background:var(--bg2);border-radius:4px">'
             +'<div style="color:var(--text2)">Cantine</div>'
