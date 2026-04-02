@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v86-20260402-100400">
+<meta name="version" content="v87-20260402-114053">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -1876,103 +1876,7 @@ function renderVehicles(){
 
   return '';
 }
-  if(tab==='emises'){
-    // Group rent_payments + releves by bien → zone → chronological
-    const allRp=S.rentPayments.filter(p=>p.annee===year&&p.paye);
-    const allFact=S.factures.filter(f=>(f.date||'').startsWith(String(year))&&f.tenant_id);
 
-    function getBien(t){
-      if(!t||!t.logement)return 'Non classé';
-      const sep=t.logement.includes(' — ')?' — ':' - ';
-      return t.logement.split(sep)[0];
-    }
-    function getZone(t){
-      if(!t||!t.logement)return '';
-      const sep=t.logement.includes(' — ')?' — ':' - ';
-      return t.logement.includes(sep)?t.logement.split(sep).slice(1).join(sep):'';
-    }
-
-    // Build quittances table per bien/zone
-    const rpByBien={};
-    allRp.forEach(function(p){
-      const t=S.tenants.find(x=>x.id===p.tenant_id);
-      const bien=getBien(t); const zone=getZone(t)||t?.nom||'';
-      if(!rpByBien[bien])rpByBien[bien]={};
-      if(!rpByBien[bien][zone])rpByBien[bien][zone]=[];
-      rpByBien[bien][zone].push({...p,_tenant:t});
-    });
-
-    // Build factures eau/charges table per bien/zone
-    const facByBien={};
-    allFact.forEach(function(f){
-      const t=S.tenants.find(x=>x.id===f.tenant_id);
-      const bien=getBien(t); const zone=getZone(t)||t?.nom||'';
-      if(!facByBien[bien])facByBien[bien]={};
-      if(!facByBien[bien][zone])facByBien[bien][zone]=[];
-      facByBien[bien][zone].push({...f,_tenant:t});
-    });
-
-    function buildTable(byBien, type){
-      const color=type==='quittances'?'#185FA5':'#1D9E75';
-      const title=type==='quittances'?'Quittances de loyer':'Factures charges/eau';
-      const biens=S.topology.properties.map(p=>p.name).filter(n=>byBien[n]);
-      if(!biens.length)return '<div class="card" style="margin-bottom:12px"><div style="font-size:13px;font-weight:600;color:'+color+';margin-bottom:8px">'+title+'</div><div style="color:var(--text2);font-size:12px">Aucune pour '+year+'</div></div>';
-      const biensHtml=biens.map(function(bien){
-        const zones=Object.keys(byBien[bien]||{}).sort();
-        const bienTotal=zones.reduce((s,z)=>s+byBien[bien][z].reduce((s2,f)=>s2+(type==='quittances'?(f.locataire_part||0)+(f.caf||0):f.montant_ttc||0),0),0);
-        const zHtml=zones.map(function(zone){
-          const items=byBien[bien][zone].sort((a,b)=>(a.date||a.mois_num||0)>(b.date||b.mois_num||0)?1:-1);
-          const zTotal=items.reduce((s,f)=>s+(type==='quittances'?(f.locataire_part||0)+(f.caf||0):f.montant_ttc||0),0);
-          const rows=items.map(function(f){
-            if(type==='quittances'){
-              const recu=(f.locataire_part||0)+(f.caf||0);
-              return '<tr>'
-                +'<td style="font-size:11px">'+(f.mois||'')+' '+f.annee+'</td>'
-                +'<td style="font-size:12px">'+(f._tenant?.nom||'')+'</td>'
-                +'<td style="font-size:11px;text-align:right">'+fmt(f.loyer)+'</td>'
-                +'<td style="font-size:11px;text-align:right;color:var(--green)">'+fmt(recu)+'</td>'
-                +'<td style="font-size:11px;text-align:right;color:'+(f.loyer-recu>0?'var(--red)':'var(--green)')+'">'+fmt(f.loyer-recu)+'</td>'
-                +(isAdmin()?'<td style="text-align:center"><button class="btn btn-d btn-sm" data-del-rp="'+f.id+'" style="font-size:10px;padding:2px 5px">&#10005;</button></td>':'<td></td>')
-                +'</tr>';
-            } else {
-              return '<tr>'
-                +'<td style="font-size:11px">'+dateLabel(f.date)+'</td>'
-                +'<td style="font-size:12px">'+(f.fournisseur||f.description||'')+'</td>'
-                +'<td style="font-size:11px;color:var(--text2)">'+(f.description||'')+'</td>'
-                +'<td style="font-size:11px;text-align:right;font-weight:500">'+fmt(f.montant_ttc)+'</td>'
-                +(isAdmin()?'<td style="text-align:center"><button class="btn btn-d btn-sm" data-del-facture="'+f.id+'" style="font-size:10px;padding:2px 5px">&#10005;</button></td>':'<td></td>')
-                +'</tr>';
-            }
-          }).join('');
-          const thead=type==='quittances'
-            ?'<tr><th style="font-size:10px">Mois</th><th style="font-size:10px">Locataire</th><th style="font-size:10px;text-align:right">Attendu</th><th style="font-size:10px;text-align:right">Reçu</th><th style="font-size:10px;text-align:right">Solde</th><th></th></tr>'
-            :'<tr><th style="font-size:10px">Date</th><th style="font-size:10px">Désignation</th><th style="font-size:10px">Détail</th><th style="font-size:10px;text-align:right">TTC</th><th></th></tr>';
-          return '<tr style="background:var(--bg2)"><td colspan="6" style="font-size:11px;font-weight:600;padding:4px 8px;color:var(--text2)">'+(zone||'Général')+' — '+fmt(zTotal)+'</td></tr>'+rows;
-        }).join('');
-        return '<div class="card" style="margin-bottom:12px">'
-          +'<div style="display:flex;justify-content:space-between;padding-bottom:8px;margin-bottom:8px;border-bottom:1.5px solid '+color+'">'
-            +'<div style="font-size:13px;font-weight:600;color:'+color+'">&#127968; '+bien+'</div>'
-            +'<div style="font-size:12px;font-weight:600">'+fmt(bienTotal)+'</div>'
-          +'</div>'
-          +'<div style="overflow-x:auto"><table style="min-width:500px"><thead>'+
-          (zones.length?'<tr><th style="font-size:10px">Zone</th></tr>':'')
-          +'</thead><tbody>'+zHtml+'</tbody></table></div>'
-        +'</div>';
-      }).join('');
-      const grandTotal=biens.reduce((s,b)=>s+Object.keys(byBien[b]||{}).reduce((s2,z)=>s2+byBien[b][z].reduce((s3,f)=>s3+(type==='quittances'?(f.locataire_part||0)+(f.caf||0):f.montant_ttc||0),0),0),0);
-      return '<div class="card" style="margin-bottom:4px;background:transparent;padding:0">'
-        +'<div style="font-size:14px;font-weight:700;color:'+color+';margin-bottom:10px;padding:8px 0;border-bottom:2px solid '+color+'">'+title+'</div>'
-        +'</div>'
-        +biensHtml
-        +'<div class="card" style="background:var(--bg2);margin-bottom:24px">'
-          +'<div style="display:flex;justify-content:space-between;font-weight:700">TOTAL '+type.toUpperCase()+' '+year+'<span>'+fmt(grandTotal)+'</span></div>'
-        +'</div>';
-    }
-
-    return tabBar+yearBar
-      +buildTable(rpByBien,'quittances')
-      +buildTable(facByBien,'charges');
-  }
 
 
 function renderFactures(){
