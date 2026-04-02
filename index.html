@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v81-20260402-091954">
+<meta name="version" content="v82-20260402-093606">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -6861,31 +6861,36 @@ function bindAll(){
   window.saveEcoleAll=async function(){
     const ecoleMembers=S.famille.filter(m=>m.type_membre==='ecole');
     const enf=S.famille.find(x=>x.id===S.familleEnfant)||(ecoleMembers[0]||null);
-    if(!enf){alert('Aucun enfant école trouvé');return;}
+    if(!enf){alert('Aucun enfant \u00e9cole trouv\u00e9');return;}
     const y=S.familleYear||new Date().getFullYear();
     const mo=(S.familleMonth!=null?S.familleMonth:new Date().getMonth())+1;
     const daysInM=new Date(y,mo,0).getDate();
     let errors=[];
     for(let d=1;d<=daysInM;d++){
+      const dow2=new Date(y,mo-1,d).getDay();
+      if(dow2===0||dow2===6)continue;
+      const isMerD=dow2===3;
       const isCentre=document.querySelector('.ecole-centre[data-day="'+d+'"]')?.checked||false;
       const isAbsent=document.querySelector('.ecole-absent[data-day="'+d+'"]')?.checked||false;
-      const periMat=document.querySelector('.ecole-peri-mat[data-day="'+d+'"]')?.value||'non';
-      const periSoir=document.querySelector('.ecole-peri-soir[data-day="'+d+'"]')?.value||'non';
       const cantine=document.querySelector('.ecole-cant[data-day="'+d+'"]')?.checked||false;
+      const noPeriD=isMerD||isCentre||isAbsent;
+      const durMat=noPeriD?0:parseInt(document.querySelector('.ecole-dur-mat[data-day="'+d+'"]')?.value)||0;
+      const durSoir=noPeriD?0:parseInt(document.querySelector('.ecole-dur-soir[data-day="'+d+'"]')?.value)||0;
+      const typeMat=document.querySelector('.ecole-type-mat[data-day="'+d+'"]')?.value||'prevu';
+      const typeSoir=document.querySelector('.ecole-type-soir[data-day="'+d+'"]')?.value||'prevu';
       const existing=S.ecoleSaisies.find(s=>s.enfant_id===enf.id&&s.annee===y&&s.mois===mo&&s.jour===d);
-      const hasData=isCentre||isAbsent||periMat!=='non'||periSoir!=='non'||cantine;
+      const hasData=isCentre||isAbsent||durMat>0||durSoir>0||cantine;
       if(!hasData&&!existing)continue;
-      const PERI_MIN=15; // 1 quarter = 15 min as unit stored
+      const durMatQ=Math.ceil(durMat/15)*15;
+      const durSoirQ=Math.ceil(durSoir/15)*15;
       const rec={enfant_id:enf.id,annee:y,mois:mo,jour:d,
         peri_matin_dep:null,peri_matin_fin:null,peri_soir_dep:null,peri_soir_fin:null,
-        peri_matin_min:periMat==='prevu'?PERI_MIN:0,
-        peri_soir_min:periSoir==='prevu'?PERI_MIN:0,
-        peri_matin_np_min:periMat==='non_prevu'?PERI_MIN:0,
-        peri_soir_np_min:periSoir==='non_prevu'?PERI_MIN:0,
-        type_peri:periMat!=='non'?periMat:periSoir!=='non'?periSoir:'prevu',
-        cantine:!isCentre&&!isAbsent&&cantine,
-        centre_loisir:isCentre,
-        absence_autorisee:isAbsent};
+        peri_matin_min:typeMat==='prevu'?durMatQ:0,
+        peri_soir_min:typeSoir==='prevu'?durSoirQ:0,
+        peri_matin_np_min:typeMat==='non_prevu'?durMatQ:0,
+        peri_soir_np_min:typeSoir==='non_prevu'?durSoirQ:0,
+        type_peri:'prevu',cantine:!isAbsent&&cantine,
+        centre_loisir:isCentre,absence_autorisee:isAbsent};
       if(existing){
         const{error}=await sb.from('ecole_saisies').update(rec).eq('id',existing.id);
         if(error)errors.push(error.message);else Object.assign(existing,rec);
@@ -6909,7 +6914,7 @@ function bindAll(){
     if(contratErr)errors.push(contratErr.message);else enf.contrat_ecole=upd;
     if(errors.length){alert('Erreurs :\n'+[...new Set(errors)].join('\n'));return;}
     render();
-    alert('✓ Planning école enregistré !');
+    alert('\u2713 Planning \u00e9cole enregistr\u00e9 !');
   };
   const btnEcoleSaveAllBot=document.getElementById('btn-ecole-save-all-bot');
   if(btnEcoleSaveAllBot)btnEcoleSaveAllBot.onclick=window.saveEcoleAll;
