@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v90-20260402-151530">
+<meta name="version" content="v91-20260402-152154">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -2229,6 +2229,7 @@ function renderFinances(){
 
   const yearBar = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
     <span style="font-size:12px;color:var(--text2)">Année :</span>
+    <span class="pill ${year===0?'active':''}" data-fin-year="0">Tout</span>
     ${[2024,2025,2026,2027].map(y=>`<span class="pill ${year===y?'active':''}" data-fin-year="${y}">${y}</span>`).join('')}
   </div>`;
 
@@ -2378,7 +2379,7 @@ function renderFinances(){
     const cpteLabels={'savadur':'Savadur (Dubail)','perso':'Perso'};
     const color={'savadur':'#185FA5','perso':'#1D9E75'}[subCpte];
     const subBar='<div style="display:flex;gap:6px;margin-bottom:14px">'+['savadur','perso'].map(c=>'<button class="btn btn-sm '+(subCpte===c?'btn-p':'')+'" data-fin-cpte="'+c+'">'+cpteLabels[c]+'</button>').join('')+'</div>';
-    const facts=S.factures.filter(f=>f.compte===subCpte&&(f.date||'').startsWith(String(year)));
+    const facts=S.factures.filter(f=>f.compte===subCpte&&(year===0||!year||(f.date||'').startsWith(String(year))));
     function getProp(bien){if(!bien)return 'Non class\u00e9';const sep=bien.includes(' \u2014 ')?' \u2014 ':bien.includes(' - ')?' - ':null;return sep?bien.split(sep)[0].trim():bien;}
     function getZone(bien){if(!bien)return '';const sep=bien.includes(' \u2014 ')?' \u2014 ':bien.includes(' - ')?' - ':null;return sep?bien.split(sep).slice(1).join(sep).trim():'';}
     // Group by property
