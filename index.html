@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v74-20260402-060611">
+<meta name="version" content="v74d-20260402-060941">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -6753,8 +6753,11 @@ function bindAll(){
     const tauxEl=document.getElementById('creche-taux-normal');
     const factEl=document.getElementById('creche-facture-recue');
     const updContrat={...(enf.contrat_creche||{})};
-    if(tauxEl)updContrat.taux_normal=parseFloat(tauxEl.value)||0;
-    if(factEl)updContrat.facture_recue=parseFloat(factEl.value)||0;
+    const tauxVal=tauxEl?tauxEl.value:'(no element)';
+    const factVal=factEl?factEl.value:'(no element)';
+    console.log('[CRECHE SAVE] tauxEl value=',tauxVal,'factEl value=',factVal);
+    updContrat.taux_normal=tauxEl?parseFloat(tauxEl.value)||0:updContrat.taux_normal;
+    updContrat.facture_recue=factEl?parseFloat(factEl.value)||0:updContrat.facture_recue;
     console.log('[CRECHE SAVE] Saving contrat for id=',enf.id,'data=',updContrat);
     const{error:contratErr}=await sb.from('famille').update({contrat_creche:updContrat}).eq('id',enf.id);
     console.log('[CRECHE SAVE] Contrat result: error=',contratErr);
