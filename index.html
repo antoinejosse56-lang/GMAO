@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v57-20260401-172559">
+<meta name="version" content="v58-20260402-041426">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -2664,11 +2664,12 @@ function renderFamille(){
   const selEnfantId=S.familleEnfant||(enfants[0]?.id||null);
   const selEnfant=enfants.find(m=>m.id===selEnfantId)||enfants[0]||null;
 
-  const enfantBar=enfants.length>1
-    ?'<div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">'
-      +enfants.map(m=>'<button class="btn btn-sm '+(m.id===selEnfantId?'btn-p':'')+'" data-sel-enfant="'+m.id+'">'+(m.prenom||m.nom||'Enfant')+'</button>').join('')
-      +'</div>'
-    :'';
+  const enfantBar='<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">'
+    +(enfants.length>0?'<select id="sel-enfant-drop" style="padding:5px 10px;border:1px solid var(--border2);border-radius:6px;background:var(--bg);font-size:13px">'
+      +enfants.map(m=>'<option value="'+m.id+'" '+(m.id===selEnfantId?'selected':'')+'>'+( m.prenom||'')+' '+(m.nom||'')+'</option>').join('')
+      +'</select>':'')
+    +'<button class="btn btn-sm btn-p" id="btn-add-enfant">+ Enfant</button>'
+    +'</div>';
 
   if(!selEnfant){
     return tabBar+enfantBar+'<div style="text-align:center;padding:30px;color:var(--text2)">Aucun membre. Ajoutez un membre d\'abord.</div>';
@@ -3071,53 +3072,86 @@ function buildCrechePdf(){
   const MOIS=['Janvier','F\u00e9vrier','Mars','Avril','Mai','Juin','Juillet','Ao\u00fbt','Septembre','Octobre','Novembre','D\u00e9cembre'];
   const c=enf.contrat_creche||{};
   const txN=parseFloat(c.taux_normal||0);
-  const txM=parseFloat(c.taux_majore||0);
+  const depDef=c.heure_dep_defaut||'09:00';
+  const recDef=c.heure_rec_defaut||'16:30';
+  function toMin2(t){if(!t)return 0;const[h,m]=t.split(':').map(Number);return h*60+m;}
+  // Show ALL weekdays with their contract hours (modified if saved, default otherwise)
+  const daysInM=new Date(y,mo+1,0).getDate();
   const saisies=S.crecheSaisies.filter(s=>s.enfant_id===enf.id&&s.annee===y&&s.mois===mo+1);
-  let totalMin=0;
-  saisies.forEach(s=>{totalMin+=Math.ceil((s.minutes_sup||0)/15)*15;});
-  const totalH=totalMin/60;
-  const montant=txN>0?totalH*txN:0;
+  let totalContratMin=0,totalSupMin=0;
+  const rows=[];
+  for(let d=1;d<=daysInM;d++){
+    const date=new Date(y,mo,d);
+    const dow=date.getDay();
+    if(dow===0||dow===6)continue; // exclude weekends
+    const s=saisies.find(x=>x.jour===d);
+    const depC=s?.heure_contrat_dep||depDef;
+    const recC=s?.heure_contrat_rec||recDef;
+    const depAntic=s?.depose_anticipee||'';
+    const recTard=s?.recuperation_tardive||'';
+    const minContrat=Math.max(0,toMin2(recC)-toMin2(depC));
+    const minSup=s?.minutes_sup||0;
+    totalContratMin+=minContrat;
+    totalSupMin+=Math.ceil(minSup/15)*15;
+    const dowLabel=['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'][dow];
+    const modified=s&&(depAntic||recTard||(s.heure_contrat_dep&&s.heure_contrat_dep!==depDef)||(s.heure_contrat_rec&&s.heure_contrat_rec!==recDef));
+    rows.push('<tr'+(modified?' style="background:#FFF9E6"':'')+'>'
+      +'<td>'+(''+d).padStart(2,'0')+'/'+ ('+'+(mo+1)).padStart(2,'0')+'/'+y+' '+dowLabel+'</td>'
+      +'<td style="text-align:center">'+(depAntic||'\u2014')+'</td>'
+      +'<td style="text-align:center;font-weight:500">'+depC+'</td>'
+      +'<td style="text-align:center;font-weight:500">'+recC+'</td>'
+      +'<td style="text-align:center">'+(recTard||'\u2014')+'</td>'
+      +'<td style="text-align:center;font-size:11px">'+(minContrat/60).toFixed(2)+'h</td>'
+      +'<td style="text-align:center;font-weight:600;color:'+(minSup>0?'#C0392B':'#aaa')+'">'+(minSup>0?'+'+Math.ceil(minSup/15)+' qh':'\u2014')+'</td>'
+      +'</tr>');
+  }
+  const hContrat=totalContratMin/60;
+  const hSup=totalSupMin/60;
+  const montContrat=txN*hContrat;
+  const montSup=txN*hSup;
+  const montTotal=montContrat+montSup;
   const facRecu=parseFloat(c.facture_recue||0);
-  const diff=montant-facRecu;
-  const rows=saisies.sort((a,b)=>a.jour-b.jour).map(s=>{
-    const qh=Math.ceil((s.minutes_sup||0)/15);
-    const d=new Date(y,mo,s.jour);
-    const dow=['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'][d.getDay()];
-    return '<tr><td>'+(''+s.jour).padStart(2,'0')+'/'+('+'+(mo+1)).padStart(2,'0')+'/'+y+' '+dow+'</td>'
-      +'<td>'+(s.heure_contrat_dep||c.heure_dep_defaut||'\u2014')+'</td>'
-      +'<td>'+(s.depose_anticipee||'\u2014')+'</td>'
-      +'<td>'+(s.heure_contrat_rec||c.heure_rec_defaut||'\u2014')+'</td>'
-      +'<td>'+(s.recuperation_tardive||'\u2014')+'</td>'
-      +'<td style="font-weight:600;color:'+(qh>0?'#C0392B':'#888')+'">'+(qh>0?'+'+qh+' \u00d7 1/4h':'\u2014')+'</td>'
-      +'</tr>';
-  }).join('');
+  const diff=montTotal-facRecu;
   const html='<!DOCTYPE html><html><head><meta charset="UTF-8">'
-    +'<style>body{font-family:Arial,sans-serif;padding:20px;color:#222}h1{font-size:16px;margin-bottom:4px}h2{font-size:13px;color:#555;margin-top:0}'
-    +'table{width:100%;border-collapse:collapse;margin:16px 0;font-size:12px}th{background:#1D9E75;color:#fff;padding:6px 8px;text-align:left}td{padding:5px 8px;border-bottom:1px solid #eee}'
-    +'.total{background:#f9f9f9;font-weight:600}.recap{margin-top:16px;padding:12px;background:#f0f9f4;border-radius:6px;font-size:13px}'
-    +'.diff-ok{color:#1D9E75;font-weight:700}.diff-ko{color:#C0392B;font-weight:700}'
-    +'.printbtn{position:fixed;top:12px;right:12px;background:#1D9E75;color:#fff;border:none;padding:8px 18px;border-radius:6px;cursor:pointer;font-weight:700}'
+    +'<style>body{font-family:Arial,sans-serif;padding:20px;color:#222;font-size:12px}'
+    +'h1{font-size:16px;color:#1D9E75;margin-bottom:2px}h2{font-size:12px;color:#555;margin-top:0;margin-bottom:16px}'
+    +'table{width:100%;border-collapse:collapse;margin:12px 0}th{background:#1D9E75;color:#fff;padding:5px 8px;text-align:center;font-size:11px}td{padding:4px 8px;border-bottom:1px solid #eee}'
+    +'.recap{margin-top:16px;padding:14px;background:#f0f9f4;border-radius:6px;display:grid;grid-template-columns:1fr 1fr;gap:8px}'
+    +'.recap-item{padding:8px;background:#fff;border-radius:4px}'
+    +'.recap-label{font-size:10px;color:#888;margin-bottom:2px}'
+    +'.recap-val{font-size:15px;font-weight:700}'
+    +'.diff-ok{color:#1D9E75}.diff-ko{color:#C0392B}'
+    +'.legend{font-size:10px;color:#888;margin-top:8px}'
+    +'.printbtn{position:fixed;top:12px;right:12px;background:#1D9E75;color:#fff;border:none;padding:8px 18px;border-radius:6px;cursor:pointer;font-weight:700;font-size:13px}'
     +'@media print{.printbtn{display:none}}</style></head><body>'
     +'<button class="printbtn" onclick="window.print()">&#128424; Imprimer / PDF</button>'
-    +'<h1>&#128118; Cr\u00e8che \u2014 '+MOIS[mo]+' '+y+'</h1>'
-    +'<h2>Enfant : '+enf.prenom+' '+(enf.nom||'')+(enf.naissance?' &middot; n\u00e9(e) le '+enf.naissance:'')+'</h2>'
-    +'<table><thead><tr><th>Date</th><th>Contrat d\u00e9pose</th><th>D\u00e9pose effective</th><th>Contrat r\u00e9cup</th><th>R\u00e9cup effective</th><th>H. sup.</th></tr></thead>'
-    +'<tbody>'+rows+'</tbody>'
-    +'<tfoot><tr class="total"><td colspan="5">TOTAL heures suppl\u00e9mentaires</td><td>'+(Math.floor(totalMin/60))+'h'+(totalMin%60>0?totalMin%60+'min':'')
-    +' = '+totalMin/15+' quarts</td></tr></tfoot></table>'
+    +'<h1>&#128118; Planning cr\u00e8che \u2014 '+MOIS[mo]+' '+y+'</h1>'
+    +'<h2>'+enf.prenom+' '+(enf.nom||'')+(enf.naissance?' &middot; n\u00e9(e) le '+enf.naissance:'')+'</h2>'
+    +'<table><thead><tr>'
+      +'<th>Date</th><th>D\u00e9pose anticipée</th><th>Contrat d\u00e9pose</th><th>Contrat r\u00e9cup.</th><th>R\u00e9cup. tardive</th><th>H. contrat</th><th>H. sup.</th>'
+    +'</tr></thead><tbody>'+rows.join('')+'</tbody>'
+    +'<tfoot><tr style="font-weight:700;background:#e8f5e9">'
+      +'<td colspan="5">TOTAUX</td>'
+      +'<td style="text-align:center">'+hContrat.toFixed(2)+'h</td>'
+      +'<td style="text-align:center;color:#C0392B">'+hSup.toFixed(2)+'h</td>'
+    +'</tr></tfoot></table>'
     +'<div class="recap">'
-    +'<div>Taux normal : <strong>'+txN.toFixed(2)+' \u20ac/h</strong>'+(txM?' &nbsp;|&nbsp; Taux major\u00e9 : <strong>'+txM.toFixed(2)+' \u20ac/h</strong>':'')+'</div>'
-    +'<div style="margin-top:6px">Montant calcul\u00e9 : <strong>'+montant.toFixed(2)+' \u20ac</strong></div>'
-    +(facRecu>0?'<div>Facture re\u00e7ue : <strong>'+facRecu.toFixed(2)+' \u20ac</strong></div>'
-      +'<div>Diff\u00e9rence : <span class="'+(Math.abs(diff)<0.01?'diff-ok':'diff-ko')+'">'+( diff>0?'+':'')+diff.toFixed(2)+' \u20ac</span>'
-      +' '+(Math.abs(diff)<0.01?'&#10003; Facture conforme':'&#9888; Diff\u00e9rence \u00e0 v\u00e9rifier')+'</div>':'')
-    +'</div></body></html>';
+      +'<div class="recap-item"><div class="recap-label">HEURES CONTRAT</div><div class="recap-val">'+hContrat.toFixed(2)+'h</div><div style="font-size:11px;color:#1D9E75">'+montContrat.toFixed(2)+' \u20ac</div></div>'
+      +'<div class="recap-item"><div class="recap-label">HEURES SUPPL\u00c9MENTAIRES</div><div class="recap-val" style="color:#C0392B">'+hSup.toFixed(2)+'h</div><div style="font-size:11px;color:#C0392B">'+montSup.toFixed(2)+' \u20ac</div></div>'
+      +'<div class="recap-item"><div class="recap-label">TOTAL D\u00db</div><div class="recap-val" style="color:#1D9E75">'+montTotal.toFixed(2)+' \u20ac</div><div style="font-size:11px">Taux : '+txN.toFixed(2)+' \u20ac/h</div></div>'
+      +'<div class="recap-item"><div class="recap-label">FACTURE RE\u00c7UE</div><div class="recap-val">'+( facRecu>0?facRecu.toFixed(2)+' \u20ac':'Non renseign\u00e9e')+'</div>'
+        +(facRecu>0?'<div style="font-size:11px" class="'+(Math.abs(diff)<0.01?'diff-ok':'diff-ko')+'">'+(diff>0?'+':'')+diff.toFixed(2)+' \u20ac '+(Math.abs(diff)<0.01?'&#10003; Conforme':'&#9888; \u00c0 v\u00e9rifier')+'</div>':'')
+      +'</div>'
+    +'</div>'
+    +'<p class="legend">&#9660; Lignes fond jaune = jours avec modification par rapport au contrat standard</p>'
+    +'</body></html>';
   const blob=new Blob([html],{type:'text/html'});
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a');a.href=url;a.target='_blank';
   document.body.appendChild(a);a.click();document.body.removeChild(a);
   setTimeout(()=>URL.revokeObjectURL(url),60000);
 }
+
 
 function buildEcolePdf(type){
   const enf=S.famille.find(x=>x.id===(S.familleEnfant||(S.famille[0]?.id)));
@@ -6445,7 +6479,10 @@ function bindAll(){
   // FAMILLE
   // ============================================================
   document.querySelectorAll('[data-ftab]').forEach(el=>el.onclick=()=>{S.familleTab=el.dataset.ftab;render();});
-  document.querySelectorAll('[data-sel-enfant]').forEach(el=>el.onclick=()=>{S.familleEnfant=el.dataset.selEnfant;render();});
+  const selEnfantDrop=document.getElementById('sel-enfant-drop');
+  if(selEnfantDrop)selEnfantDrop.onchange=()=>{S.familleEnfant=selEnfantDrop.value;render();};
+  const btnAddEnfant=document.getElementById('btn-add-enfant');
+  if(btnAddEnfant)btnAddEnfant.onclick=()=>{S.modal={type:'add-membre'};render();};
   const btnPrevMonth=document.getElementById('btn-prev-month');
   if(btnPrevMonth)btnPrevMonth.onclick=()=>{
     let m=S.familleMonth!=null?S.familleMonth:new Date().getMonth();
