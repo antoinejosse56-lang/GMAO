@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v58-20260402-041426">
+<meta name="version" content="v59-20260402-042311">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -238,8 +238,8 @@ async function loadAll() {
       sb.from('water_readings').select('*'),
       sb.from('rangements').select('*').order('nom'),
       sb.from('famille').select('*').order('prenom'),
-      sb.from('creche_saisies').select('*').order('date',{ascending:false}),
-      sb.from('ecole_saisies').select('*').order('date',{ascending:false}),
+      sb.from('creche_saisies').select('*').order('annee',{ascending:false}).order('mois',{ascending:false}).order('jour',{ascending:false}),
+      sb.from('ecole_saisies').select('*').order('annee',{ascending:false}).order('mois',{ascending:false}).order('jour',{ascending:false}),
       sb.from('consommables').select('*').order('nom'),
       sb.from('factures').select('*').order('date',{ascending:false})
     ]);
@@ -2734,24 +2734,62 @@ function renderFamille(){
         +'</tr>';
     }).join('');
 
-    const hTotal=Math.floor(totalMinutes/60);
-    const mTotal=Math.ceil(totalMinutes%60/15)*15;
-    const montantEstime=txNormal>0?totalHSup*txNormal:0;
+    // Contract hours calc
+    const depDef=contratCreche.heure_dep_defaut||'09:00';
+    const recDef=contratCreche.heure_rec_defaut||'16:30';
+    function toMin2(t){if(!t)return 0;const[h,m2]=t.split(':').map(Number);return h*60+m2;}
+    const minParJour=Math.max(0,toMin2(recDef)-toMin2(depDef));
+    const daysInM2=new Date(selYear,selMonth+1,0).getDate();
+    let joursContrat=0;
+    for(let d2=1;d2<=daysInM2;d2++){const dow2=new Date(selYear,selMonth,d2).getDay();if(dow2>=1&&dow2<=5)joursContrat++;}
+    const hContratTotal=(joursContrat*minParJour)/60;
+    const montantContrat=txNormal>0?hContratTotal*txNormal:0;
+    const hSupH=totalMinutes/60;
+    const montantSup=txNormal>0?hSupH*txNormal:0;
+    const montantTotal2=montantContrat+montantSup;
+    const hTotalInt=Math.floor(totalMinutes/60);
+    const mTotalRem=totalMinutes%60;
+    const facRecu2=parseFloat(contratCreche.facture_recue||0);
+    const diff2=montantTotal2-facRecu2;
 
     return tabBar+enfantBar
       +'<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px">'
         +monthBar
-        +'<button class="btn btn-sm" id="btn-creche-contrat">&#9881; Contrat</button>'
+        +'<button class="btn btn-sm" id="btn-creche-contrat">&#9881; Horaires</button>'
         +'<button class="btn btn-sm" id="btn-creche-pdf" style="background:var(--green);color:#fff">&#128196; PDF mensuel</button>'
       +'</div>'
-      +'<div class="card" style="margin-bottom:12px;padding:10px 14px">'
-        +'<div style="display:flex;gap:20px;flex-wrap:wrap;font-size:12px">'
-          +'<div>Taux normal : <strong>'+fmt2(txNormal)+'/h</strong></div>'
-          +'<div>Taux major\u00e9 : <strong>'+fmt2(txMajore)+'/h</strong></div>'
-          +'<div>H. suppl\u00e9mentaires : <strong style="color:var(--red)">'+hTotal+'h'+( mTotal>0?mTotal+'min':'')+'</strong></div>'
-          +(txNormal>0?'<div>Montant estim\u00e9 : <strong style="color:var(--red)">'+fmt2(montantEstime)+'</strong></div>':'')
-          +'<div style="display:flex;gap:6px;align-items:center">Facture re\u00e7ue : <input id="creche-facture-recue" type="number" step="0.01" value="'+(contratCreche.facture_recue||'')+'" placeholder="0.00" style="width:80px;padding:3px 6px;font-size:11px;border:0.5px solid var(--border2);border-radius:4px;background:var(--bg)"> \u20ac</div>'
-          +(contratCreche.facture_recue?'<div style="font-weight:600;color:'+(Math.abs(montantEstime-(contratCreche.facture_recue||0))<0.1?'var(--green)':'var(--red)')+'">Diff\u00e9rence : '+fmt2(montantEstime-(contratCreche.facture_recue||0))+'</div>':'')
+      +'<div class="card" style="margin-bottom:12px;padding:12px 14px">'
+        +'<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--border)">'
+          +'<div style="display:flex;flex-direction:column;gap:2px">'
+            +'<label style="font-size:10px;color:var(--text2)">TAUX HORAIRE (€/h)</label>'
+            +'<input id="creche-taux-normal" type="number" step="0.01" value="'+(txNormal||'')+'" placeholder="0.00" style="width:80px;padding:4px 8px;font-size:13px;font-weight:600;border:1.5px solid var(--border2);border-radius:6px;background:var(--bg)">'
+          +'</div>'
+          +'<div style="display:flex;flex-direction:column;gap:2px">'
+            +'<label style="font-size:10px;color:var(--text2)">H. CONTRAT/JOUR</label>'
+            +'<div style="font-size:13px;font-weight:600;padding:4px 10px;background:var(--bg2);border-radius:6px">'+(minParJour/60).toFixed(2)+'h <span style="font-size:10px;color:var(--text2)">('+depDef+'→'+recDef+')</span></div>'
+          +'</div>'
+          +'<div style="display:flex;flex-direction:column;gap:2px">'
+            +'<label style="font-size:10px;color:var(--text2)">FACTURE REÇUE (€)</label>'
+            +'<input id="creche-facture-recue" type="number" step="0.01" value="'+(contratCreche.facture_recue||'')+'" placeholder="0.00" style="width:90px;padding:4px 8px;font-size:13px;font-weight:600;border:1.5px solid var(--border2);border-radius:6px;background:var(--bg)">'
+          +'</div>'
+          +(facRecu2>0?'<div style="padding:6px 12px;border-radius:6px;font-weight:700;font-size:13px;background:'+(Math.abs(diff2)<0.01?'#1D9E75':'#E74C3C')+';color:#fff;align-self:flex-end">Diff : '+(diff2>0?'+':'')+fmt2(diff2)+' '+(Math.abs(diff2)<0.01?'&#10003;':'&#9888;')+'</div>':'')
+        +'</div>'
+        +'<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">'
+          +'<div style="padding:10px;background:var(--bg2);border-radius:6px;text-align:center">'
+            +'<div style="font-size:10px;color:var(--text2);margin-bottom:2px">CONTRAT ('+joursContrat+' jours)</div>'
+            +'<div style="font-weight:700;font-size:15px">'+hContratTotal.toFixed(2)+'h</div>'
+            +'<div style="font-weight:600;color:var(--blue);font-size:13px">'+fmt2(montantContrat)+'</div>'
+          +'</div>'
+          +'<div style="padding:10px;background:var(--bg2);border-radius:6px;text-align:center">'
+            +'<div style="font-size:10px;color:var(--text2);margin-bottom:2px">H. SUP ('+(totalMinutes/15)+' qh)</div>'
+            +'<div style="font-weight:700;font-size:15px;color:var(--red)">'+hTotalInt+'h'+(mTotalRem>0?mTotalRem+'m':'')+'</div>'
+            +'<div style="font-weight:600;color:var(--red);font-size:13px">'+fmt2(montantSup)+'</div>'
+          +'</div>'
+          +'<div style="padding:10px;background:var(--green);border-radius:6px;text-align:center">'
+            +'<div style="font-size:10px;color:rgba(255,255,255,0.85);margin-bottom:2px">TOTAL DÛ</div>'
+            +'<div style="font-weight:700;font-size:18px;color:#fff">'+fmt2(montantTotal2)+'</div>'
+            +'<div style="font-size:10px;color:rgba(255,255,255,0.75)">@ '+txNormal.toFixed(2)+' €/h</div>'
+          +'</div>'
         +'</div>'
       +'</div>'
       +'<div class="card"><div style="overflow-x:auto"><table style="min-width:600px">'
@@ -6611,6 +6649,14 @@ function bindAll(){
     render();
   });
   // Facture reçue creche save on blur
+  const crecheTauxN=document.getElementById('creche-taux-normal');
+  if(crecheTauxN)crecheTauxN.onchange=async()=>{
+    const enf=S.famille.find(x=>x.id===(S.familleEnfant||(S.famille[0]?.id)));
+    if(!enf)return;
+    const upd={...(enf.contrat_creche||{}),taux_normal:parseFloat(crecheTauxN.value)||0};
+    await sb.from('famille').update({contrat_creche:upd}).eq('id',enf.id);
+    enf.contrat_creche=upd;render();
+  };
   const crFact=document.getElementById('creche-facture-recue');
   if(crFact)crFact.onblur=async()=>{
     const enf=S.famille.find(x=>x.id===(S.familleEnfant||(S.famille[0]?.id)));
