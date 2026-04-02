@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v87-20260402-123333">
+<meta name="version" content="v88-20260402-123840">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -2379,11 +2379,28 @@ function renderFinances(){
     const color={'savadur':'#185FA5','perso':'#1D9E75'}[subCpte];
     const subBar='<div style="display:flex;gap:6px;margin-bottom:14px">'+['savadur','perso'].map(c=>'<button class="btn btn-sm '+(subCpte===c?'btn-p':'')+'" data-fin-cpte="'+c+'">'+cpteLabels[c]+'</button>').join('')+'</div>';
     const facts=S.factures.filter(f=>f.compte===subCpte&&(f.date||'').startsWith(String(year)));
-    const biens=[...new Set(facts.map(f=>f.bien||'Non classé'))].sort();
+    // Extract property name from f.bien (e.g. "Calvin - Studio" → "Calvin")
+    function getPropFromBien(bien){
+      if(!bien)return 'Non classé';
+      const sep=bien.includes(' — ')?' — ':bien.includes(' - ')?' - ':null;
+      return sep?bien.split(sep)[0].trim():bien;
+    }
+    function getZoneFromBien(bien){
+      if(!bien)return '';
+      const sep=bien.includes(' — ')?' — ':bien.includes(' - ')?' - ':null;
+      return sep?bien.split(sep).slice(1).join(sep).trim():'';
+    }
+    const biens=[...new Set(facts.map(f=>getPropFromBien(f.bien)))].sort();
     const bHtml=biens.map(function(bien){
-      const bF=facts.filter(f=>(f.bien||'Non classé')===bien);
+      const bF=facts.filter(f=>getPropFromBien(f.bien)===bien);
       const zMap={};
-      bF.forEach(function(f){const t=f.tenant_id?S.tenants.find(x=>x.id===f.tenant_id):null;let z='Général';if(t&&t.logement){const sep=t.logement.includes(' — ')?' — ':' - ';if(t.logement.includes(sep))z=t.logement.split(sep).slice(1).join(sep);}if(!zMap[z])zMap[z]=[];zMap[z].push(f);});
+      bF.forEach(function(f){
+        // Zone from f.bien sub-part first, then from tenant logement
+        let z=getZoneFromBien(f.bien);
+        if(!z){const t=f.tenant_id?S.tenants.find(x=>x.id===f.tenant_id):null;if(t&&t.logement){const sep=t.logement.includes(' — ')?' — ':' - ';if(t.logement.includes(sep))z=t.logement.split(sep).slice(1).join(sep);}}
+        if(!z)z='Général';
+        if(!zMap[z])zMap[z]=[];zMap[z].push(f);
+      });
       const bT=bF.reduce((s,f)=>s+(f.montant_ttc||0),0);
       const zHtml=Object.keys(zMap).sort().map(function(z){
         const zF=[...zMap[z]].sort((a,b)=>(a.date||'')>(b.date||'')?1:-1);
