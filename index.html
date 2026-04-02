@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v91-20260402-152154">
+<meta name="version" content="v92-20260402-153115">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -2380,44 +2380,66 @@ function renderFinances(){
     const color={'savadur':'#185FA5','perso':'#1D9E75'}[subCpte];
     const subBar='<div style="display:flex;gap:6px;margin-bottom:14px">'+['savadur','perso'].map(c=>'<button class="btn btn-sm '+(subCpte===c?'btn-p':'')+'" data-fin-cpte="'+c+'">'+cpteLabels[c]+'</button>').join('')+'</div>';
     const facts=S.factures.filter(f=>f.compte===subCpte&&(year===0||!year||(f.date||'').startsWith(String(year))));
-    function getProp(bien){if(!bien)return 'Non class\u00e9';const sep=bien.includes(' \u2014 ')?' \u2014 ':bien.includes(' - ')?' - ':null;return sep?bien.split(sep)[0].trim():bien;}
-    function getZone(bien){if(!bien)return '';const sep=bien.includes(' \u2014 ')?' \u2014 ':bien.includes(' - ')?' - ':null;return sep?bien.split(sep).slice(1).join(sep).trim():'';}
-    // Group by property
+    // Use topology property names for grouping - match by prefix (case-insensitive)
+    const tProps=S.topology.properties.map(p=>p.name);
+    function matchProp(bien){
+      if(!bien)return 'Non class\u00e9';
+      // Try exact match first
+      if(tProps.find(p=>p.toLowerCase()===bien.toLowerCase()))return tProps.find(p=>p.toLowerCase()===bien.toLowerCase());
+      // Try prefix match (bien starts with prop name)
+      const matched=tProps.find(p=>bien.toLowerCase().startsWith(p.toLowerCase()));
+      if(matched)return matched;
+      // Extract before separator
+      const sep=bien.includes(' \u2014 ')?' \u2014 ':bien.includes(' - ')?' - ':null;
+      if(sep){const prefix=bien.split(sep)[0].trim();const m2=tProps.find(p=>p.toLowerCase()===prefix.toLowerCase());if(m2)return m2;}
+      return bien.split(' - ')[0].split(' \u2014 ')[0].trim()||'Non class\u00e9';
+    }
+    function extractZone(bien,prop){
+      if(!bien||!prop)return '';
+      const lc=bien.toLowerCase();const lp=prop.toLowerCase();
+      if(lc===lp)return '';
+      // Remove property prefix
+      let rest=bien;
+      if(lc.startsWith(lp))rest=bien.slice(prop.length).trim();
+      // Remove leading separator
+      if(rest.startsWith(' \u2014 '))rest=rest.slice(3).trim();
+      else if(rest.startsWith(' - '))rest=rest.slice(3).trim();
+      else if(rest.startsWith('-'))rest=rest.slice(1).trim();
+      return rest;
+    }
+    // Group by topology property then zone
     const propMap={};
     facts.forEach(function(f){
-      const prop=getProp(f.bien);
-      const zone=getZone(f.bien)||'';
-      if(!propMap[prop])propMap[prop]={nozone:[],zones:{}};
-      if(zone){if(!propMap[prop].zones[zone])propMap[prop].zones[zone]=[];propMap[prop].zones[zone].push(f);}
-      else propMap[prop].nozone.push(f);
+      const prop=matchProp(f.bien);
+      const zone=extractZone(f.bien,prop)||'G\u00e9n\u00e9ral';
+      if(!propMap[prop])propMap[prop]={};
+      if(!propMap[prop][zone])propMap[prop][zone]=[];
+      propMap[prop][zone].push(f);
     });
-    const props=Object.keys(propMap).sort();
+    // Order properties by topology order
+    const orderedProps=[...tProps.filter(p=>propMap[p]),...Object.keys(propMap).filter(p=>!tProps.includes(p)).sort()];
+    const THEAD='<thead><tr><th style="font-size:10px">Date</th><th style="font-size:10px">Fournisseur</th><th style="font-size:10px">Description</th><th style="font-size:10px">Cat.</th><th style="font-size:10px;text-align:right">TTC</th><th></th></tr></thead>';
     function factRow(f){
-      return '<tr>'
-        +'<td style="font-size:11px;white-space:nowrap">'+dateLabel(f.date)+'</td>'
+      return '<tr><td style="font-size:11px;white-space:nowrap">'+dateLabel(f.date)+'</td>'
         +'<td style="font-size:12px">'+f.fournisseur+'</td>'
         +'<td style="font-size:11px;color:var(--text2)">'+(f.description||'')+'</td>'
         +'<td><span class="badge bgray" style="font-size:9px">'+(f.categorie||'')+'</span></td>'
-        +'<td style="text-align:right;font-weight:500">'+fmt(f.montant_ttc)+'</td>'
-        +(isAdmin()?'<td style="text-align:center"><button class="btn btn-d btn-sm" data-del-facture="'+f.id+'" style="font-size:10px;padding:2px 5px">&#10005;</button></td>':'<td></td>')
+        +'<td style="text-align:right;font-weight:500">'+fmt(f.montant_ttc||0)+'</td>'
+        +(isAdmin()?'<td><button class="btn btn-d btn-sm" data-del-facture="'+f.id+'" style="font-size:10px;padding:2px 5px">&#10005;</button></td>':'<td></td>')
         +'</tr>';
     }
-    const THEAD='<thead><tr><th style="font-size:10px">Date</th><th style="font-size:10px">Fournisseur</th><th style="font-size:10px">Description</th><th style="font-size:10px">Cat.</th><th style="font-size:10px;text-align:right">TTC</th><th></th></tr></thead>';
-    const bHtml=props.map(function(prop){
-      const data=propMap[prop];
-      const allF=[...data.nozone,...Object.values(data.zones).flat()];
-      const propTotal=allF.reduce((s,f)=>s+(f.montant_ttc||0),0);
-      // No-zone block first
-      const nozoneHtml=data.nozone.length?'<div style="margin-bottom:12px">'
-        +'<div style="font-size:11px;font-weight:600;color:var(--text2);padding:4px 0;margin-bottom:4px;border-bottom:1px dashed var(--border)">G\u00e9n\u00e9ral — '+fmt(data.nozone.reduce((s,f)=>s+(f.montant_ttc||0),0))+'</div>'
-        +'<div style="overflow-x:auto"><table style="min-width:450px">'+THEAD+'<tbody>'+data.nozone.sort((a,b)=>(a.date||'')>(b.date||'')?1:-1).map(factRow).join('')+'</tbody></table></div>'
-        +'</div>':'';
-      // One sub-block per zone
-      const zonesHtml=Object.keys(data.zones).sort().map(function(zone){
-        const zF=[...data.zones[zone]].sort((a,b)=>(a.date||'')>(b.date||'')?1:-1);
+    const bHtml=orderedProps.map(function(prop){
+      const zones=propMap[prop];
+      const propTotal=Object.values(zones).flat().reduce((s,f)=>s+(f.montant_ttc||0),0);
+      // Order: Général first, then alphabetical
+      const orderedZones=['G\u00e9n\u00e9ral',...Object.keys(zones).filter(z=>z!=='G\u00e9n\u00e9ral').sort()];
+      const zonesHtml=orderedZones.filter(z=>zones[z]).map(function(zone){
+        const zF=[...zones[zone]].sort((a,b)=>(a.date||'')>(b.date||'')?1:-1);
         const zT=zF.reduce((s,f)=>s+(f.montant_ttc||0),0);
-        return '<div style="margin-bottom:12px">'
-          +'<div style="font-size:11px;font-weight:600;color:var(--text2);padding:4px 0;margin-bottom:4px;border-bottom:1px dashed var(--border)">'+zone+' — '+fmt(zT)+'</div>'
+        return '<div style="margin-bottom:14px">'
+          +'<div style="display:flex;justify-content:space-between;font-size:11px;font-weight:600;color:var(--text2);padding:4px 0;margin-bottom:4px;border-bottom:1px dashed var(--border)">'
+            +'<span>'+zone+'</span><span>'+fmt(zT)+'</span>'
+          +'</div>'
           +'<div style="overflow-x:auto"><table style="min-width:450px">'+THEAD+'<tbody>'+zF.map(factRow).join('')+'</tbody></table></div>'
           +'</div>';
       }).join('');
@@ -2426,13 +2448,13 @@ function renderFinances(){
           +'<div style="font-size:14px;font-weight:700;color:'+color+'">&#127968; '+prop+'</div>'
           +'<div style="font-size:13px;font-weight:700">'+fmt(propTotal)+'</div>'
         +'</div>'
-        +nozoneHtml+zonesHtml
+        +zonesHtml
         +'</div>';
     }).join('');
     const gT=facts.reduce((s,f)=>s+(f.montant_ttc||0),0);
     return tabBar+yearBar+subBar
-      +(bHtml||'<div style="text-align:center;padding:24px;color:var(--text2)">Aucune facture pour ce compte en '+year+'</div>')
-      +'<div class="card" style="background:var(--bg2)"><div style="display:flex;justify-content:space-between;font-weight:700"><span>TOTAL '+cpteLabels[subCpte]+' '+year+'</span><span>'+fmt(gT)+'</span></div></div>';
+      +(bHtml||'<div style="text-align:center;padding:24px;color:var(--text2)">Aucune facture pour ce compte en '+(year||'cette p\u00e9riode')+'</div>')
+      +'<div class="card" style="background:var(--bg2)"><div style="display:flex;justify-content:space-between;font-weight:700"><span>TOTAL '+cpteLabels[subCpte]+(year?' '+year:'')+'</span><span>'+fmt(gT)+'</span></div></div>';
   }
 
 
