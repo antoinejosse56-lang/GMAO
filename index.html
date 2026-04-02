@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v60-20260402-043456">
+<meta name="version" content="v62-20260402-044317">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -2660,15 +2660,21 @@ function renderFamille(){
   }
 
   // ===== CRÈCHE / ÉCOLE - enfant selector =====
-  const enfants=membres; // tous les membres peuvent avoir crèche/école
+  // All famille members are potential children for crèche/école
+  const enfants=membres;
   const selEnfantId=S.familleEnfant||(enfants[0]?.id||null);
   const selEnfant=enfants.find(m=>m.id===selEnfantId)||enfants[0]||null;
 
-  const enfantBar='<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">'
-    +(enfants.length>0?'<select id="sel-enfant-drop" style="padding:5px 10px;border:1px solid var(--border2);border-radius:6px;background:var(--bg);font-size:13px">'
-      +enfants.map(m=>'<option value="'+m.id+'" '+(m.id===selEnfantId?'selected':'')+'>'+( m.prenom||'')+' '+(m.nom||'')+'</option>').join('')
-      +'</select>':'')
-    +'<button class="btn btn-sm btn-p" id="btn-add-enfant">+ Enfant</button>'
+  // Sub-tabs: one per child + add button
+  const enfantBar=enfants.length===0?'':
+    '<div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--border)">'
+    +enfants.map(function(m){
+      const isActive=m.id===selEnfantId;
+      return '<button class="btn btn-sm'+(isActive?' btn-p':'')+'" data-sel-enfant="'+m.id+'" style="'+(isActive?'':'background:var(--bg2);')+'">'
+        +(m.prenom||m.nom||'Enfant')
+        +'</button>';
+    }).join('')
+    +'<button class="btn btn-sm" id="btn-add-enfant" title="Ajouter un membre famille" style="border:1.5px dashed var(--border2);background:transparent;color:var(--text2)">+ Membre</button>'
     +'</div>';
 
   if(!selEnfant){
@@ -6495,8 +6501,6 @@ function bindAll(){
   // FAMILLE
   // ============================================================
   document.querySelectorAll('[data-ftab]').forEach(el=>el.onclick=()=>{S.familleTab=el.dataset.ftab;render();});
-  const selEnfantDrop=document.getElementById('sel-enfant-drop');
-  if(selEnfantDrop)selEnfantDrop.onchange=()=>{S.familleEnfant=selEnfantDrop.value;render();};
   const btnAddEnfant=document.getElementById('btn-add-enfant');
   if(btnAddEnfant)btnAddEnfant.onclick=()=>{S.modal={type:'add-membre'};render();};
   const btnPrevMonth=document.getElementById('btn-prev-month');
