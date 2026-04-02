@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v92-20260402-153115">
+<meta name="version" content="v93-20260402-153736">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -6251,6 +6251,7 @@ function bindAll(){
     const f=S.factures.find(x=>x.id===el.dataset.editFacture);
     if(f){S.modal={type:'edit-facture',facture:f};render();}
   });
+  document.querySelectorAll('[data-fin-cpte]').forEach(el=>el.onclick=()=>{S.finFactCpte=el.dataset.finCpte;render();});
   document.querySelectorAll('[data-del-facture]').forEach(el=>el.onclick=async()=>{
     if(!confirm('Supprimer cette facture ?'))return;
     const {error}=await sb.from('factures').delete().eq('id',el.dataset.delFacture);
