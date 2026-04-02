@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v59-20260402-042311">
+<meta name="version" content="v60-20260402-043456">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -3108,80 +3108,58 @@ function buildCrechePdf(){
   const y=S.familleYear||new Date().getFullYear();
   const mo=(S.familleMonth!=null?S.familleMonth:new Date().getMonth());
   const MOIS=['Janvier','F\u00e9vrier','Mars','Avril','Mai','Juin','Juillet','Ao\u00fbt','Septembre','Octobre','Novembre','D\u00e9cembre'];
+  const JOURS=['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'];
   const c=enf.contrat_creche||{};
-  const txN=parseFloat(c.taux_normal||0);
   const depDef=c.heure_dep_defaut||'09:00';
   const recDef=c.heure_rec_defaut||'16:30';
-  function toMin2(t){if(!t)return 0;const[h,m]=t.split(':').map(Number);return h*60+m;}
-  // Show ALL weekdays with their contract hours (modified if saved, default otherwise)
-  const daysInM=new Date(y,mo+1,0).getDate();
   const saisies=S.crecheSaisies.filter(s=>s.enfant_id===enf.id&&s.annee===y&&s.mois===mo+1);
-  let totalContratMin=0,totalSupMin=0;
+  const daysInM=new Date(y,mo+1,0).getDate();
   const rows=[];
+  let prevWasFriday=false;
   for(let d=1;d<=daysInM;d++){
     const date=new Date(y,mo,d);
     const dow=date.getDay();
-    if(dow===0||dow===6)continue; // exclude weekends
+    if(dow===0||dow===6)continue;
+    // Separator between friday and following monday
+    if(prevWasFriday&&dow===1){
+      rows.push('<tr><td colspan="3" style="border:none;height:10px;border-top:2px solid #1D9E75;padding:0"></td></tr>');
+    }
     const s=saisies.find(x=>x.jour===d);
     const depC=s?.heure_contrat_dep||depDef;
     const recC=s?.heure_contrat_rec||recDef;
-    const depAntic=s?.depose_anticipee||'';
-    const recTard=s?.recuperation_tardive||'';
-    const minContrat=Math.max(0,toMin2(recC)-toMin2(depC));
-    const minSup=s?.minutes_sup||0;
-    totalContratMin+=minContrat;
-    totalSupMin+=Math.ceil(minSup/15)*15;
-    const dowLabel=['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'][dow];
-    const modified=s&&(depAntic||recTard||(s.heure_contrat_dep&&s.heure_contrat_dep!==depDef)||(s.heure_contrat_rec&&s.heure_contrat_rec!==recDef));
-    rows.push('<tr'+(modified?' style="background:#FFF9E6"':'')+'>'
-      +'<td>'+(''+d).padStart(2,'0')+'/'+ ('+'+(mo+1)).padStart(2,'0')+'/'+y+' '+dowLabel+'</td>'
-      +'<td style="text-align:center">'+(depAntic||'\u2014')+'</td>'
-      +'<td style="text-align:center;font-weight:500">'+depC+'</td>'
-      +'<td style="text-align:center;font-weight:500">'+recC+'</td>'
-      +'<td style="text-align:center">'+(recTard||'\u2014')+'</td>'
-      +'<td style="text-align:center;font-size:11px">'+(minContrat/60).toFixed(2)+'h</td>'
-      +'<td style="text-align:center;font-weight:600;color:'+(minSup>0?'#C0392B':'#aaa')+'">'+(minSup>0?'+'+Math.ceil(minSup/15)+' qh':'\u2014')+'</td>'
+    const modified=s&&(s.heure_contrat_dep||s.heure_contrat_rec);
+    rows.push('<tr'+(modified?' style="background:#FFF9E6;font-weight:600"':'')+'>'
+      +'<td style="padding:5px 10px">'+JOURS[dow]+' '+(''+d).padStart(2,'0')+'/'+('+'+(mo+1)).padStart(2,'0')+'/'+y+'</td>'
+      +'<td style="text-align:center;padding:5px 10px">'+depC+'</td>'
+      +'<td style="text-align:center;padding:5px 10px">'+recC+'</td>'
       +'</tr>');
+    prevWasFriday=(dow===5);
   }
-  const hContrat=totalContratMin/60;
-  const hSup=totalSupMin/60;
-  const montContrat=txN*hContrat;
-  const montSup=txN*hSup;
-  const montTotal=montContrat+montSup;
-  const facRecu=parseFloat(c.facture_recue||0);
-  const diff=montTotal-facRecu;
   const html='<!DOCTYPE html><html><head><meta charset="UTF-8">'
-    +'<style>body{font-family:Arial,sans-serif;padding:20px;color:#222;font-size:12px}'
-    +'h1{font-size:16px;color:#1D9E75;margin-bottom:2px}h2{font-size:12px;color:#555;margin-top:0;margin-bottom:16px}'
-    +'table{width:100%;border-collapse:collapse;margin:12px 0}th{background:#1D9E75;color:#fff;padding:5px 8px;text-align:center;font-size:11px}td{padding:4px 8px;border-bottom:1px solid #eee}'
-    +'.recap{margin-top:16px;padding:14px;background:#f0f9f4;border-radius:6px;display:grid;grid-template-columns:1fr 1fr;gap:8px}'
-    +'.recap-item{padding:8px;background:#fff;border-radius:4px}'
-    +'.recap-label{font-size:10px;color:#888;margin-bottom:2px}'
-    +'.recap-val{font-size:15px;font-weight:700}'
-    +'.diff-ok{color:#1D9E75}.diff-ko{color:#C0392B}'
-    +'.legend{font-size:10px;color:#888;margin-top:8px}'
-    +'.printbtn{position:fixed;top:12px;right:12px;background:#1D9E75;color:#fff;border:none;padding:8px 18px;border-radius:6px;cursor:pointer;font-weight:700;font-size:13px}'
-    +'@media print{.printbtn{display:none}}</style></head><body>'
+    +'<style>'
+    +'body{font-family:Arial,sans-serif;padding:30px;color:#222;font-size:13px}'
+    +'h1{font-size:18px;color:#1D9E75;margin-bottom:2px}'
+    +'h2{font-size:13px;color:#555;margin-top:0;margin-bottom:20px;font-weight:400}'
+    +'table{width:100%;border-collapse:collapse;margin:0}'
+    +'th{background:#1D9E75;color:#fff;padding:8px 10px;text-align:left;font-size:12px;font-weight:600}'
+    +'td{padding:5px 10px;border-bottom:1px solid #eee;font-size:12px}'
+    +'tr:hover td{background:#f5fdf8}'
+    +'.legend{font-size:10px;color:#888;margin-top:12px;font-style:italic}'
+    +'.printbtn{position:fixed;top:16px;right:16px;background:#1D9E75;color:#fff;border:none;padding:9px 20px;border-radius:6px;cursor:pointer;font-weight:700;font-size:13px;box-shadow:0 2px 8px rgba(0,0,0,0.15)}'
+    +'@media print{.printbtn{display:none}body{padding:15px}}'
+    +'</style></head><body>'
     +'<button class="printbtn" onclick="window.print()">&#128424; Imprimer / PDF</button>'
     +'<h1>&#128118; Planning cr\u00e8che \u2014 '+MOIS[mo]+' '+y+'</h1>'
-    +'<h2>'+enf.prenom+' '+(enf.nom||'')+(enf.naissance?' &middot; n\u00e9(e) le '+enf.naissance:'')+'</h2>'
-    +'<table><thead><tr>'
-      +'<th>Date</th><th>D\u00e9pose anticipée</th><th>Contrat d\u00e9pose</th><th>Contrat r\u00e9cup.</th><th>R\u00e9cup. tardive</th><th>H. contrat</th><th>H. sup.</th>'
-    +'</tr></thead><tbody>'+rows.join('')+'</tbody>'
-    +'<tfoot><tr style="font-weight:700;background:#e8f5e9">'
-      +'<td colspan="5">TOTAUX</td>'
-      +'<td style="text-align:center">'+hContrat.toFixed(2)+'h</td>'
-      +'<td style="text-align:center;color:#C0392B">'+hSup.toFixed(2)+'h</td>'
-    +'</tr></tfoot></table>'
-    +'<div class="recap">'
-      +'<div class="recap-item"><div class="recap-label">HEURES CONTRAT</div><div class="recap-val">'+hContrat.toFixed(2)+'h</div><div style="font-size:11px;color:#1D9E75">'+montContrat.toFixed(2)+' \u20ac</div></div>'
-      +'<div class="recap-item"><div class="recap-label">HEURES SUPPL\u00c9MENTAIRES</div><div class="recap-val" style="color:#C0392B">'+hSup.toFixed(2)+'h</div><div style="font-size:11px;color:#C0392B">'+montSup.toFixed(2)+' \u20ac</div></div>'
-      +'<div class="recap-item"><div class="recap-label">TOTAL D\u00db</div><div class="recap-val" style="color:#1D9E75">'+montTotal.toFixed(2)+' \u20ac</div><div style="font-size:11px">Taux : '+txN.toFixed(2)+' \u20ac/h</div></div>'
-      +'<div class="recap-item"><div class="recap-label">FACTURE RE\u00c7UE</div><div class="recap-val">'+( facRecu>0?facRecu.toFixed(2)+' \u20ac':'Non renseign\u00e9e')+'</div>'
-        +(facRecu>0?'<div style="font-size:11px" class="'+(Math.abs(diff)<0.01?'diff-ok':'diff-ko')+'">'+(diff>0?'+':'')+diff.toFixed(2)+' \u20ac '+(Math.abs(diff)<0.01?'&#10003; Conforme':'&#9888; \u00c0 v\u00e9rifier')+'</div>':'')
-      +'</div>'
-    +'</div>'
-    +'<p class="legend">&#9660; Lignes fond jaune = jours avec modification par rapport au contrat standard</p>'
+    +'<h2>'+enf.prenom+' '+(enf.nom||'')+'</h2>'
+    +'<table>'
+      +'<thead><tr>'
+        +'<th>Jour</th>'
+        +'<th style="text-align:center">Heure d\u00e9pose</th>'
+        +'<th style="text-align:center">Heure r\u00e9cup\u00e9ration</th>'
+      +'</tr></thead>'
+      +'<tbody>'+rows.join('')+'</tbody>'
+    +'</table>'
+    +'<p class="legend">Lignes fond jaune = horaires modifi\u00e9s par rapport au contrat standard ('+depDef+' \u2192 '+recDef+')</p>'
     +'</body></html>';
   const blob=new Blob([html],{type:'text/html'});
   const url=URL.createObjectURL(blob);
