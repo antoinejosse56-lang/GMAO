@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v73-20260402-054529">
+<meta name="version" content="v73d-20260402-055926">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -6700,7 +6700,8 @@ function bindAll(){
   // Global save for creche (top and bottom buttons)
   async function saveCrecheAll(){
     const enf=S.famille.find(x=>x.id===(S.familleEnfant||(S.famille[0]?.id)));
-    if(!enf)return;
+    console.log('[CRECHE SAVE] enf=',enf?.prenom,'familleEnfant=',S.familleEnfant,'famille=',S.famille?.length);
+    if(!enf){console.error('[CRECHE SAVE] Aucun enfant!');return;}
     const y=S.familleYear||new Date().getFullYear();
     const mo=(S.familleMonth!=null?S.familleMonth:new Date().getMonth())+1;
     const daysInM=new Date(y,mo,0).getDate();
@@ -6754,7 +6755,9 @@ function bindAll(){
     const updContrat={...(enf.contrat_creche||{})};
     if(tauxEl)updContrat.taux_normal=parseFloat(tauxEl.value)||0;
     if(factEl)updContrat.facture_recue=parseFloat(factEl.value)||0;
+    console.log('[CRECHE SAVE] Saving contrat for id=',enf.id,'data=',updContrat);
     const{error:contratErr}=await sb.from('famille').update({contrat_creche:updContrat}).eq('id',enf.id);
+    console.log('[CRECHE SAVE] Contrat result: error=',contratErr);
     if(contratErr)console.warn('Contrat save error:',contratErr.message);
     else enf.contrat_creche=updContrat;
     render();
@@ -6815,7 +6818,8 @@ function bindAll(){
   const btnEcoleSaveTarifs=document.getElementById('btn-ecole-save-tarifs');
   if(btnEcoleSaveTarifs)btnEcoleSaveTarifs.onclick=async()=>{
     const enf=S.famille.find(x=>x.id===(S.familleEnfant||(S.famille[0]?.id)));
-    if(!enf)return;
+    console.log('[ECOLE SAVE TARIFS] enf=',enf?.prenom,'familleEnfant=',S.familleEnfant);
+    if(!enf){console.error('[ECOLE SAVE] Aucun enfant!');return;}
     const upd={...(enf.contrat_ecole||{}),
       taux_peri_prevu:parseFloat(document.getElementById('ecole-taux-pp')?.value)||0,
       taux_peri_non_prevu:parseFloat(document.getElementById('ecole-taux-pnp')?.value)||0,
