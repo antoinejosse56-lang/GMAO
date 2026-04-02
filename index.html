@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v67-20260402-050343">
+<meta name="version" content="v68-20260402-050810">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -5577,25 +5577,22 @@ async function saveModal(){
   // ── Crèche contrat save
   if(m.type==='add-enfant-tab'){
     const tabLabel=m.forTab==='creche'?'Crèche':'École';
-    const already=S.famille.filter(function(mb){
-      return m.forTab==='creche'
-        ?mb.contrat_creche&&Object.keys(mb.contrat_creche).length>0
-        :mb.contrat_ecole&&Object.keys(mb.contrat_ecole).length>0;
-    }).map(function(mb){return mb.id;});
-    const available=S.famille.filter(function(mb){return !already.includes(mb.id);});
-    const opts=available.map(function(mb){
+    // Show ALL famille members - user picks who to add to this tab
+    const all=S.famille||[];
+    const opts=all.map(function(mb){
       return '<option value="'+mb.id+'">'+(mb.prenom||'')+' '+(mb.nom||'')+'</option>';
     }).join('');
-    html=mhd('Ajouter un enfant — '+tabLabel)
-      +(available.length===0
-        ?'<div style="text-align:center;padding:16px;color:var(--text2)">Tous les membres sont déjà configurés ou aucun membre n’existe.</div>'
-        :'<div class="form-group"><label>Sélectionner un membre famille</label>'
-          +'<select id="m-enfant-sel" style="font-size:14px;padding:8px">'
-          +'<option value="">-- Choisir --</option>'+opts
+    html=mhd('Ajouter dans '+tabLabel)
+      +(all.length===0
+        ?'<div style="text-align:center;padding:16px;color:var(--text2)">Aucun membre dans Famille. Ajoutez d’abord un membre dans l’onglet Membres.</div>'
+        :'<div class="form-group"><label>Choisir un membre famille</label>'
+          +'<select id="m-enfant-sel" style="font-size:14px;padding:8px;width:100%">'
+          +'<option value="">-- Sélectionner --</option>'+opts
           +'</select></div>'
-          +'<div style="font-size:12px;color:var(--text2);margin-top:6px">Les horaires/taux seront à configurer ensuite via le bouton Horaires/Tarifs.</div>'
+          +'<div style="font-size:12px;color:var(--text2);margin-top:6px">Les horaires et taux seront à configurer ensuite via &#9881; Horaires / &#9881; Tarifs.</div>'
           +mf);
   }
+
 
 
   if(m.type==='creche-contrat'){
