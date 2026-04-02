@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v63-20260402-044955">
+<meta name="version" content="v64-20260402-045302">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -2660,8 +2660,12 @@ function renderFamille(){
   }
 
   // ===== CRÈCHE / ÉCOLE - enfant selector =====
-  // All famille members are potential children for crèche/école
-  const enfants=membres;
+  // Only show members that have a creche/ecole contrat set (non-empty)
+  const enfants=membres.filter(function(m){
+    const cc=m.contrat_creche||{};
+    const ce=m.contrat_ecole||{};
+    return Object.keys(cc).length>0||Object.keys(ce).length>0||S.familleEnfant===m.id;
+  });
   const selEnfantId=S.familleEnfant||(enfants[0]?.id||null);
   const selEnfant=enfants.find(m=>m.id===selEnfantId)||enfants[0]||null;
 
