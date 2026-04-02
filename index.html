@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v65-20260402-045648">
+<meta name="version" content="v66-20260402-050021">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -6530,9 +6530,16 @@ function bindAll(){
   document.querySelectorAll('[data-del-enfant-tab]').forEach(el=>el.onclick=async()=>{
     const mb=S.famille.find(x=>x.id===el.dataset.delEnfantTab);
     if(!mb)return;
-    if(!confirm('Retirer '+(mb.prenom||'ce membre')+' de la crèche/école ? Le membre reste dans Famille, seul le contrat est effacé.'))return;
-    await sb.from('famille').update({contrat_creche:{},contrat_ecole:{}}).eq('id',mb.id);
-    mb.contrat_creche={};mb.contrat_ecole={};
+    const currentTab=S.familleTab||'creche';
+    const tabLabel=currentTab==='creche'?'la crèche':'l\'école';
+    if(!confirm('Retirer '+(mb.prenom||'ce membre')+' de '+tabLabel+' ? Le membre reste dans Famille.'))return;
+    if(currentTab==='creche'){
+      await sb.from('famille').update({contrat_creche:{}}).eq('id',mb.id);
+      mb.contrat_creche={};
+    } else {
+      await sb.from('famille').update({contrat_ecole:{}}).eq('id',mb.id);
+      mb.contrat_ecole={};
+    }
     if(S.familleEnfant===mb.id)S.familleEnfant=null;
     render();
   });
