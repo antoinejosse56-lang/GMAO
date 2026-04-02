@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v78-20260402-071834">
+<meta name="version" content="v81-20260402-091954">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -221,7 +221,7 @@ async function loadAll() {
     const test = await sb.from('users').select('count', {count:'exact',head:true});
     if (test.error) { showError(test.error.message || JSON.stringify(test.error)); return; }
 
-    const [u, a, t, tl, l, wo, mt, topo, rev, cpt, rel, ten, rp, wr, rng, fam, conso, facturesRes, crecheRes, ecoleRes] = await Promise.all([
+    const [u, a, t, tl, l, wo, mt, topo, rev, cpt, rel, ten, rp, wr, rng, fam, crecheRes, ecoleRes, conso, facturesRes] = await Promise.all([
       sb.from('users').select('*'),
       sb.from('assets').select('*'),
       sb.from('tasks').select('*'),
@@ -2877,28 +2877,31 @@ function renderFamille(){
     const rows=days.map(d=>{
       const date=new Date(selYear,selMonth,d);
       const dow=date.getDay();
-      const isWE=dow===0||dow===6;
+      if(dow===0||dow===6)return '';
       const s=saisies.find(x=>x.jour===d);
-      const bg=isWE?'background:var(--bg2)':'';
+      const isMer=dow===3;
       const isCentre=s?.centre_loisir||false;
-      const isPrev=!s||s.type_peri==='prevu';
-      const durMat=s?(isPrev?s.peri_matin_min||0:s.peri_matin_np_min||0):0;
-      const durSoir=s?(isPrev?s.peri_soir_min||0:s.peri_soir_np_min||0):0;
-      const inStyle='width:55px;font-size:11px;padding:2px 4px;border:0.5px solid var(--border2);border-radius:3px;background:var(--bg);text-align:right'+(isWE||isCentre?';opacity:0.4':'');
-      return '<tr style="'+bg+'">'
-        +'<td style="font-size:11px;padding:3px 6px;color:'+(isWE?'var(--text3)':isCentre?'var(--blue)':'var(--text)')+'">'+(''+d).padStart(2,'0')+'/'+('+'+(selMonth+1)).padStart(2,'0')+' '+['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'][dow]+'</td>'
-        +'<td style="text-align:center;padding:2px"><input type="number" min="0" step="15" class="ecole-dur-mat" data-day="'+d+'" value="'+(isCentre?'':durMat||'')+'" placeholder="0" '+(isCentre?'disabled':'')+' style="'+inStyle+'"></td>'
-        +'<td style="text-align:center;padding:2px"><input type="number" min="0" step="15" class="ecole-dur-soir" data-day="'+d+'" value="'+(isCentre?'':durSoir||'')+'" placeholder="0" '+(isCentre?'disabled':'')+' style="'+inStyle+'"></td>'
-        +'<td style="text-align:center;padding:2px">'
-          +'<select class="ecole-type-peri" data-day="'+d+'" '+(isCentre?'disabled':'')+' style="font-size:10px;padding:2px 3px;border:0.5px solid var(--border2);border-radius:3px;background:var(--bg);width:65px;opacity:'+(isCentre?'0.4':'1')+'">'
-            +'<option value="prevu" '+(isPrev?'selected':'')+'>Prévu</option>'
-            +'<option value="non_prevu" '+(!isPrev?'selected':'')+'>N.Prévu</option>'
-          +'</select>'
-        +'</td>'
-        +'<td style="text-align:center;padding:2px"><input type="checkbox" class="ecole-cant" data-day="'+d+'" '+(s?.cantine?'checked':'')+' '+(isCentre?'disabled':'')+' style="width:15px;height:15px;opacity:'+(isCentre?'0.4':'1')+'"></td>'
-        +'<td style="text-align:center;padding:2px"><input type="checkbox" class="ecole-centre" data-day="'+d+'" '+(isCentre?'checked':'')+' style="width:15px;height:15px;accent-color:var(--blue)"></td>'
+      const isAbsent=s?.absence_autorisee||false;
+      const dowLabel=['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'][dow];
+      const noPeri=isMer||isCentre||isAbsent;
+      const durMat=s&&!noPeri?(s.peri_matin_min||s.peri_matin_np_min||0):0;
+      const durSoir=s&&!noPeri?(s.peri_soir_min||s.peri_soir_np_min||0):0;
+      const typeMat=s&&s.peri_matin_np_min>0?'non_prevu':'prevu';
+      const typeSoir=s&&s.peri_soir_np_min>0?'non_prevu':'prevu';
+      const rowBg=isCentre?'background:#EBF5FF':isAbsent?'background:#FFFBE6':'';
+      const IS='width:50px;font-size:11px;padding:2px 4px;border:0.5px solid var(--border2);border-radius:3px;text-align:right;background:var(--bg)';
+      const SS='font-size:10px;padding:2px 3px;border:0.5px solid var(--border2);border-radius:3px;background:var(--bg);width:72px';
+      return '<tr style="'+rowBg+'">'
+        +'<td style="font-size:11px;padding:3px 6px;font-weight:'+(isMer?'600':'400')+'">'+(''+d).padStart(2,'0')+'/'+('+'+(selMonth+1)).padStart(2,'0')+' '+dowLabel+'</td>'
+        +'<td style="text-align:center;padding:2px">'+(noPeri?'<span style="color:var(--text3);">—</span>':'<input type="number" min="0" step="15" class="ecole-dur-mat" data-day="'+d+'" value="'+(durMat||'')+'" placeholder="0" style="'+IS+'">')+'</td>'
+        +'<td style="text-align:center;padding:2px">'+(noPeri?'':'<select class="ecole-type-mat" data-day="'+d+'" style="'+SS+'"><option value="prevu" '+(typeMat==='prevu'?'selected':'')+'>Prévu</option><option value="non_prevu" '+(typeMat==='non_prevu'?'selected':'')+'>N.prévu</option></select>')+'</td>'
+        +'<td style="text-align:center;padding:2px">'+(noPeri?'<span style="color:var(--text3);">—</span>':'<input type="number" min="0" step="15" class="ecole-dur-soir" data-day="'+d+'" value="'+(durSoir||'')+'" placeholder="0" style="'+IS+'">')+'</td>'
+        +'<td style="text-align:center;padding:2px">'+(noPeri?'':'<select class="ecole-type-soir" data-day="'+d+'" style="'+SS+'"><option value="prevu" '+(typeSoir==='prevu'?'selected':'')+'>Prévu</option><option value="non_prevu" '+(typeSoir==='non_prevu'?'selected':'')+'>N.prévu</option></select>')+'</td>'
+        +'<td style="text-align:center;padding:2px"><input type="checkbox" class="ecole-cant" data-day="'+d+'" '+(s?.cantine?'checked':'')+' '+(isAbsent?'disabled':'')+' style="width:15px;height:15px;opacity:'+(isAbsent?'0.4':'1')+'"></td>'
+        +'<td style="text-align:center;padding:2px"><input type="checkbox" class="ecole-centre" data-day="'+d+'" '+(isCentre?'checked':'')+' '+(isAbsent?'disabled':'')+' style="width:15px;height:15px;accent-color:var(--blue)"></td>'
+        +'<td style="text-align:center;padding:2px"><input type="checkbox" class="ecole-absent" data-day="'+d+'" '+(isAbsent?'checked':'')+' style="width:15px;height:15px;accent-color:var(--amber)"></td>'
         +'</tr>';
-    }).join('');;;
+    }).join('');;;;;
 
     return tabBar+enfantBar
       +'<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px">'
@@ -2959,14 +2962,13 @@ function renderFamille(){
       +'<div class="card"><div style="overflow-x:auto"><table style="min-width:700px">'
         +'<thead><tr>'
           +'<th style="font-size:10px">Date</th>'
-          +'<th style="font-size:10px">P\u00e9ri mat. d\u00e9b</th>'
-          +'<th style="font-size:10px">P\u00e9ri mat. fin</th>'
-          +'<th style="font-size:10px">P\u00e9ri soir d\u00e9b</th>'
-          +'<th style="font-size:10px">P\u00e9ri soir fin</th>'
+          +'<th style="font-size:10px">Péri mat.<br>(min)</th>'
+          +'<th style="font-size:10px">Mat. type</th>'
+          +'<th style="font-size:10px">Péri soir<br>(min)</th>'
+          +'<th style="font-size:10px">Soir type</th>'
           +'<th style="font-size:10px">Cantine</th>'
-          +'<th style="font-size:10px">Centre</th>'
-          +'<th style="font-size:10px">Type</th>'
-          +'<th></th>'
+          +'<th style="font-size:10px;color:var(--blue)">Centre</th>'
+          +'<th style="font-size:10px;color:var(--amber)">Absent</th>'
         +'</tr></thead>'
         +'<tbody>'+rows+'</tbody>'
       +'</table></div>'
@@ -6866,21 +6868,24 @@ function bindAll(){
     let errors=[];
     for(let d=1;d<=daysInM;d++){
       const isCentre=document.querySelector('.ecole-centre[data-day="'+d+'"]')?.checked||false;
-      const durMat=parseInt(document.querySelector('.ecole-dur-mat[data-day="'+d+'"]')?.value)||0;
-      const durSoir=parseInt(document.querySelector('.ecole-dur-soir[data-day="'+d+'"]')?.value)||0;
-      const typePeri=document.querySelector('.ecole-type-peri[data-day="'+d+'"]')?.value||'prevu';
+      const isAbsent=document.querySelector('.ecole-absent[data-day="'+d+'"]')?.checked||false;
+      const periMat=document.querySelector('.ecole-peri-mat[data-day="'+d+'"]')?.value||'non';
+      const periSoir=document.querySelector('.ecole-peri-soir[data-day="'+d+'"]')?.value||'non';
       const cantine=document.querySelector('.ecole-cant[data-day="'+d+'"]')?.checked||false;
       const existing=S.ecoleSaisies.find(s=>s.enfant_id===enf.id&&s.annee===y&&s.mois===mo&&s.jour===d);
-      const hasData=isCentre||durMat>0||durSoir>0||cantine;
+      const hasData=isCentre||isAbsent||periMat!=='non'||periSoir!=='non'||cantine;
       if(!hasData&&!existing)continue;
-      const isPrev=typePeri==='prevu';
-      const durMatQ=Math.ceil(durMat/15)*15;
-      const durSoirQ=Math.ceil(durSoir/15)*15;
+      const PERI_MIN=15; // 1 quarter = 15 min as unit stored
       const rec={enfant_id:enf.id,annee:y,mois:mo,jour:d,
         peri_matin_dep:null,peri_matin_fin:null,peri_soir_dep:null,peri_soir_fin:null,
-        peri_matin_min:isPrev&&!isCentre?durMatQ:0,peri_soir_min:isPrev&&!isCentre?durSoirQ:0,
-        peri_matin_np_min:!isPrev&&!isCentre?durMatQ:0,peri_soir_np_min:!isPrev&&!isCentre?durSoirQ:0,
-        type_peri:typePeri,cantine:isCentre?false:cantine,centre_loisir:isCentre};
+        peri_matin_min:periMat==='prevu'?PERI_MIN:0,
+        peri_soir_min:periSoir==='prevu'?PERI_MIN:0,
+        peri_matin_np_min:periMat==='non_prevu'?PERI_MIN:0,
+        peri_soir_np_min:periSoir==='non_prevu'?PERI_MIN:0,
+        type_peri:periMat!=='non'?periMat:periSoir!=='non'?periSoir:'prevu',
+        cantine:!isCentre&&!isAbsent&&cantine,
+        centre_loisir:isCentre,
+        absence_autorisee:isAbsent};
       if(existing){
         const{error}=await sb.from('ecole_saisies').update(rec).eq('id',existing.id);
         if(error)errors.push(error.message);else Object.assign(existing,rec);
@@ -6946,12 +6951,17 @@ function bindAll(){
   // École day delete
   // Centre loisirs checkbox: disable peri fields when checked
   document.querySelectorAll('.ecole-centre').forEach(el=>el.onchange=function(){
-    const d=el.dataset.day;
-    const isCentre=el.checked;
-    const fields=['.ecole-dur-mat','.ecole-dur-soir','.ecole-cant','.ecole-type-peri'];
-    fields.forEach(function(cls){
+    const d=el.dataset.day;const v=el.checked;
+    ['.ecole-dur-mat','.ecole-type-mat','.ecole-dur-soir','.ecole-type-soir'].forEach(function(cls){
       const f=document.querySelector(cls+'[data-day="'+d+'"]');
-      if(f){f.disabled=isCentre;f.style.opacity=isCentre?'0.4':'1';if(isCentre&&f.type!=='select-one')f.value='';}
+      if(f){f.disabled=v;f.style.opacity=v?'0.4':'1';}
+    });
+  });
+  document.querySelectorAll('.ecole-absent').forEach(el=>el.onchange=function(){
+    const d=el.dataset.day;const v=el.checked;
+    ['.ecole-dur-mat','.ecole-type-mat','.ecole-dur-soir','.ecole-type-soir','.ecole-cant','.ecole-centre'].forEach(function(cls){
+      const f=document.querySelector(cls+'[data-day="'+d+'"]');
+      if(f){f.disabled=v;f.style.opacity=v?'0.4':'1';}
     });
   });
   document.querySelectorAll('.ecole-del-day').forEach(el=>el.onclick=async()=>{
