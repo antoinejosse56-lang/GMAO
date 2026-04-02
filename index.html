@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v87-20260402-114053">
+<meta name="version" content="v87-20260402-123333">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -2124,6 +2124,72 @@ function renderFactures(){
       Total : <span style="color:var(--red);margin-left:8px">${fmt(totalTTC)}</span>
     </div>
   </div>`;
+}
+
+function renderCompteurs(){
+  const cTab=S.cTab||'liste';
+  const fmt=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(n||0);
+  const tabBar='<div class="tab-bar" style="margin-bottom:14px">'
+    +'<div class="tab '+(cTab==='liste'?'active':'')+'" data-ctab="liste">Compteurs</div>'
+    +'<div class="tab '+(cTab==='releves'?'active':'')+'" data-ctab="releves">Relev\u00e9s</div>'
+    +'</div>';
+
+  if(cTab==='liste'){
+    const rows=(S.compteurs||[]).map(function(c){
+      const tenant=c.tenant_id?S.tenants.find(t=>t.id===c.tenant_id):null;
+      const lastRel=(S.releves||[]).filter(r=>r.compteur_id===c.id).sort((a,b)=>new Date(b.date)-new Date(a.date))[0];
+      return '<div class="card" style="margin-bottom:10px">'
+        +'<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">'
+          +'<div>'
+            +'<div style="font-weight:600;font-size:14px">'+c.name+'</div>'
+            +'<div style="font-size:12px;color:var(--text2)">'+(c.type||'')+' \u2014 '+(c.unite||'m\u00b3')+' \u2014 '+fmt(c.prix_unitaire||0)+'/'+( c.unite||'m\u00b3')+'</div>'
+            +(tenant?'<div style="font-size:11px;color:var(--text2)">&#128100; '+(tenant.nom||'')+' \u2014 '+(tenant.logement||'')+'</div>':'')
+          +'</div>'
+          +'<div style="text-align:right">'
+            +(lastRel?'<div style="font-size:12px">Dernier index : <strong>'+lastRel.nouvel_index+' '+(c.unite||'m\u00b3')+'</strong></div>':'<div style="font-size:12px;color:var(--text2)">Index initial : '+(c.index_initial||0)+'</div>')
+            +(lastRel?'<div style="font-size:11px;color:var(--text2)">le '+dateLabel(lastRel.date)+'</div>':'')
+            +'<div style="margin-top:6px;display:flex;gap:4px;justify-content:flex-end">'
+              +(canEdit()?'<button class="btn btn-sm btn-p" data-add-releve="'+c.id+'">+ Relev\u00e9</button>':'')
+              +(isAdmin()?'<button class="btn btn-sm" data-edit-cpt="'+c.id+'">&#9998;</button>':'')
+              +(isAdmin()?'<button class="btn btn-d btn-sm" data-del-cpt="'+c.id+'">&#10005;</button>':'')
+            +'</div>'
+          +'</div>'
+        +'</div>'
+        +'</div>';
+    }).join('');
+    return tabBar
+      +'<div style="display:flex;justify-content:flex-end;margin-bottom:12px">'
+        +(isAdmin()?'<button class="btn btn-p" id="btn-add-cpt">+ Compteur</button>':'')
+      +'</div>'
+      +(rows||'<div style="text-align:center;padding:24px;color:var(--text2)">Aucun compteur configur\u00e9.</div>');
+  }
+
+  if(cTab==='releves'){
+    const allReleves=(S.releves||[]).sort((a,b)=>new Date(b.date)-new Date(a.date));
+    const rows=allReleves.map(function(r){
+      const cpt=(S.compteurs||[]).find(c=>c.id===r.compteur_id)||{};
+      const tenant=cpt.tenant_id?S.tenants.find(t=>t.id===cpt.tenant_id):null;
+      const conso=Math.round((r.nouvel_index-r.ancien_index)*1000)/1000;
+      const montant=Math.round(conso*(r.prix_unitaire||cpt.prix_unitaire||0)*100)/100;
+      return '<tr>'
+        +'<td style="font-size:11px">'+dateLabel(r.date)+'</td>'
+        +'<td style="font-size:12px">'+cpt.name+'</td>'
+        +'<td style="font-size:11px;color:var(--text2)">'+(tenant?.nom||'\u2014')+'</td>'
+        +'<td style="text-align:right;font-size:11px">'+(r.ancien_index||0)+'</td>'
+        +'<td style="text-align:right;font-size:11px;font-weight:500">'+r.nouvel_index+'</td>'
+        +'<td style="text-align:right;font-size:11px">'+conso+' '+(cpt.unite||'m\u00b3')+'</td>'
+        +'<td style="text-align:right;font-size:11px">'+fmt(montant)+'</td>'
+        +'<td style="text-align:center"><span class="badge '+(r.paye?'bgreen':'bgray')+'">'+( r.paye?'Pay\u00e9':'En att.')+'</span></td>'
+        +'</tr>';
+    }).join('');
+    return tabBar
+      +'<div class="card"><div style="overflow-x:auto"><table>'
+        +'<thead><tr><th style="font-size:11px">Date</th><th style="font-size:11px">Compteur</th><th style="font-size:11px">Locataire</th><th style="font-size:11px;text-align:right">Ancien idx</th><th style="font-size:11px;text-align:right">Nouvel idx</th><th style="font-size:11px;text-align:right">Conso</th><th style="font-size:11px;text-align:right">Montant</th><th style="font-size:11px">Statut</th></tr></thead>'
+        +'<tbody>'+(rows||'<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--text2)">Aucun relev\u00e9</td></tr>')+'</tbody>'
+      +'</table></div></div>';
+  }
+
+  return tabBar;
 }
 
 function renderFinances(){
