@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v93-20260402-153736">
+<meta name="version" content="v94-20260402-154651">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -1856,13 +1856,13 @@ function renderVehicles(){
           const items=[...byBien[bien][zone]].sort((a,b2)=>((a.date||'')>(b2.date||''))?1:-1);
           const zT=items.reduce((s,f)=>s+(type==='qtt'?(f.locataire_part||0)+(f.caf||0):f.montant_ttc||0),0);
           const rows=items.map(function(f){
-            if(type==='qtt'){const recu=(f.locataire_part||0)+(f.caf||0);const sol=Math.round(((f.loyer||0)-recu)*100)/100;return '<tr><td style="font-size:11px">'+(f.mois||'')+' '+(f.annee||'')+'</td><td>'+( f._t?.nom||'')+'</td><td style="text-align:right">'+fmt(f.loyer||0)+'</td><td style="text-align:right;color:var(--green)">'+fmt(recu)+'</td><td style="text-align:right;color:'+(sol>0?'var(--red)':'var(--green)')+'">'+fmt(sol)+'</td>'+(isAdmin()?'<td><button class="btn btn-d btn-sm" data-del-rp="'+f.id+'" style="font-size:10px;padding:2px 5px">&#10005;</button></td>':'<td></td>')+'</tr>';}
+            if(type==='qtt'){const recu=(f.locataire_part||0)+(f.caf||0);const sol=Math.round(((f.loyer||0)-recu)*100)/100;return '<tr><td style="font-size:11px">'+(f.mois||'')+' '+(f.annee||'')+'</td><td>'+( f._t?.nom||'')+'</td><td style="text-align:right">'+fmt(f.loyer||0)+'</td><td style="text-align:right;color:var(--green)">'+fmt(recu)+'</td><td style="text-align:right;color:'+(sol>0?'var(--red)':'var(--green)')+'">'+fmt(sol)+'</td><td style="text-align:center;white-space:nowrap"><button class="btn btn-sm" data-print-qtt="'+f.id+'" style="font-size:10px;padding:2px 6px">&#128438;</button>'+(isAdmin()?'<button class="btn btn-d btn-sm" data-del-rp="'+f.id+'" style="font-size:10px;padding:2px 5px;margin-left:3px">&#10005;</button>':'')+'</td></tr>';}
             else{return '<tr><td style="font-size:11px">'+dateLabel(f.date)+'</td><td>'+( f.fournisseur||'')+'</td><td style="color:var(--text2);font-size:11px">'+(f.description||'')+'</td><td style="text-align:right;font-weight:500">'+fmt(f.montant_ttc||0)+'</td>'+(isAdmin()?'<td><button class="btn btn-d btn-sm" data-del-facture="'+f.id+'" style="font-size:10px;padding:2px 5px">&#10005;</button></td>':'<td></td>')+'</tr>';}
           }).join('');
-          const th=type==='qtt'?'<tr><th>Mois</th><th>Locataire</th><th style="text-align:right">Attendu</th><th style="text-align:right">Reçu</th><th style="text-align:right">Solde</th><th></th></tr>':'<tr><th>Date</th><th>Désignation</th><th>Détail</th><th style="text-align:right">TTC</th><th></th></tr>';
+          const th=type==='qtt'?'<tr><th>Mois</th><th>Locataire</th><th style="text-align:right">Attendu</th><th style="text-align:right">Reçu</th><th style="text-align:right">Solde</th><th style="text-align:center">Actions</th></tr>':'<tr><th>Date</th><th>Désignation</th><th>Détail</th><th style="text-align:right">TTC</th><th style="text-align:center">Actions</th></tr>';
           return '<tr style="background:var(--bg2)"><td colspan="6" style="font-size:11px;font-weight:600;padding:4px 8px;color:var(--text2)">'+(zone||'Général')+' — '+fmt(zT)+'</td></tr>'+rows;
         }).join('');
-        const th=type==='qtt'?'<tr><th>Mois</th><th>Locataire</th><th style="text-align:right">Attendu</th><th style="text-align:right">Reçu</th><th style="text-align:right">Solde</th><th></th></tr>':'<tr><th>Date</th><th>Désignation</th><th>Détail</th><th style="text-align:right">TTC</th><th></th></tr>';
+        const th=type==='qtt'?'<tr><th>Mois</th><th>Locataire</th><th style="text-align:right">Attendu</th><th style="text-align:right">Reçu</th><th style="text-align:right">Solde</th><th style="text-align:center">Actions</th></tr>':'<tr><th>Date</th><th>Désignation</th><th>Détail</th><th style="text-align:right">TTC</th><th style="text-align:center">Actions</th></tr>';
         return '<div class="card" style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;padding-bottom:6px;margin-bottom:8px;border-bottom:1.5px solid '+color+'"><div style="font-size:13px;font-weight:600;color:'+color+'">&#127968; '+bien+'</div><div style="font-size:12px;font-weight:600">'+fmt(bT)+'</div></div><div style="overflow-x:auto"><table style="min-width:450px"><thead>'+th+'</thead><tbody>'+zHtml+'</tbody></table></div></div>';
       }).join('');
       const gT=biens.reduce((s,b)=>s+Object.keys(byBien[b]).reduce((s2,z)=>s2+byBien[b][z].reduce((s3,f)=>s3+(type==='qtt'?(f.locataire_part||0)+(f.caf||0):f.montant_ttc||0),0),0),0);
@@ -5849,6 +5849,116 @@ function updateTenantZones(existingZoneName){
   }
 }
 
+
+function genQuittancePDF(tenant, payment, mois, annee){
+  const recu=(payment.locataire_part||0)+(payment.caf||0);
+  const loyer=payment.loyer||tenant.loyer_ref||0;
+  const charges=tenant.charges||0;
+  const solde=Math.round((loyer-recu)*100)/100;
+  const fmt=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(n||0);
+  const today=new Date().toLocaleDateString('fr-FR');
+  const html=`<!DOCTYPE html><html><head><meta charset="utf-8">
+  <title>Quittance ${mois} ${annee}</title>
+  <style>
+    body{font-family:Arial,sans-serif;margin:0;padding:30px;color:#222;font-size:13px}
+    .header{display:flex;justify-content:space-between;margin-bottom:30px}
+    .bailleur{font-size:12px;line-height:1.6}
+    .title{text-align:center;font-size:20px;font-weight:700;text-transform:uppercase;letter-spacing:2px;margin:20px 0;padding:12px;border-top:2px solid #222;border-bottom:2px solid #222}
+    .section{margin-bottom:16px}
+    .label{font-weight:600;color:#555;font-size:11px;text-transform:uppercase;letter-spacing:0.5px}
+    table{width:100%;border-collapse:collapse;margin:12px 0}
+    td,th{padding:8px 12px;border:1px solid #ddd;font-size:12px}
+    th{background:#f5f5f5;font-weight:600;text-align:left}
+    .total{font-weight:700;font-size:14px;background:#f0f0f0}
+    .footer{margin-top:40px;font-size:11px;color:#888;border-top:1px solid #ddd;padding-top:12px}
+    .signature{margin-top:50px;display:flex;justify-content:space-between}
+    .solde-ok{color:#1D9E75;font-weight:700}
+    .solde-bad{color:#E74C3C;font-weight:700}
+    @media print{body{padding:15px}}
+  </style></head><body>
+  <div class="header">
+    <div class="bailleur">
+      <strong>J&amp;A SAVADUR</strong><br>
+      26 RUE GÉNÉRAL DUBAIL<br>
+      56100 LORIENT<br>
+    </div>
+    <div style="text-align:right;font-size:12px">
+      <strong>${tenant.nom||''}</strong><br>
+      ${tenant.logement||''}<br>
+      Date d'émission : ${today}
+    </div>
+  </div>
+  <div class="title">Quittance de loyer — ${mois} ${annee}</div>
+  <div class="section">
+    <div class="label">Logement</div>
+    <div>${tenant.logement||''}</div>
+  </div>
+  <table>
+    <tr><th>Désignation</th><th style="text-align:right">Montant</th></tr>
+    <tr><td>Loyer nu</td><td style="text-align:right">${fmt(loyer-charges)}</td></tr>
+    ${charges?`<tr><td>Charges</td><td style="text-align:right">${fmt(charges)}</td></tr>`:''}
+    <tr class="total"><td><strong>Total appelé</strong></td><td style="text-align:right"><strong>${fmt(loyer)}</strong></td></tr>
+    ${payment.caf?`<tr><td style="color:#888">dont CAF (${fmt(payment.caf)})</td><td style="text-align:right;color:#888">${fmt(payment.locataire_part||0)} locataire</td></tr>`:''}
+    <tr class="total"><td><strong>Total reçu</strong></td><td style="text-align:right" class="${solde<=0?'solde-ok':'solde-bad'}"><strong>${fmt(recu)}</strong></td></tr>
+    ${solde>0?`<tr><td style="color:#E74C3C">Solde restant dû</td><td style="text-align:right;color:#E74C3C">${fmt(solde)}</td></tr>`:''}
+  </table>
+  ${payment.commentaire?`<div style="margin:12px 0;padding:10px;background:#FFF9E6;border-left:3px solid #F39C12;font-size:12px">${payment.commentaire}</div>`:''}
+  <div class="footer">
+    Quittance générée le ${today} — Je soussigné, bailleur, déclare avoir reçu la somme de ${fmt(recu)} 
+    au titre du loyer et des charges du logement désigné ci-dessus pour la période de ${mois} ${annee}.
+  </div>
+  <div class="signature">
+    <div style="font-size:12px">Le locataire<br><br><br>Signature :</div>
+    <div style="font-size:12px;text-align:right">Le bailleur<br><br><br>Signature :</div>
+  </div>
+  </body></html>`;
+  const w=window.open('','_blank','width=800,height=900');
+  w.document.write(html);
+  w.document.close();
+  setTimeout(()=>w.print(),500);
+}
+
+function genFactureEauPDF(tenant, releves, mois, annee){
+  const fmt=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(n||0);
+  const today=new Date().toLocaleDateString('fr-FR');
+  const total=releves.reduce((s,r)=>s+(Math.round(((r.nouvel_index-r.ancien_index)*(r.prix_unitaire||0))*100)/100),0);
+  const rows=releves.map(function(r){
+    const cpt=S.compteurs.find(c=>c.id===r.compteur_id)||{};
+    const conso=Math.round((r.nouvel_index-r.ancien_index)*1000)/1000;
+    const montant=Math.round(conso*(r.prix_unitaire||0)*100)/100;
+    return `<tr><td>${cpt.name||'Compteur'}</td><td style="text-align:right">${r.ancien_index}</td><td style="text-align:right">${r.nouvel_index}</td><td style="text-align:right">${conso} ${cpt.unite||'m³'}</td><td style="text-align:right">${fmt(r.prix_unitaire||0)}/${cpt.unite||'m³'}</td><td style="text-align:right"><strong>${fmt(montant)}</strong></td></tr>`;
+  }).join('');
+  const html=`<!DOCTYPE html><html><head><meta charset="utf-8">
+  <title>Facture eau ${mois} ${annee}</title>
+  <style>
+    body{font-family:Arial,sans-serif;margin:0;padding:30px;color:#222;font-size:13px}
+    .header{display:flex;justify-content:space-between;margin-bottom:30px}
+    .title{text-align:center;font-size:18px;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin:20px 0;padding:12px;border-top:2px solid #185FA5;border-bottom:2px solid #185FA5;color:#185FA5}
+    table{width:100%;border-collapse:collapse;margin:12px 0}
+    td,th{padding:8px 12px;border:1px solid #ddd;font-size:12px}
+    th{background:#f0f5ff;font-weight:600;text-align:left}
+    .total{font-weight:700;background:#f0f5ff;font-size:14px}
+    .footer{margin-top:30px;font-size:11px;color:#888;border-top:1px solid #ddd;padding-top:12px}
+    @media print{body{padding:15px}}
+  </style></head><body>
+  <div class="header">
+    <div><strong>J&amp;A SAVADUR</strong><br>26 RUE GÉNÉRAL DUBAIL<br>56100 LORIENT</div>
+    <div style="text-align:right"><strong>${tenant.nom||''}</strong><br>${tenant.logement||''}<br>Date : ${today}</div>
+  </div>
+  <div class="title">Facture eau/charges — ${mois} ${annee}</div>
+  <table>
+    <tr><th>Compteur</th><th style="text-align:right">Ancien index</th><th style="text-align:right">Nouvel index</th><th style="text-align:right">Conso.</th><th style="text-align:right">Tarif</th><th style="text-align:right">Montant</th></tr>
+    ${rows}
+    <tr class="total"><td colspan="5"><strong>TOTAL</strong></td><td style="text-align:right"><strong>${fmt(total)}</strong></td></tr>
+  </table>
+  <div class="footer">Facture générée le ${today} — Merci de régler cette facture dans les 30 jours.</div>
+  </body></html>`;
+  const w=window.open('','_blank','width=800,height=700');
+  w.document.write(html);
+  w.document.close();
+  setTimeout(()=>w.print(),500);
+}
+
 function bindAll(){
   const q = id => document.getElementById(id);
   document.querySelectorAll('[data-nav]').forEach(el=>el.onclick=()=>{S.view=el.dataset.nav;S.selectedAsset=null;S.filter={cat:'all',search:''};if(el.dataset.nav!=='topology'){S.topoState.zoneId=null;S.topoState.subZoneId=null;S.topoState.tradeId=null;}if(el.dataset.nav!=='assets'){S.assetNav={propId:null,zoneId:null,subId:null};}render();});
@@ -6279,6 +6389,13 @@ function bindAll(){
   document.querySelectorAll('[data-fin-tab]').forEach(el=>el.onclick=()=>{S.finTab=el.dataset.finTab;S.finSub='liste';S.finLoc='';render();});
   const elPaidOnly=document.getElementById('fin-paid-only');
   if(elPaidOnly)elPaidOnly.onchange=()=>{S.finPaidOnly=elPaidOnly.checked;render();};
+  document.querySelectorAll('[data-print-qtt]').forEach(el=>el.onclick=()=>{
+    const rp=S.rentPayments.find(r=>r.id===el.dataset.printQtt);
+    if(!rp)return;
+    const tenant=S.tenants.find(t=>t.id===rp.tenant_id);
+    if(!tenant)return;
+    genQuittancePDF(tenant,rp,rp.mois,rp.annee);
+  });
   document.querySelectorAll('[data-del-rp]').forEach(el=>el.onclick=async()=>{
     if(!confirm('Supprimer ce paiement ?'))return;
     const id=el.dataset.delRp;
