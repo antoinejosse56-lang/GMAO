@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v74d-20260402-060941">
+<meta name="version" content="v75-20260402-061409">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -6753,11 +6753,11 @@ function bindAll(){
     const tauxEl=document.getElementById('creche-taux-normal');
     const factEl=document.getElementById('creche-facture-recue');
     const updContrat={...(enf.contrat_creche||{})};
-    const tauxVal=tauxEl?tauxEl.value:'(no element)';
-    const factVal=factEl?factEl.value:'(no element)';
-    console.log('[CRECHE SAVE] tauxEl value=',tauxVal,'factEl value=',factVal);
-    updContrat.taux_normal=tauxEl?parseFloat(tauxEl.value)||0:updContrat.taux_normal;
-    updContrat.facture_recue=factEl?parseFloat(factEl.value)||0:updContrat.facture_recue;
+    const tauxVal=tauxEl?parseFloat(tauxEl.value):(S._crecheTaux!=null?S._crecheTaux:null);
+    const factVal=factEl?parseFloat(factEl.value):(S._crecheFact!=null?S._crecheFact:null);
+    if(tauxVal!=null&&!isNaN(tauxVal))updContrat.taux_normal=tauxVal;
+    if(factVal!=null&&!isNaN(factVal))updContrat.facture_recue=factVal;
+    console.log('[CRECHE SAVE] taux=',updContrat.taux_normal,'fact=',updContrat.facture_recue);
     console.log('[CRECHE SAVE] Saving contrat for id=',enf.id,'data=',updContrat);
     const{error:contratErr}=await sb.from('famille').update({contrat_creche:updContrat}).eq('id',enf.id);
     console.log('[CRECHE SAVE] Contrat result: error=',contratErr);
@@ -6818,17 +6818,26 @@ function bindAll(){
     render();
   });
   // École buttons
+  ['ecole-taux-pp','ecole-taux-pnp','ecole-taux-cant','ecole-taux-centre','ecole-facture-ecole','ecole-facture-centre'].forEach(function(id){
+    const el=document.getElementById(id);
+    if(el)el.oninput=function(){if(!S._ecoleTarifs)S._ecoleTarifs={};S._ecoleTarifs[id]=parseFloat(el.value)||0;};
+  });
   const btnEcoleSaveTarifs=document.getElementById('btn-ecole-save-tarifs');
   if(btnEcoleSaveTarifs)btnEcoleSaveTarifs.onclick=async()=>{
     const enf=S.famille.find(x=>x.id===(S.familleEnfant||(S.famille[0]?.id)));
     console.log('[ECOLE SAVE TARIFS] enf=',enf?.prenom,'familleEnfant=',S.familleEnfant);
     if(!enf){console.error('[ECOLE SAVE] Aucun enfant!');return;}
-    const upd={...(enf.contrat_ecole||{}),
-      taux_peri_prevu:parseFloat(document.getElementById('ecole-taux-pp')?.value)||0,
-      taux_peri_non_prevu:parseFloat(document.getElementById('ecole-taux-pnp')?.value)||0,
-      taux_cantine:parseFloat(document.getElementById('ecole-taux-cant')?.value)||0,
-      taux_centre_journee:parseFloat(document.getElementById('ecole-taux-centre')?.value)||0
-    };
+    const t=S._ecoleTarifs||{};
+    function readV(id){const el=document.getElementById(id);return el?parseFloat(el.value):(t[id]!=null?t[id]:null);}
+    const prev=enf.contrat_ecole||{};
+    const upd={...prev};
+    const _pp=readV('ecole-taux-pp');if(_pp!=null&&!isNaN(_pp))upd.taux_peri_prevu=_pp;
+    const _pnp=readV('ecole-taux-pnp');if(_pnp!=null&&!isNaN(_pnp))upd.taux_peri_non_prevu=_pnp;
+    const _cant=readV('ecole-taux-cant');if(_cant!=null&&!isNaN(_cant))upd.taux_cantine=_cant;
+    const _cj=readV('ecole-taux-centre');if(_cj!=null&&!isNaN(_cj))upd.taux_centre_journee=_cj;
+    const _fe=readV('ecole-facture-ecole');if(_fe!=null&&!isNaN(_fe))upd.facture_ecole=_fe;
+    const _fc=readV('ecole-facture-centre');if(_fc!=null&&!isNaN(_fc))upd.facture_centre=_fc;
+    console.log('[ECOLE SAVE] upd=',upd);
     const {error}=await sb.from('famille').update({contrat_ecole:upd}).eq('id',enf.id);
     if(error){alert('Erreur : '+error.message);return;}
     enf.contrat_ecole=upd;
@@ -6895,6 +6904,7 @@ function bindAll(){
   });
   // Facture reçue creche save on blur
   const crecheTauxN=document.getElementById('creche-taux-normal');
+  if(crecheTauxN){crecheTauxN.oninput=()=>{S._crecheTaux=parseFloat(crecheTauxN.value)||0;};}
   if(crecheTauxN)crecheTauxN.onchange=async()=>{
     const enf=S.famille.find(x=>x.id===(S.familleEnfant||(S.famille[0]?.id)));
     if(!enf)return;
@@ -6903,6 +6913,7 @@ function bindAll(){
     enf.contrat_creche=upd;render();
   };
   const crFact=document.getElementById('creche-facture-recue');
+  if(crFact){crFact.oninput=()=>{S._crecheFact=parseFloat(crFact.value)||0;};}
   if(crFact)crFact.onblur=async()=>{
     const enf=S.famille.find(x=>x.id===(S.familleEnfant||(S.famille[0]?.id)));
     if(!enf)return;
