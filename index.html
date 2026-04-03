@@ -2,6 +2,13 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#185FA5">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="GMAO">
+  <link rel="apple-touch-icon" href="https://l.icdbcdn.com/oh/1b1524f2-63aa-4ebe-b8b0-b0797f1c602a.png?w=400">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
@@ -9,7 +16,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v102-20260403-205655">
+<meta name="version" content="v103-20260403-210809">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -195,7 +202,7 @@ function ensureBrevoKey(){
 let BREVO_API_KEY = getBrevoKey();
 
 let S = {
-  currentUser: null, view: 'dashboard', modal: null,
+  currentUser: null, view: /Mobi|Android/i.test(navigator.userAgent)?'mobile_home':'dashboard', modal: null,
   subTab: 'info', filter: {cat:'all', search:''},
   selectedAsset: null,
   topoState: {propId: null, tradeId: null, zoneId: null, expanded: {}},
@@ -519,6 +526,7 @@ function navItems(){
   const openWO = getFilteredWOs().filter(w=>w.status==='open').length;
   const allGroups = [
     {group:'Principal', items:[
+      {id:'mobile_home', label:'Accueil mobile', icon:'📱'},
       {id:'dashboard', label:'Tableau de bord', icon:'⊞'},
       {id:'assets', label:'Équipements', icon:'◧', badge: S.assets.filter(a=>a.status==='urgent').length||0},
       {id:'tasks', label:'Échéances', icon:'◫', badge: overdueT},
@@ -568,6 +576,7 @@ function navItems(){
 function renderApp(){
   const navs = navItems();
   const views = {
+    mobile_home: renderMobileHome(),
     dashboard: renderDashboard(),
     assets: renderAssets(),
     tasks: renderTasks(),
@@ -1683,6 +1692,65 @@ function renderVehicles(){
   +roomTable(resas.filter(r=>r.room==="T2"),"T2")
   +(menageTable?'<h3 style="margin:20px 0 10px">Suivi ménage</h3>'+menageTable:'')
   +(resasLodgify.length?'<h3 style="margin:20px 0 10px">Déclaration taxe de séjour</h3>'+taxeTable:'');
+}
+
+function renderMobileHome(){
+  const now=new Date();
+  const dateStr=now.toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long"});
+  const timeStr=now.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"});
+  // Quick stats
+  const overdueT=(S.tasks||[]).filter(t=>t.status==="overdue").length;
+  const openWO=(S.workOrders||S.work_orders||[]).filter(w=>w.status==="open").length;
+  const loanedN=(S.loans||[]).filter(l=>!l.returned).length;
+  return '<div style="padding:16px;max-width:480px;margin:0 auto">'
+    // Header
+    +'<div style="background:linear-gradient(135deg,#185FA5,#1D9E75);border-radius:16px;padding:20px;margin-bottom:20px;color:#fff">'
+      +'<div style="font-size:13px;opacity:0.85">'+dateStr+'</div>'
+      +'<div style="font-size:28px;font-weight:700;margin:4px 0">'+timeStr+'</div>'
+      +'<div style="font-size:12px;opacity:0.8">Bonjour, '+(S.currentUser?.name||"Antoine")+' 👋</div>'
+    +'</div>'
+    // Alerts
+    +(overdueT||openWO||loanedN?'<div style="background:#FFF3CD;border-radius:12px;padding:12px;margin-bottom:16px;font-size:12px">'
+      +(overdueT?'<div>⚠️ '+overdueT+' échéance'+(overdueT>1?"s":"")+" en retard</div>":'')
+      +(openWO?'<div>📋 '+openWO+' bon'+(openWO>1?"s":"")+" de travaux ouvert"+(openWO>1?"s":"")+'</div>':'')
+      +(loanedN?'<div>🔧 '+loanedN+' outil'+(loanedN>1?"s":"")+" en prêt</div>":'')
+    +'</div>':'')
+    // Tiles grid
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px">'
++'<div class="mobile-tile" data-nav="compteurs" style="background:#185FA5" onclick="S.view=\'compteurs\';render()">'
+  +'<div style="font-size:36px;margin-bottom:8px">💧</div>'
+  +'<div style="font-size:13px;font-weight:600;color:#fff">Relevé compteur</div>'
++'</div>'
++'<div class="mobile-tile" data-nav="locatif" style="background:#1D9E75" onclick="S.view=\'locatif\';render()">'
+  +'<div style="font-size:36px;margin-bottom:8px">💰</div>'
+  +'<div style="font-size:13px;font-weight:600;color:#fff">Saisie loyer</div>'
++'</div>'
++'<div class="mobile-tile" data-nav="reservations" style="background:#9B59B6" onclick="S.view=\'reservations\';render()">'
+  +'<div style="font-size:36px;margin-bottom:8px">🏠</div>'
+  +'<div style="font-size:13px;font-weight:600;color:#fff">Location meublée</div>'
++'</div>'
++'<div class="mobile-tile" data-nav="famille" style="background:#F39C12" onclick="S.view=\'famille_creche\';S.familleTab=\'creche\';render()">'
+  +'<div style="font-size:36px;margin-bottom:8px">🍼</div>'
+  +'<div style="font-size:13px;font-weight:600;color:#fff">Crèche du jour</div>'
++'</div>'
++'<div class="mobile-tile" data-nav="famille" style="background:#E74C3C" onclick="S.view=\'famille_ecole\';S.familleTab=\'ecole\';render()">'
+  +'<div style="font-size:36px;margin-bottom:8px">🏫</div>'
+  +'<div style="font-size:13px;font-weight:600;color:#fff">École du jour</div>'
++'</div>'
++'<div class="mobile-tile" data-nav="workorders" style="background:#2C3E50" onclick="S.view=\'workorders\';render()">'
+  +'<div style="font-size:36px;margin-bottom:8px">📋</div>'
+  +'<div style="font-size:13px;font-weight:600;color:#fff">Bon de travaux</div>'
++'</div>'
++'<div class="mobile-tile" data-nav="tools" style="background:#7F8C8D" onclick="S.view=\'tools\';render()">'
+  +'<div style="font-size:36px;margin-bottom:8px">🔧</div>'
+  +'<div style="font-size:13px;font-weight:600;color:#fff">Prêt outil</div>'
++'</div>'
+    +'</div>'
+    // Install PWA hint
+    +'<div style="text-align:center;font-size:11px;color:var(--text3);padding:8px">'
+      +'Installer l\'app : Menu Chrome → Ajouter à l\'écran d\'accueil'
+    +'</div>'
+  +'</div>';
 }
 
 function renderLocatif(){
@@ -8886,6 +8954,24 @@ loadAll().then(async()=>{
   render();
   setTimeout(()=>checkAndSendAlerts(),3000);
 });
+
+// PWA Service Worker
+if("serviceWorker" in navigator){
+  navigator.serviceWorker.register("sw.js").catch(e=>console.log("SW:",e));
+}
+
+// Handle quick launch from PWA shortcuts
+const urlParams=new URLSearchParams(window.location.search);
+const quickNav=urlParams.get("quick");
+if(quickNav){
+  const navMap={compteur:"compteurs",loyer:"locatif",creche:"famille",ecole:"famille",
+    travaux:"workorders",outil:"tools",resa:"reservations"};
+  if(navMap[quickNav]){
+    S.view=navMap[quickNav];
+    if(quickNav==="creche")S.familleTab="creche";
+    if(quickNav==="ecole")S.familleTab="ecole";
+  }
+}
 </script>
 </body>
 </html>
