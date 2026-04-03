@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v99-20260403-155607">
+<meta name="version" content="v100-20260403-165720">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -202,7 +202,7 @@ let S = {
   // data
   users: [], assets: [], tasks: [], tools: [], loans: [],
   workOrders: [], maintenanceTemplates: [], topology: {properties: []},
-  factures: [], revenues: [], finTab: 'overview', reservations: [], resaYear: new Date().getFullYear(), compteurs: [], releves: [], rangements: [], famille: [], consommables: [], crecheSaisies: [], ecoleSaisies: [], familleTab: 'membres', finFactCpte: 'savadur', familleEnfant: null
+  factures: [], revenues: [], finTab: 'overview', reservations: [], resaYear: new Date().getFullYear(), taxeSejourTaux: 5, taxeSejourPlafond: 4.60, compteurs: [], releves: [], rangements: [], famille: [], consommables: [], crecheSaisies: [], ecoleSaisies: [], familleTab: 'membres', finFactCpte: 'savadur', familleEnfant: null
 };
 
 async function loadAll() {
@@ -1568,7 +1568,8 @@ function renderVehicles(){
         +'<td style="text-align:right;font-weight:600">'+( r.montant_total?fmt(r.montant_total):'<span style="color:var(--amber)">⚠ à compléter</span>')+'</td>'
         +'<td>'+srcBadge(r.source)+'</td>'
         +'<td style="white-space:nowrap">'
-          +'<button class="btn btn-sm" data-edit-resa="'+r.id+'" style="font-size:10px;padding:2px 5px">✎ Compléter</button>'
+          +'<button class="btn btn-sm" data-edit-resa="'+r.id+'" style="font-size:10px;padding:2px 5px">✎</button>'
+          +(r.montant_total?'<button class="btn btn-sm btn-p" data-facture-resa="'+r.id+'" style="font-size:10px;padding:2px 5px;margin-left:3px">&#128438; Facture</button>':'')
           +(isAdmin()?'<button class="btn btn-d btn-sm" data-del-resa="'+r.id+'" style="font-size:10px;padding:2px 5px;margin-left:3px">&#10005;</button>':"")
         +'</td></tr>';
     }).join("");
@@ -1586,13 +1587,55 @@ function renderVehicles(){
         :'<div style="color:var(--text2);font-size:12px">Aucune réservation pour cette période</div>')
       +'</div>';
   }
+  // Taxe séjour section - Lodgify direct only
+  const resasLodgify=(S.reservations||[]).filter(r=>r.source==='lodgify'&&(S.resaYear===0||(r.date_arrivee||'').startsWith(String(S.resaYear||new Date().getFullYear()))));
+  function taxeAuto(r){const t=S.taxeSejourTaux||5;const p=S.taxeSejourPlafond||4.60;const pn=r.montant_nuits&&r.nb_nuits?r.montant_nuits/r.nb_nuits:0;return Math.round(Math.min(pn*t/100,p)*(r.nb_adultes||1)*(r.nb_nuits||1)*100)/100;}
+  const rooms=['Studio','T2'];
+  const taxeTable=rooms.map(function(room){
+    const items=resasLodgify.filter(r=>r.room===room);
+    if(!items.length)return '';
+    // Group by month
+    const byMonth={};
+    items.forEach(function(r){
+      const mo=r.date_arrivee?r.date_arrivee.slice(0,7):'?';
+      if(!byMonth[mo])byMonth[mo]=[];
+      byMonth[mo].push(r);
+    });
+    const rows=Object.keys(byMonth).sort().map(function(mo){
+      const mrs=byMonth[mo];
+      const nbResa=mrs.length;
+      const nbNuits=mrs.reduce((s,r)=>s+(r.nb_nuits||0),0);
+      const nbAdultes=mrs.reduce((s,r)=>s+(r.nb_adultes||0),0);
+      const taxeDue=mrs.reduce((s,r)=>s+taxeAuto(r),0);
+      const label=new Date(mo+'-01').toLocaleDateString('fr-FR',{month:'long',year:'numeric'});
+      return '<tr><td>'+label+'</td><td style="text-align:center">'+nbResa+'</td><td style="text-align:center">'+nbNuits+'</td><td style="text-align:center">'+(nbAdultes||'?')+'</td><td style="text-align:right;font-weight:600">'+fmt(taxeDue)+'</td></tr>';
+    }).join('');
+    const totalTaxe=items.reduce((s,r)=>s+taxeAuto(r),0);
+    return '<div class="card" style="margin-bottom:12px">'
+      +'<div style="display:flex;justify-content:space-between;padding-bottom:6px;margin-bottom:8px;border-bottom:1.5px solid #1D9E75">'
+        +'<div style="font-size:13px;font-weight:700;color:#1D9E75">&#127968; '+room+' — Taxe de séjour (Lodgify direct)</div>'
+        +'<div style="font-size:12px;font-weight:600">Total : '+fmt(totalTaxe)+'</div>'
+      +'</div>'
+      +'<div style="overflow-x:auto"><table><thead><tr>'
+        +'<th style="font-size:10px">Mois</th><th style="font-size:10px;text-align:center">Résa</th>'
+        +'<th style="font-size:10px;text-align:center">Nuits</th><th style="font-size:10px;text-align:center">Adultes</th>'
+        +'<th style="font-size:10px;text-align:right">Taxe due</th>'
+      +'</tr></thead><tbody>'+rows+'</tbody></table></div>'
+      +'<div style="margin-top:8px;font-size:11px;color:var(--text2)">&#9432; '+taux+'% plafonné à '+plafond+'€/j/adulte '
+        +'<a href="#" onclick="S.view=\'settings\';render();return false;" style="color:var(--blue);text-decoration:none">⚙️ Modifier les paramètres</a>'
+      +'</div>'
+    +'</div>';
+  }).join('');
+  const taux=S.taxeSejourTaux||5;const plafond=S.taxeSejourPlafond||4.60;
+
   return '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">'
     +'<h2 style="margin:0">Réservations courte durée</h2>'
     +'<button class="btn btn-p" id="btn-sync-lodgify">🔄 Sync Lodgify</button>'
   +'</div>'
   +yearBar
   +roomTable(resas.filter(r=>r.room==="Studio"),"Studio")
-  +roomTable(resas.filter(r=>r.room==="T2"),"T2");
+  +roomTable(resas.filter(r=>r.room==="T2"),"T2")
+  +(resasLodgify.length?'<h3 style="margin:20px 0 10px">Déclaration taxe de séjour</h3>'+taxeTable:'');
 }
 
 function renderLocatif(){
@@ -3691,7 +3734,15 @@ function renderConsommables(){
 function renderSettings(){
   const brevoKey = localStorage.getItem('brevo_api_key')||'';
   const maskedKey = brevoKey ? brevoKey.slice(0,12)+'...'+brevoKey.slice(-8) : '— Non configurée —';
-  return `<div style="max-width:600px">
+  return '<div class="card" style="margin-bottom:16px">'
+    +'<div style="font-size:14px;font-weight:600;margin-bottom:12px">&#127968; Taxe de séjour</div>'
+    +'<div class="g2c">'
+      +'<div class="form-group"><label>Taux (%)</label><input id="set-taxe-taux" type="number" step="0.1" value="'+(S.taxeSejourTaux||5)+'" style="width:80px"></div>'
+      +'<div class="form-group"><label>Plafond (€/j/adulte)</label><input id="set-taxe-plafond" type="number" step="0.01" value="'+(S.taxeSejourPlafond||4.60)+'" style="width:80px"></div>'
+    +'</div>'
+    +'<button class="btn btn-p btn-sm" id="btn-save-taxe-params">&#10003; Enregistrer</button>'
+  +'</div>'
+  +`<div style="max-width:600px">
     <div class="card" style="margin-bottom:16px">
       <div class="sec">📧 Configuration Brevo (email)</div>
       <div style="margin-bottom:12px">
@@ -5307,6 +5358,11 @@ function renderModal(){
         +'<div class="form-group"><label>Versement hôte (€)</label><input id="resa-total" type="number" step="0.01" value="'+(r.montant_total||'')+'"></div>'
       +'</div>'
       +'<div class="form-group"><label>Notes</label><textarea id="resa-notes" rows="2">'+(r.notes||'')+'</textarea></div>'
+      +'<div style="margin-top:10px;padding:10px;background:var(--bg2);border-radius:6px;font-size:12px">'
+        +'<strong>Taxe de séjour calculée :</strong> '
+        +fmt(calcTaxeSejour(r.nb_adultes||1,r.nb_nuits||1,r.montant_nuits||0,S.taxeSejourTaux||5,S.taxeSejourPlafond||4.60))
+        +' ('+( S.taxeSejourTaux||5)+'% plafonné '+(S.taxeSejourPlafond||4.60)+'€/j/adulte)'
+      +'</div>'
       +mf;
   }
 
@@ -6196,6 +6252,68 @@ async function sendFactureEauRelance(tenant, releve, cpt, isRelance){
   return true;
 }
 
+
+function calcTaxeSejour(nbAdultes, nbNuits, prixNuit, taux, plafond){
+  // 5% du prix nuit plafonné à plafond €/j/adulte
+  const tauxDecimal=(taux||5)/100;
+  const taxeParAdulteParNuit=Math.min((prixNuit||0)*tauxDecimal/nbNuits, plafond||4.60);
+  return Math.round(taxeParAdulteParNuit*(nbAdultes||1)*nbNuits*100)/100;
+}
+
+function genFactureResaPDF(resa){
+  const fmt=n=>new Intl.NumberFormat("fr-FR",{style:"currency",currency:"EUR"}).format(n||0);
+  const today=new Date().toLocaleDateString("fr-FR");
+  const num=resa.facture_numero||"?";
+  const taux=S.taxeSejourTaux||5;
+  const plafond=S.taxeSejourPlafond||4.60;
+  const prixNuitUnitaire=resa.montant_nuits&&resa.nb_nuits?Math.round(resa.montant_nuits/resa.nb_nuits*100)/100:0;
+  const taxe=resa.taxe_sejour||calcTaxeSejour(resa.nb_adultes||1,resa.nb_nuits||1,resa.montant_nuits||0,taux,plafond);
+  const total=(resa.montant_nuits||0)+(resa.frais_menage||0)+(resa.frais_resa||0)+taxe;
+  const roomLabel=resa.room==="T2"?"Appartement T2 - Escale Pro Lorient":"Studio - Escale Pro Lorient";
+  const arrivee=resa.date_arrivee?new Date(resa.date_arrivee).toLocaleDateString("fr-FR"):"";
+  const depart=resa.date_depart?new Date(resa.date_depart).toLocaleDateString("fr-FR"):"";
+  const html="<!DOCTYPE html><html><head><meta charset=\"utf-8\">"
+    +"<title>Facture "+num+"</title>"
+    +"<style>"
+    +"body{font-family:Arial,sans-serif;margin:0;padding:30px;color:#222;font-size:13px}"
+    +".header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:30px}"
+    +".logo{width:120px;height:auto}"
+    +".title{text-align:center;font-size:18px;font-weight:700;letter-spacing:1px;margin:20px 0;padding:12px;border-top:2px solid #185FA5;border-bottom:2px solid #185FA5;color:#185FA5}"
+    +"table{width:100%;border-collapse:collapse;margin:12px 0}"
+    +"td,th{padding:8px 12px;border:1px solid #ddd;font-size:12px}"
+    +"th{background:#f0f5ff;font-weight:600;text-align:left}"
+    +".total-row{font-weight:700;background:#f0f5ff;font-size:13px}"
+    +".footer{margin-top:30px;font-size:10px;color:#888;border-top:1px solid #ddd;padding-top:10px;text-align:center}"
+    +"@media print{body{padding:15px}}</style></head><body>"
+    +"<div class=\"header\">"
+      +"<div><img src=\"https://l.icdbcdn.com/oh/1b1524f2-63aa-4ebe-b8b0-b0797f1c602a.png?w=400\" class=\"logo\" alt=\"Escale Pro Lorient\"><br>"
+      +"<strong>Escale Pro Lorient</strong><br>5 rue de Calvin<br>56100 Lorient</div>"
+      +"<div style=\"text-align:right\">"
+        +"<div style=\"font-size:16px;font-weight:700;color:#185FA5\">FACTURE N° "+num+"</div>"
+        +"<div style=\"font-size:12px;margin-top:4px\">Date : "+today+"</div>"
+        +(resa.guest_name?"<div style=\"margin-top:8px;font-weight:600\">"+resa.guest_name+"</div>":"")
+        +(resa.guest_email?"<div style=\"font-size:11px;color:#666\">"+resa.guest_email+"</div>":"")
+      +"</div>"
+    +"</div>"
+    +"<div class=\"title\">"+roomLabel+"</div>"
+    +"<table>"
+      +"<thead><tr><th>Désignation</th><th>Détail</th><th style=\"text-align:right\">Montant</th></tr></thead>"
+      +"<tbody>"
+      +"<tr><td>Séjour</td><td>"+arrivee+" au "+depart+" ("+( resa.nb_nuits||0)+" nuit"+(resa.nb_nuits>1?"s":"")+")</td><td style=\"text-align:right\">"+fmt(resa.montant_nuits)+"</td></tr>"
+      +(resa.frais_menage?"<tr><td>Frais de ménage</td><td></td><td style=\"text-align:right\">"+fmt(resa.frais_menage)+"</td></tr>":"")
+      +(resa.frais_resa?"<tr><td>Frais de réservation</td><td></td><td style=\"text-align:right\">"+fmt(resa.frais_resa)+"</td></tr>":"")
+      +"<tr><td>Taxe de séjour</td><td>"+(resa.nb_adultes||1)+" adulte"+(resa.nb_adultes>1?"s":"")+" × "+( resa.nb_nuits||1)+" nuit"+(resa.nb_nuits>1?"s":"")+" ("+taux+"%  plaf. "+plafond+"€/j/pers)</td><td style=\"text-align:right\">"+fmt(taxe)+"</td></tr>"
+      +"</tbody>"
+      +"<tfoot><tr class=\"total-row\"><td colspan=\"2\"><strong>TOTAL</strong></td><td style=\"text-align:right\"><strong>"+fmt(total)+"</strong></td></tr></tfoot>"
+    +"</table>"
+    +"<div class=\"footer\">TVA non applicable — Article 293B du CGI</div>"
+    +"</body></html>";
+  const w=window.open("","_blank","width=860,height=900");
+  w.document.write(html);
+  w.document.close();
+  setTimeout(()=>w.print(),500);
+}
+
 function bindAll(){
   const q = id => document.getElementById(id);
   const btnSync=document.getElementById('btn-sync-lodgify');
@@ -6211,7 +6329,31 @@ function bindAll(){
   };
   document.querySelectorAll('[data-resa-year]').forEach(el=>el.onclick=()=>{S.resaYear=parseInt(el.dataset.resaYear);render();});
   document.querySelectorAll('[data-edit-resa]').forEach(el=>el.onclick=()=>{const r=S.reservations.find(x=>x.id===el.dataset.editResa);if(!r)return;S.modal={type:'edit-resa',resa:r};render();});
+  document.querySelectorAll('[data-facture-resa]').forEach(el=>el.onclick=async()=>{
+    const r=S.reservations.find(x=>x.id===el.dataset.factureResa);
+    if(!r)return;
+    // Get next invoice number
+    const year=new Date().getFullYear();
+    const {data:seqData}=await sb.from('facture_sequence').select('*').eq('annee',year).single();
+    let nextNum=1;
+    if(seqData){
+      nextNum=seqData.dernier_numero+1;
+      await sb.from('facture_sequence').update({dernier_numero:nextNum}).eq('annee',year);
+    }else{
+      await sb.from('facture_sequence').insert({annee:year,dernier_numero:1});
+    }
+    const num=nextNum+'.'+year;
+    await sb.from('reservations').update({facture_numero:num,facture_generee:true}).eq('id',r.id);
+    r.facture_numero=num;r.facture_generee=true;
+    genFactureResaPDF({...r,facture_numero:num});
+  });
   document.querySelectorAll('[data-del-resa]').forEach(el=>el.onclick=async()=>{if(!confirm('Supprimer ?'))return;const{error}=await sb.from('reservations').delete().eq('id',el.dataset.delResa);if(error){alert(error.message);return;}S.reservations=S.reservations.filter(r=>r.id!==el.dataset.delResa);render();});
+  const btnSaveTaxe=document.getElementById('btn-save-taxe-params');
+  if(btnSaveTaxe)btnSaveTaxe.onclick=()=>{
+    S.taxeSejourTaux=parseFloat(document.getElementById('set-taxe-taux')?.value)||5;
+    S.taxeSejourPlafond=parseFloat(document.getElementById('set-taxe-plafond')?.value)||4.60;
+    alert('\u2713 Paramètres taxe de séjour enregistrés');
+  };
   document.querySelectorAll('[data-nav]').forEach(el=>el.onclick=()=>{S.view=el.dataset.nav;S.selectedAsset=null;S.filter={cat:'all',search:''};if(el.dataset.nav!=='topology'){S.topoState.zoneId=null;S.topoState.subZoneId=null;S.topoState.tradeId=null;}if(el.dataset.nav!=='assets'){S.assetNav={propId:null,zoneId:null,subId:null};}render();});
   if(q('btn-logout'))q('btn-logout').onclick=()=>{S.currentUser=null;render();};
   if(q('btn-back'))q('btn-back').onclick=()=>{S.view='assets';S.selectedAsset=null;render();};
