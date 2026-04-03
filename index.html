@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v101-20260403-203847">
+<meta name="version" content="v101-20260403-205219">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -1628,14 +1628,7 @@ function renderVehicles(){
     +'</div>';
   }).join('');
 
-  return '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">'
-    +'<h2 style="margin:0">Réservations courte durée</h2>'
-    +'<button class="btn btn-p" id="btn-sync-lodgify">🔄 Sync Lodgify</button>'
-  +'</div>'
-  +yearBar
-  +roomTable(resas.filter(r=>r.room==="Studio"),"Studio")
-  +roomTable(resas.filter(r=>r.room==="T2"),"T2")
-  // Tableau ménage
+// Tableau ménage
   const menageTable=rooms.map(function(room2){
     const allForRoom=(S.reservations||[]).filter(r=>(S.resaYear===0||(r.date_arrivee||'').startsWith(String(S.resaYear||year)))&&r.room===room2);
     if(!allForRoom.length)return '';
@@ -1672,6 +1665,14 @@ function renderVehicles(){
       +'</tr></thead><tbody>'+rowsM+'</tbody></table></div>'
     +'</div>';
   }).join('');
+
+  return '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">'
+    +'<h2 style="margin:0">Réservations courte durée</h2>'
+    +'<button class="btn btn-p" id="btn-sync-lodgify">🔄 Sync Lodgify</button>'
+  +'</div>'
+  +yearBar
+  +roomTable(resas.filter(r=>r.room==="Studio"),"Studio")
+  +roomTable(resas.filter(r=>r.room==="T2"),"T2")
   +(menageTable?'<h3 style="margin:20px 0 10px">Suivi ménage</h3>'+menageTable:'')
   +(resasLodgify.length?'<h3 style="margin:20px 0 10px">Déclaration taxe de séjour</h3>'+taxeTable:'');
 }
