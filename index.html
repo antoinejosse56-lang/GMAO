@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v96-20260403-030210">
+<meta name="version" content="v97-20260403-031010">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -5982,45 +5982,71 @@ function genQuittancePDF(tenant, payment, mois, annee){
 }
 
 function genFactureEauPDF(tenant, releves, mois, annee){
-  const fmt=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(n||0);
-  const today=new Date().toLocaleDateString('fr-FR');
+  const fmt=n=>new Intl.NumberFormat("fr-FR",{style:"currency",currency:"EUR"}).format(n||0);
+  const today=new Date().toLocaleDateString("fr-FR");
+  const isDubail=dubailFilter(tenant.logement||"");
+  const bailleurNom=isDubail?"J&amp;A SAVADUR":"Antoine JOSSE";
+  const bailleurAdr=isDubail?"26 RUE G&Eacute;N&Eacute;RAL DUBAIL, 56100 LORIENT":"5 RUE DE CALVIN, 56100 LORIENT";
   const total=releves.reduce((s,r)=>s+(Math.round(((r.nouvel_index-r.ancien_index)*(r.prix_unitaire||0))*100)/100),0);
   const rows=releves.map(function(r){
     const cpt=S.compteurs.find(c=>c.id===r.compteur_id)||{};
     const conso=Math.round((r.nouvel_index-r.ancien_index)*1000)/1000;
     const montant=Math.round(conso*(r.prix_unitaire||0)*100)/100;
-    return `<tr><td>${cpt.name||'Compteur'}</td><td style="text-align:right">${r.ancien_index}</td><td style="text-align:right">${r.nouvel_index}</td><td style="text-align:right">${conso} ${cpt.unite||'m³'}</td><td style="text-align:right">${fmt(r.prix_unitaire||0)}/${cpt.unite||'m³'}</td><td style="text-align:right"><strong>${fmt(montant)}</strong></td></tr>`;
-  }).join('');
-  const html=`<!DOCTYPE html><html><head><meta charset="utf-8">
-  <title>Facture eau ${mois} ${annee}</title>
-  <style>
-    body{font-family:Arial,sans-serif;margin:0;padding:30px;color:#222;font-size:13px}
-    .header{display:flex;justify-content:space-between;margin-bottom:30px}
-    .title{text-align:center;font-size:18px;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin:20px 0;padding:12px;border-top:2px solid #185FA5;border-bottom:2px solid #185FA5;color:#185FA5}
-    table{width:100%;border-collapse:collapse;margin:12px 0}
-    td,th{padding:8px 12px;border:1px solid #ddd;font-size:12px}
-    th{background:#f0f5ff;font-weight:600;text-align:left}
-    .total{font-weight:700;background:#f0f5ff;font-size:14px}
-    .footer{margin-top:30px;font-size:11px;color:#888;border-top:1px solid #ddd;padding-top:12px}
-    @media print{body{padding:15px}}
-  </style></head><body>
-  <div class="header">
-    <div><strong>J&amp;A SAVADUR</strong><br>26 RUE GÉNÉRAL DUBAIL<br>56100 LORIENT</div>
-    <div style="text-align:right"><strong>${tenant.nom||''}</strong><br>${tenant.logement||''}<br>Date : ${today}</div>
-  </div>
-  <div class="title">Facture eau/charges — ${mois} ${annee}</div>
-  <table>
-    <tr><th>Compteur</th><th style="text-align:right">Ancien index</th><th style="text-align:right">Nouvel index</th><th style="text-align:right">Conso.</th><th style="text-align:right">Tarif</th><th style="text-align:right">Montant</th></tr>
-    ${rows}
-    <tr class="total"><td colspan="5"><strong>TOTAL</strong></td><td style="text-align:right"><strong>${fmt(total)}</strong></td></tr>
-  </table>
-  <div class="footer">Facture générée le ${today} — Merci de régler cette facture dans les 30 jours.</div>
-  </body></html>`;
-  const w=window.open('','_blank','width=800,height=700');
+    const dateRel=r.date?new Date(r.date).toLocaleDateString("fr-FR"):"";
+    // Find previous releve for this meter to get period start
+    const prevRel=S.releves.filter(x=>x.compteur_id===r.compteur_id&&x.date<r.date).sort((a,b)=>b.date>a.date?1:-1)[0];
+    const datePrev=prevRel?new Date(prevRel.date).toLocaleDateString("fr-FR"):"";
+    const periode=datePrev?datePrev+" au "+dateRel:dateRel;
+    return "<tr>"
+      +"<td>"+cpt.name+"</td>"
+      +"<td style=\"text-align:center\">"+periode+"</td>"
+      +"<td style=\"text-align:right\">"+r.ancien_index+"</td>"
+      +"<td style=\"text-align:right\">"+r.nouvel_index+"</td>"
+      +"<td style=\"text-align:right\">"+conso+" "+(cpt.unite||"m&sup3;")+"</td>"
+      +"<td style=\"text-align:right\">"+fmt(r.prix_unitaire||0)+"/"+(cpt.unite||"m&sup3;")+"</td>"
+      +"<td style=\"text-align:right\"><strong>"+fmt(montant)+"</strong></td>"
+      +"</tr>";
+  }).join("");
+  const html="<!DOCTYPE html><html><head><meta charset=\"utf-8\">"
+    +"<title>Facture eau</title>"
+    +"<style>body{font-family:Arial,sans-serif;margin:0;padding:30px;color:#222;font-size:13px}"
+    +".header{display:flex;justify-content:space-between;margin-bottom:30px}"
+    +".title{text-align:center;font-size:18px;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin:20px 0;padding:12px;border-top:2px solid #185FA5;border-bottom:2px solid #185FA5;color:#185FA5}"
+    +"table{width:100%;border-collapse:collapse;margin:12px 0}"
+    +"td,th{padding:8px 10px;border:1px solid #ddd;font-size:12px}"
+    +"th{background:#f0f5ff;font-weight:600;text-align:left}"
+    +".total{font-weight:700;background:#f0f5ff;font-size:13px}"
+    +".footer{margin-top:30px;font-size:11px;color:#888;border-top:1px solid #ddd;padding-top:12px}"
+    +"@media print{body{padding:15px}}</style></head><body>"
+    +"<div class=\"header\">"
+      +"<div><strong>"+bailleurNom+"</strong><br>"+bailleurAdr+"</div>"
+      +"<div style=\"text-align:right\"><strong>"+tenant.nom+"</strong><br>"+(tenant.logement||"")+"<br>Emise le : "+today+"</div>"
+    +"</div>"
+    +"<div class=\"title\">Facture eau / charges</div>"
+    +"<table>"
+      +"<thead><tr>"
+        +"<th>Compteur</th>"
+        +"<th style=\"text-align:center\">P&eacute;riode</th>"
+        +"<th style=\"text-align:right\">Ancien index</th>"
+        +"<th style=\"text-align:right\">Nouvel index</th>"
+        +"<th style=\"text-align:right\">Consommation</th>"
+        +"<th style=\"text-align:right\">Tarif</th>"
+        +"<th style=\"text-align:right\">Montant</th>"
+      +"</tr></thead>"
+      +"<tbody>"+rows+"</tbody>"
+      +"<tfoot><tr class=\"total\">"
+        +"<td colspan=\"6\"><strong>TOTAL &agrave; r&eacute;gler</strong></td>"
+        +"<td style=\"text-align:right\"><strong>"+fmt(total)+"</strong></td>"
+      +"</tr></tfoot>"
+    +"</table>"
+    +"<div class=\"footer\">Merci de proc&eacute;der au r&egrave;glement dans les 30 jours. En cas de question, contactez-nous.</div>"
+    +"</body></html>";
+  const w=window.open("","_blank","width=860,height=900");
   w.document.write(html);
   w.document.close();
   setTimeout(()=>w.print(),500);
 }
+
 
 async function sendFactureEauRelance(tenant, releve, cpt, isRelance){
   const isDubail=dubailFilter(tenant.logement||"");
@@ -6032,6 +6058,9 @@ async function sendFactureEauRelance(tenant, releve, cpt, isRelance){
   const conso=Math.round(((releve.nouvel_index||0)-(releve.ancien_index||0))*1000)/1000;
   const montant=Math.round(conso*(releve.prix_unitaire||cpt.prix_unitaire||0)*100)/100;
   const dateStr=releve.date?new Date(releve.date).toLocaleDateString("fr-FR"):"";
+  const prevRel=S.releves.filter(x=>x.compteur_id===releve.compteur_id&&x.date<releve.date).sort((a,b)=>b.date>a.date?1:-1)[0];
+  const datePrev=prevRel?new Date(prevRel.date).toLocaleDateString("fr-FR"):"";
+  const periode=datePrev?"du "+datePrev+" au "+dateStr:dateStr;
   const subject=(isRelance?"[RAPPEL] ":"")+"Facture eau/charges \u2014 "+tenant.logement+" \u2014 "+dateStr;
   const emailHtml=`<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;font-size:13px;color:#222;max-width:600px;margin:0 auto">`
     +`<div style="background:#185FA5;color:#fff;padding:20px 24px;margin-bottom:24px">`
@@ -6047,6 +6076,7 @@ async function sendFactureEauRelance(tenant, releve, cpt, isRelance){
     +`<tr style="background:#f5f5f5"><th style="padding:8px;text-align:left;border:1px solid #ddd">D\u00e9signation</th><th style="padding:8px;text-align:right;border:1px solid #ddd">Valeur</th></tr>`
     +`<tr><td style="padding:8px;border:1px solid #ddd">Compteur</td><td style="padding:8px;text-align:right;border:1px solid #ddd">${cpt.name||""}</td></tr>`
     +`<tr><td style="padding:8px;border:1px solid #ddd">Date du relev\u00e9</td><td style="padding:8px;text-align:right;border:1px solid #ddd">${dateStr}</td></tr>`
+    +`<tr><td style="padding:8px;border:1px solid #ddd">P\u00e9riode de consommation</td><td style="padding:8px;text-align:right;border:1px solid #ddd">${periode}</td></tr>`
     +`<tr><td style="padding:8px;border:1px solid #ddd">Ancien index</td><td style="padding:8px;text-align:right;border:1px solid #ddd">${releve.ancien_index} ${cpt.unite||"m\u00b3"}</td></tr>`
     +`<tr><td style="padding:8px;border:1px solid #ddd">Nouvel index</td><td style="padding:8px;text-align:right;border:1px solid #ddd">${releve.nouvel_index} ${cpt.unite||"m\u00b3"}</td></tr>`
     +`<tr><td style="padding:8px;border:1px solid #ddd">Consommation</td><td style="padding:8px;text-align:right;border:1px solid #ddd">${conso} ${cpt.unite||"m\u00b3"}</td></tr>`
