@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v101-20260403-205219">
+<meta name="version" content="v102-20260403-205655">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -1559,6 +1559,7 @@ function renderVehicles(){
     const nuits=items.reduce((s,r)=>s+(r.nb_nuits||0),0);
     const rows=items.map(function(r){
       const incomplete=!r.montant_total||r.guest_name.includes("***");
+      const menagePresta=r.menage_prestataire!==false;
       return '<tr style="'+(incomplete?"background:#FFF9E6":"")+'">'
         +'<td style="font-size:11px">'+dateLabel(r.date_arrivee)+'</td>'
         +'<td style="font-size:11px">'+dateLabel(r.date_depart)+'</td>'
@@ -1566,6 +1567,13 @@ function renderVehicles(){
         +'<td>'+( r.guest_name&&!r.guest_name.includes("***")?r.guest_name:'<span style="color:var(--text3)">Anonyme</span>')+'</td>'
         +'<td style="text-align:right">'+( r.montant_nuits?fmt(r.montant_nuits):"—")+'</td>'
         +'<td style="text-align:right">'+( r.frais_menage?fmt(r.frais_menage):"—")+'</td>'
+        +'<td style="text-align:center">'  
+          +'<button class="btn btn-sm" data-toggle-menage="'+r.id+'" '
+            +'style="font-size:10px;padding:2px 6px;background:'+(menagePresta?'#1D9E75':'var(--amber)')+';color:#fff" '
+            +'title="'+(menagePresta?'Prestataire — cliquer si vous faites vous-même':'Vous — cliquer si prestataire')+'">'
+            +(menagePresta?'🧹 Presta':'🙋 Moi')
+          +'</button>'
+        +'</td>'
         +'<td style="text-align:right;font-weight:600">'+( r.montant_total?fmt(r.montant_total):'<span style="color:var(--amber)">⚠ à compléter</span>')+'</td>'
         +'<td>'+srcBadge(r.source)+'</td>'
         +'<td style="white-space:nowrap">'
@@ -6387,6 +6395,15 @@ function bindAll(){
     await sb.from('reservations').update({facture_numero:num,facture_generee:true}).eq('id',r.id);
     r.facture_numero=num;r.facture_generee=true;
     genFactureResaPDF({...r,facture_numero:num});
+  });
+  document.querySelectorAll('[data-toggle-menage]').forEach(el=>el.onclick=async()=>{
+    const r=S.reservations.find(x=>x.id===el.dataset.toggleMenage);
+    if(!r)return;
+    const newVal=r.menage_prestataire===false?true:false;
+    const{error}=await sb.from('reservations').update({menage_prestataire:newVal}).eq('id',r.id);
+    if(error){alert('Erreur : '+error.message);return;}
+    r.menage_prestataire=newVal;
+    render();
   });
   document.querySelectorAll('[data-del-resa]').forEach(el=>el.onclick=async()=>{if(!confirm('Supprimer ?'))return;const{error}=await sb.from('reservations').delete().eq('id',el.dataset.delResa);if(error){alert(error.message);return;}S.reservations=S.reservations.filter(r=>r.id!==el.dataset.delResa);render();});
   const btnSaveTaxe=document.getElementById('btn-save-taxe-params');
