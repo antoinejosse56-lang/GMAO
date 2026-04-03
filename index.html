@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v98-20260403-153636">
+<meta name="version" content="v99-20260403-155607">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -588,7 +588,6 @@ function renderApp(){
     users: isAdmin() ? renderUsers() : '<div style="padding:20px;color:var(--text2)">Accès restreint.</div>',
     settings: isAdmin() ? renderSettings() : '',
     famille: renderFamille(),
-    factures: renderFactures(),
     asset_detail: S.selectedAsset ? renderAssetDetail(S.selectedAsset) : '',
   };
   const topBtns = {
@@ -1549,7 +1548,8 @@ function renderVehicles(){
   const yearBar='<div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">'
     +[2024,2025,2026,2027].map(y=>'<span class="pill '+(year===y?'active':'')+'" data-resa-year="'+y+'">'+y+'</span>').join("")
     +'<span class="pill '+(year===0?'active':'')+'" data-resa-year="0">Tout</span></div>';
-  const resas=(S.reservations||[]).filter(r=>year===0||(r.date_arrivee||"").startsWith(String(year)));
+  const allResa=[...new Map((S.reservations||[]).map(r=>[r.id,r])).values()];
+  const resas=allResa.filter(r=>year===0||(r.date_arrivee||"").startsWith(String(year)));
   const srcBadge=s=>s==="airbnb"?'<span class="badge" style="background:#FF5A5F;color:#fff;font-size:9px">Airbnb</span>'
     :s==="booking"?'<span class="badge" style="background:#003580;color:#fff;font-size:9px">Booking</span>'
     :'<span class="badge" style="background:#00B4D8;color:#fff;font-size:9px">Lodgify</span>';
