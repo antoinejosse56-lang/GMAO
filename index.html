@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v95-20260402-155717">
+<meta name="version" content="v96-20260403-030210">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -1836,42 +1836,103 @@ function renderVehicles(){
     </div>`;
   }
 
-  if(tab==='emises'){
+    if(tab==='emises'){
     const allRp=S.rentPayments.filter(p=>p.annee===year&&p.paye);
-    const allFact=S.factures.filter(f=>(f.date||'').startsWith(String(year))&&f.tenant_id);
-    function getBienE(t){if(!t||!t.logement)return 'Non classé';const sep=t.logement.includes(' — ')?' — ':' - ';return t.logement.split(sep)[0];}
-    function getZoneE(t){if(!t||!t.logement)return '';const sep=t.logement.includes(' — ')?' — ':' - ';return t.logement.includes(sep)?t.logement.split(sep).slice(1).join(sep):'';}
-    const rpByBien={},facByBien={};
-    allRp.forEach(function(p){const t=S.tenants.find(x=>x.id===p.tenant_id);const b=getBienE(t);const z=getZoneE(t)||t?.nom||'';if(!rpByBien[b])rpByBien[b]={};if(!rpByBien[b][z])rpByBien[b][z]=[];rpByBien[b][z].push({...p,_t:t});});
-    allFact.forEach(function(f){const t=S.tenants.find(x=>x.id===f.tenant_id);const b=getBienE(t);const z=getZoneE(t)||t?.nom||'';if(!facByBien[b])facByBien[b]={};if(!facByBien[b][z])facByBien[b][z]=[];facByBien[b][z].push({...f,_t:t});});
-    function buildEmisBlock(byBien,type){
-      const color=type==='qtt'?'#185FA5':'#1D9E75';
-      const title=type==='qtt'?'Quittances de loyer':'Factures charges/eau';
+    // Releves linked to tenants (water/charges invoices)
+    const allRel=S.releves.filter(r=>{
+      const cpt=S.compteurs.find(c=>c.id===r.compteur_id);
+      return cpt&&cpt.tenant_id&&(r.date||'').startsWith(String(year));
+    });
+    function getBienE(t){if(!t||!t.logement)return 'Non class\u00e9';const sep=t.logement.includes(' \u2014 ')?' \u2014 ':' - ';return t.logement.split(sep)[0];}
+    function getZoneE(t){if(!t||!t.logement)return '';const sep=t.logement.includes(' \u2014 ')?' \u2014 ':' - ';return t.logement.includes(sep)?t.logement.split(sep).slice(1).join(sep):'';}
+    // Group quittances
+    const rpByBien={};
+    allRp.forEach(function(p){
+      const t=S.tenants.find(x=>x.id===p.tenant_id);
+      const b=getBienE(t);const z=getZoneE(t)||t?.nom||'';
+      if(!rpByBien[b])rpByBien[b]={};if(!rpByBien[b][z])rpByBien[b][z]=[];
+      rpByBien[b][z].push({...p,_t:t});
+    });
+    // Group releves
+    const relByBien={};
+    allRel.forEach(function(r){
+      const cpt=S.compteurs.find(c=>c.id===r.compteur_id)||{};
+      const t=S.tenants.find(x=>x.id===cpt.tenant_id);
+      const b=getBienE(t);const z=getZoneE(t)||t?.nom||'';
+      if(!relByBien[b])relByBien[b]={};if(!relByBien[b][z])relByBien[b][z]=[];
+      relByBien[b][z].push({...r,_t:t,_cpt:cpt});
+    });
+    function buildQttBlock(byBien){
+      const color='#185FA5';const title='Quittances de loyer';
       const biens=Object.keys(byBien).sort();
-      if(!biens.length)return '<div style="padding:16px;text-align:center;color:var(--text2)">Aucune pour '+year+'</div>';
+      if(!biens.length)return '<div style="padding:16px;text-align:center;color:var(--text2)">Aucune quittance en '+year+'</div>';
       const bHtml=biens.map(function(bien){
         const zones=Object.keys(byBien[bien]).sort();
-        const bT=zones.reduce((s,z)=>s+byBien[bien][z].reduce((s2,f)=>s2+(type==='qtt'?(f.locataire_part||0)+(f.caf||0):f.montant_ttc||0),0),0);
+        const bT=zones.reduce((s,z)=>s+byBien[bien][z].reduce((s2,f)=>s2+(f.locataire_part||0)+(f.caf||0),0),0);
         const zHtml=zones.map(function(zone){
-          const items=[...byBien[bien][zone]].sort((a,b2)=>((a.date||'')>(b2.date||''))?1:-1);
-          const zT=items.reduce((s,f)=>s+(type==='qtt'?(f.locataire_part||0)+(f.caf||0):f.montant_ttc||0),0);
+          const items=[...byBien[bien][zone]].sort((a,b2)=>(a.mois_num||0)>(b2.mois_num||0)?1:-1);
+          const zT=items.reduce((s,f)=>s+(f.locataire_part||0)+(f.caf||0),0);
           const rows=items.map(function(f){
-            if(type==='qtt'){const recu=(f.locataire_part||0)+(f.caf||0);const sol=Math.round(((f.loyer||0)-recu)*100)/100;return '<tr><td style="font-size:11px">'+(f.mois||'')+' '+(f.annee||'')+'</td><td>'+( f._t?.nom||'')+'</td><td style="text-align:right">'+fmt(f.loyer||0)+'</td><td style="text-align:right;color:var(--green)">'+fmt(recu)+'</td><td style="text-align:right;color:'+(sol>0?'var(--red)':'var(--green)')+'">'+fmt(sol)+'</td><td style="text-align:center;white-space:nowrap"><button class="btn btn-sm" data-print-qtt="'+f.id+'" style="font-size:10px;padding:2px 6px">&#128438;</button>'+(isAdmin()?'<button class="btn btn-d btn-sm" data-del-rp="'+f.id+'" style="font-size:10px;padding:2px 5px;margin-left:3px">&#10005;</button>':'')+'</td></tr>';}
-            else{return '<tr><td style="font-size:11px">'+dateLabel(f.date)+'</td><td>'+( f.fournisseur||'')+'</td><td style="color:var(--text2);font-size:11px">'+(f.description||'')+'</td><td style="text-align:right;font-weight:500">'+fmt(f.montant_ttc||0)+'</td>'+(isAdmin()?'<td><button class="btn btn-d btn-sm" data-del-facture="'+f.id+'" style="font-size:10px;padding:2px 5px">&#10005;</button></td>':'<td></td>')+'</tr>';}
+            const recu=(f.locataire_part||0)+(f.caf||0);const sol=Math.round(((f.loyer||0)-recu)*100)/100;
+            return '<tr><td style="font-size:11px">'+(f.mois||'')+' '+(f.annee||'')+'</td>'
+              +'<td>'+(f._t?.nom||'')+'</td>'
+              +'<td style="text-align:right">'+fmt(f.loyer||0)+'</td>'
+              +'<td style="text-align:right;color:var(--green)">'+fmt(recu)+'</td>'
+              +'<td style="text-align:right;color:'+(sol>0?'var(--red)':'var(--green)')+';">'+fmt(sol)+'</td>'
+              +'<td style="text-align:center;white-space:nowrap">'
+                +'<button class="btn btn-sm" data-print-qtt="'+f.id+'" style="font-size:10px;padding:2px 5px">&#128438;</button>'
+                +(isAdmin()?'<button class="btn btn-d btn-sm" data-del-rp="'+f.id+'" style="font-size:10px;padding:2px 5px;margin-left:3px">&#10005;</button>':'')
+              +'</td></tr>';
           }).join('');
-          const th=type==='qtt'?'<tr><th>Mois</th><th>Locataire</th><th style="text-align:right">Attendu</th><th style="text-align:right">Reçu</th><th style="text-align:right">Solde</th><th style="text-align:center">Actions</th></tr>':'<tr><th>Date</th><th>Désignation</th><th>Détail</th><th style="text-align:right">TTC</th><th style="text-align:center">Actions</th></tr>';
-          return '<tr style="background:var(--bg2)"><td colspan="6" style="font-size:11px;font-weight:600;padding:4px 8px;color:var(--text2)">'+(zone||'Général')+' — '+fmt(zT)+'</td></tr>'+rows;
+          return '<tr style="background:var(--bg2)"><td colspan="6" style="font-size:11px;font-weight:600;padding:4px 8px;color:var(--text2)">'+(zone||'G\u00e9n\u00e9ral')+' \u2014 '+fmt(zT)+'</td></tr>'+rows;
         }).join('');
-        const th=type==='qtt'?'<tr><th>Mois</th><th>Locataire</th><th style="text-align:right">Attendu</th><th style="text-align:right">Reçu</th><th style="text-align:right">Solde</th><th style="text-align:center">Actions</th></tr>':'<tr><th>Date</th><th>Désignation</th><th>Détail</th><th style="text-align:right">TTC</th><th style="text-align:center">Actions</th></tr>';
-        return '<div class="card" style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;padding-bottom:6px;margin-bottom:8px;border-bottom:1.5px solid '+color+'"><div style="font-size:13px;font-weight:600;color:'+color+'">&#127968; '+bien+'</div><div style="font-size:12px;font-weight:600">'+fmt(bT)+'</div></div><div style="overflow-x:auto"><table style="min-width:450px"><thead>'+th+'</thead><tbody>'+zHtml+'</tbody></table></div></div>';
+        return '<div class="card" style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;padding-bottom:6px;margin-bottom:8px;border-bottom:1.5px solid '+color+'"><div style="font-size:13px;font-weight:600;color:'+color+'">&#127968; '+bien+'</div><div style="font-size:12px;font-weight:600">'+fmt(bT)+'</div></div><div style="overflow-x:auto"><table style="min-width:450px"><thead><tr><th style="font-size:10px">Mois</th><th style="font-size:10px">Locataire</th><th style="font-size:10px;text-align:right">Attendu</th><th style="font-size:10px;text-align:right">Re\u00e7u</th><th style="font-size:10px;text-align:right">Solde</th><th style="font-size:10px">Actions</th></tr></thead><tbody>'+zHtml+'</tbody></table></div></div>';
       }).join('');
-      const gT=biens.reduce((s,b)=>s+Object.keys(byBien[b]).reduce((s2,z)=>s2+byBien[b][z].reduce((s3,f)=>s3+(type==='qtt'?(f.locataire_part||0)+(f.caf||0):f.montant_ttc||0),0),0),0);
+      const gT=biens.reduce((s,b)=>s+Object.keys(byBien[b]).reduce((s2,z)=>s2+byBien[b][z].reduce((s3,f)=>s3+(f.locataire_part||0)+(f.caf||0),0),0),0);
+      return '<div style="font-size:14px;font-weight:700;color:'+color+';margin-bottom:10px;padding-bottom:8px;border-bottom:2px solid '+color+'">'+title+'</div>'+bHtml+'<div class="card" style="background:var(--bg2);margin-bottom:20px"><div style="display:flex;justify-content:space-between;font-weight:700"><span>Total '+year+'</span><span>'+fmt(gT)+'</span></div></div>';
+    }
+    function buildRelBlock(byBien){
+      const color='#1D9E75';const title='Factures charges/eau';
+      const biens=Object.keys(byBien).sort();
+      if(!biens.length)return '<div style="padding:16px;text-align:center;color:var(--text2)">Aucune facture eau en '+year+'</div>';
+      const bHtml=biens.map(function(bien){
+        const zones=Object.keys(byBien[bien]).sort();
+        const bT=zones.reduce((s,z)=>s+byBien[bien][z].reduce((s2,r)=>{
+          const conso=Math.round(((r.nouvel_index||0)-(r.ancien_index||0))*1000)/1000;
+          return s2+Math.round(conso*(r.prix_unitaire||r._cpt?.prix_unitaire||0)*100)/100;
+        },0),0);
+        const zHtml=zones.map(function(zone){
+          const items=[...byBien[bien][zone]].sort((a,b2)=>(a.date||'')>(b2.date||'')?1:-1);
+          const zT=items.reduce((s,r)=>{const co=Math.round(((r.nouvel_index||0)-(r.ancien_index||0))*1000)/1000;return s+Math.round(co*(r.prix_unitaire||r._cpt?.prix_unitaire||0)*100)/100;},0);
+          const rows=items.map(function(r){
+            const conso=Math.round(((r.nouvel_index||0)-(r.ancien_index||0))*1000)/1000;
+            const montant=Math.round(conso*(r.prix_unitaire||r._cpt?.prix_unitaire||0)*100)/100;
+            const st=r.paye?'<span class="badge bgreen">\u2713 Acquitt\u00e9e</span>':r.facture_envoyee?'<span class="badge bblue">&#128438; Factur\u00e9e</span>':'<span class="badge bgray">\u25cf En attente</span>';
+            return '<tr>'
+              +'<td style="font-size:11px;white-space:nowrap">'+dateLabel(r.date)+'</td>'
+              +'<td>'+(r._t?.nom||'')+'</td>'
+              +'<td style="font-size:11px;color:var(--text2)">'+(r._cpt?.name||'')+'</td>'
+              +'<td style="text-align:right;font-size:11px">'+conso+' '+(r._cpt?.unite||'m\u00b3')+'</td>'
+              +'<td style="text-align:right;font-weight:500">'+fmt(montant)+'</td>'
+              +'<td style="text-align:center">'+st+'</td>'
+              +'<td style="text-align:center;white-space:nowrap">'
+                +'<button class="btn btn-sm" data-print-releve="'+r.id+'" style="font-size:10px;padding:2px 5px" title="Imprimer">&#128438;</button>'
+                +'<button class="btn btn-sm" style="font-size:10px;padding:2px 5px;margin-left:3px;background:var(--amber);color:#fff" data-relance-releve="'+r.id+'" title="Envoyer relance">&#128233;</button>'
+                +(isAdmin()?'<button class="btn btn-d btn-sm" data-del-releve="'+r.id+'" style="font-size:10px;padding:2px 5px;margin-left:3px">&#10005;</button>':'')
+              +'</td></tr>';
+          }).join('');
+          return '<tr style="background:var(--bg2)"><td colspan="7" style="font-size:11px;font-weight:600;padding:4px 8px;color:var(--text2)">'+(zone||'G\u00e9n\u00e9ral')+' \u2014 '+fmt(zT)+'</td></tr>'+rows;
+        }).join('');
+        return '<div class="card" style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;padding-bottom:6px;margin-bottom:8px;border-bottom:1.5px solid '+color+'"><div style="font-size:13px;font-weight:600;color:'+color+'">&#127968; '+bien+'</div><div style="font-size:12px;font-weight:600">'+fmt(bT)+'</div></div><div style="overflow-x:auto"><table style="min-width:520px"><thead><tr><th style="font-size:10px">Date</th><th style="font-size:10px">Locataire</th><th style="font-size:10px">Compteur</th><th style="font-size:10px;text-align:right">Conso.</th><th style="font-size:10px;text-align:right">Montant</th><th style="font-size:10px">Statut</th><th style="font-size:10px">Actions</th></tr></thead><tbody>'+zHtml+'</tbody></table></div></div>';
+      }).join('');
+      const gT=biens.reduce((s,b)=>s+Object.keys(byBien[b]).reduce((s2,z)=>s2+byBien[b][z].reduce((s3,r)=>{const co=Math.round(((r.nouvel_index||0)-(r.ancien_index||0))*1000)/1000;return s3+Math.round(co*(r.prix_unitaire||r._cpt?.prix_unitaire||0)*100)/100;},0),0),0);
       return '<div style="font-size:14px;font-weight:700;color:'+color+';margin-bottom:10px;padding-bottom:8px;border-bottom:2px solid '+color+'">'+title+'</div>'+bHtml+'<div class="card" style="background:var(--bg2);margin-bottom:20px"><div style="display:flex;justify-content:space-between;font-weight:700"><span>Total '+year+'</span><span>'+fmt(gT)+'</span></div></div>';
     }
     return tabBar+yearBar
-      +'<div class="card" style="margin-bottom:16px">'+buildEmisBlock(rpByBien,'qtt')+'</div>'
-      +'<div class="card">'+buildEmisBlock(facByBien,'chg')+'</div>';
+      +'<div class="card" style="margin-bottom:16px">'+buildQttBlock(rpByBien)+'</div>'
+      +'<div class="card">'+buildRelBlock(relByBien)+'</div>';
   }
+
 
 
   return '';
@@ -5961,6 +6022,57 @@ function genFactureEauPDF(tenant, releves, mois, annee){
   setTimeout(()=>w.print(),500);
 }
 
+async function sendFactureEauRelance(tenant, releve, cpt, isRelance){
+  const isDubail=dubailFilter(tenant.logement||"");
+  const FROM_NAME_L=isDubail?"J&A SAVADUR":"Antoine JOSSE";
+  const FROM_EMAIL_L=isDubail?"savadur56@gmail.com":"antoinejosse56@gmail.com";
+  const ADR_L=isDubail?"26 rue G\u00e9n\u00e9ral Dubail, 56100 Lorient":"5 rue de Calvin, 56100 Lorient";
+  if(!tenant.email){alert("Pas d'email pour ce locataire");return;}
+  const fmt=n=>new Intl.NumberFormat("fr-FR",{style:"currency",currency:"EUR",minimumFractionDigits:2}).format(n||0);
+  const conso=Math.round(((releve.nouvel_index||0)-(releve.ancien_index||0))*1000)/1000;
+  const montant=Math.round(conso*(releve.prix_unitaire||cpt.prix_unitaire||0)*100)/100;
+  const dateStr=releve.date?new Date(releve.date).toLocaleDateString("fr-FR"):"";
+  const subject=(isRelance?"[RAPPEL] ":"")+"Facture eau/charges \u2014 "+tenant.logement+" \u2014 "+dateStr;
+  const emailHtml=`<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;font-size:13px;color:#222;max-width:600px;margin:0 auto">`
+    +`<div style="background:#185FA5;color:#fff;padding:20px 24px;margin-bottom:24px">`
+    +`<div style="font-size:18px;font-weight:700">${FROM_NAME_L}</div>`
+    +`<div style="font-size:12px;opacity:0.85">${ADR_L}</div>`
+    +"</div>"
+    +(isRelance?`<div style="background:#FFF3CD;border-left:4px solid #F39C12;padding:12px 16px;margin-bottom:16px;font-size:13px"><strong>\u26a0\ufe0f Rappel de paiement</strong><br>Sauf erreur de notre part, la facture ci-dessous est toujours en attente de r\u00e8glement.</div>`:"")
+    +`<p>Madame, Monsieur <strong>${tenant.nom}</strong>,</p>`
+    +(isRelance
+      ?`<p>Nous vous rappelons que la facture suivante reste impay\u00e9e :</p>`
+      :`<p>Veuillez trouver ci-dessous votre facture eau/charges :</p>`)
+    +`<table style="width:100%;border-collapse:collapse;margin:16px 0">`
+    +`<tr style="background:#f5f5f5"><th style="padding:8px;text-align:left;border:1px solid #ddd">D\u00e9signation</th><th style="padding:8px;text-align:right;border:1px solid #ddd">Valeur</th></tr>`
+    +`<tr><td style="padding:8px;border:1px solid #ddd">Compteur</td><td style="padding:8px;text-align:right;border:1px solid #ddd">${cpt.name||""}</td></tr>`
+    +`<tr><td style="padding:8px;border:1px solid #ddd">Date du relev\u00e9</td><td style="padding:8px;text-align:right;border:1px solid #ddd">${dateStr}</td></tr>`
+    +`<tr><td style="padding:8px;border:1px solid #ddd">Ancien index</td><td style="padding:8px;text-align:right;border:1px solid #ddd">${releve.ancien_index} ${cpt.unite||"m\u00b3"}</td></tr>`
+    +`<tr><td style="padding:8px;border:1px solid #ddd">Nouvel index</td><td style="padding:8px;text-align:right;border:1px solid #ddd">${releve.nouvel_index} ${cpt.unite||"m\u00b3"}</td></tr>`
+    +`<tr><td style="padding:8px;border:1px solid #ddd">Consommation</td><td style="padding:8px;text-align:right;border:1px solid #ddd">${conso} ${cpt.unite||"m\u00b3"}</td></tr>`
+    +`<tr><td style="padding:8px;border:1px solid #ddd">Tarif</td><td style="padding:8px;text-align:right;border:1px solid #ddd">${fmt(releve.prix_unitaire||cpt.prix_unitaire||0)}/${cpt.unite||"m\u00b3"}</td></tr>`
+    +`<tr style="background:#e8f4ff"><td style="padding:8px;border:1px solid #ddd"><strong>TOTAL</strong></td><td style="padding:8px;text-align:right;border:1px solid #ddd"><strong>${fmt(montant)}</strong></td></tr>`
+    +"</table>"
+    +`<p>Merci de proc\u00e9der au r\u00e8glement dans les meilleurs d\u00e9lais.</p>`
+    +`<p>Cordialement,<br><strong>${FROM_NAME_L}</strong></p>`
+    +"</body></html>";
+  if(!BREVO_API_KEY)BREVO_API_KEY=ensureBrevoKey();
+  if(!BREVO_API_KEY)throw new Error("Cl\u00e9 Brevo manquante");
+  const resp=await fetch("https://api.brevo.com/v3/smtp/email",{
+    method:"POST",
+    headers:{"api-key":BREVO_API_KEY,"Content-Type":"application/json"},
+    body:JSON.stringify({sender:{name:FROM_NAME_L,email:FROM_EMAIL_L},to:[{email:tenant.email,name:tenant.nom}],subject,htmlContent:emailHtml})
+  });
+  if(!resp.ok){const t=await resp.text();throw new Error(t);}
+  // Archive copy
+  fetch("https://api.brevo.com/v3/smtp/email",{
+    method:"POST",
+    headers:{"api-key":BREVO_API_KEY,"Content-Type":"application/json"},
+    body:JSON.stringify({sender:{name:FROM_NAME_L,email:FROM_EMAIL_L},to:[{email:FROM_EMAIL_L,name:FROM_NAME_L}],subject:"[COPIE] "+subject+" - "+tenant.nom,htmlContent:emailHtml})
+  }).catch(e=>console.warn("Copie failed",e));
+  return true;
+}
+
 function bindAll(){
   const q = id => document.getElementById(id);
   document.querySelectorAll('[data-nav]').forEach(el=>el.onclick=()=>{S.view=el.dataset.nav;S.selectedAsset=null;S.filter={cat:'all',search:''};if(el.dataset.nav!=='topology'){S.topoState.zoneId=null;S.topoState.subZoneId=null;S.topoState.tradeId=null;}if(el.dataset.nav!=='assets'){S.assetNav={propId:null,zoneId:null,subId:null};}render();});
@@ -6392,6 +6504,42 @@ function bindAll(){
   document.querySelectorAll('[data-fin-tab]').forEach(el=>el.onclick=()=>{S.finTab=el.dataset.finTab;S.finSub='liste';S.finLoc='';render();});
   const elPaidOnly=document.getElementById('fin-paid-only');
   if(elPaidOnly)elPaidOnly.onchange=()=>{S.finPaidOnly=elPaidOnly.checked;render();};
+  document.querySelectorAll('[data-print-releve]').forEach(el=>el.onclick=()=>{
+    const r=S.releves.find(x=>x.id===el.dataset.printReleve);
+    if(!r)return;
+    const cpt=S.compteurs.find(c=>c.id===r.compteur_id)||{};
+    const tenant=S.tenants.find(t=>t.id===cpt.tenant_id);
+    if(!tenant)return;
+    const dateStr=r.date?new Date(r.date).toLocaleDateString('fr-FR',{month:'long',year:'numeric'}):'';
+    genFactureEauPDF(tenant,[r],dateStr,'');
+  });
+  document.querySelectorAll('[data-relance-releve]').forEach(el=>el.onclick=async()=>{
+    const r=S.releves.find(x=>x.id===el.dataset.relanceReleve);
+    if(!r)return;
+    const cpt=S.compteurs.find(c=>c.id===r.compteur_id)||{};
+    const tenant=S.tenants.find(t=>t.id===cpt.tenant_id);
+    if(!tenant){alert('Locataire introuvable');return;}
+    if(!tenant.email){alert('Pas d\'email pour '+tenant.nom);return;}
+    const isRelance=r.facture_envoyee&&!r.paye;
+    const label=isRelance?'relance':'facture';
+    if(!confirm('Envoyer la '+label+' eau \u00e0 '+tenant.nom+' ('+tenant.email+') ?'))return;
+    try{
+      await sendFactureEauRelance(tenant,r,cpt,isRelance);
+      if(!r.facture_envoyee){
+        await sb.from('releves').update({facture_envoyee:true}).eq('id',r.id);
+        r.facture_envoyee=true;
+      }
+      render();
+      alert('\u2713 Email envoy\u00e9 !');
+    }catch(e){alert('Erreur : '+e.message);}
+  });
+  document.querySelectorAll('[data-del-releve]').forEach(el=>el.onclick=async()=>{
+    if(!confirm('Supprimer ce relev\u00e9 ?'))return;
+    const{error}=await sb.from('releves').delete().eq('id',el.dataset.delReleve);
+    if(error){alert('Erreur : '+error.message);return;}
+    S.releves=S.releves.filter(r=>r.id!==el.dataset.delReleve);
+    render();
+  });
   document.querySelectorAll('[data-print-qtt]').forEach(el=>el.onclick=()=>{
     const rp=S.rentPayments.find(r=>r.id===el.dataset.printQtt);
     if(!rp)return;
