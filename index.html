@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v97-20260403-031010">
+<meta name="version" content="v98-20260403-153038">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -202,7 +202,7 @@ let S = {
   // data
   users: [], assets: [], tasks: [], tools: [], loans: [],
   workOrders: [], maintenanceTemplates: [], topology: {properties: []},
-  factures: [], revenues: [], factures: [], finTab: 'overview', compteurs: [], releves: [], rangements: [], famille: [], consommables: [], crecheSaisies: [], ecoleSaisies: [], familleTab: 'membres', finFactCpte: 'savadur', familleEnfant: null
+  factures: [], revenues: [], finTab: 'overview', reservations: [], resaYear: new Date().getFullYear(), compteurs: [], releves: [], rangements: [], famille: [], consommables: [], crecheSaisies: [], ecoleSaisies: [], familleTab: 'membres', finFactCpte: 'savadur', familleEnfant: null
 };
 
 async function loadAll() {
@@ -221,7 +221,7 @@ async function loadAll() {
     const test = await sb.from('users').select('count', {count:'exact',head:true});
     if (test.error) { showError(test.error.message || JSON.stringify(test.error)); return; }
 
-    const [u, a, t, tl, l, wo, mt, topo, rev, cpt, rel, ten, rp, wr, rng, fam, crecheRes, ecoleRes, conso, facturesRes] = await Promise.all([
+    const [u, a, t, tl, l, wo, mt, topo, rev, cpt, rel, ten, rp, wr, rng, fam, crecheRes, ecoleRes, conso, facturesRes, resaRes] = await Promise.all([
       sb.from('users').select('*'),
       sb.from('assets').select('*'),
       sb.from('tasks').select('*'),
@@ -241,7 +241,8 @@ async function loadAll() {
       sb.from('creche_saisies').select('*').order('annee',{ascending:false}).order('mois',{ascending:false}).order('jour',{ascending:false}),
       sb.from('ecole_saisies').select('*').order('annee',{ascending:false}).order('mois',{ascending:false}).order('jour',{ascending:false}),
       sb.from('consommables').select('*').order('nom'),
-      sb.from('factures').select('*').order('date',{ascending:false})
+      sb.from('factures').select('*').order('date',{ascending:false}),
+      sb.from('reservations').select('*').order('date_arrivee',{ascending:false})
     ]);
 
     // Only block on critical tables
@@ -274,6 +275,7 @@ async function loadAll() {
     S.ecoleSaisies = ecoleRes?.error ? [] : (ecoleRes?.data || []);
     S.consommables = conso.error ? [] : (conso.data || []);
     S.factures = facturesRes?.error ? [] : (facturesRes?.data || []);
+    S.reservations = resaRes?.error ? [] : (resaRes?.data || []);
     const loadedTopo = topo.data?.[0]?.data;
     S.topoId = topo.data?.[0]?.id;
     if(loadedTopo?.properties?.length){
@@ -573,6 +575,7 @@ function renderApp(){
     loans: renderLoans(),
     rangements: renderRangements(),
     vehicles: renderVehicles(),
+    reservations: renderReservations(),
     locatif: renderLocatif(),
     compteurs: renderCompteurs(),
     finances: renderFinances(),
@@ -1537,7 +1540,59 @@ function renderVehicles(){
       <div>Aucun véhicule. Ajoutez un équipement de catégorie <b>Véhicule</b>.</div>
     </div>`:''}
   </div>`;
-}function renderLocatif(){
+}function renderReservations(){
+  const fmt=n=>new Intl.NumberFormat("fr-FR",{style:"currency",currency:"EUR"}).format(n||0);
+  const year=S.resaYear||new Date().getFullYear();
+  const yearBar='<div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">'
+    +[2024,2025,2026,2027].map(y=>'<span class="pill '+(year===y?'active':'')+'" data-resa-year="'+y+'">'+y+'</span>').join("")
+    +'<span class="pill '+(year===0?'active':'')+'" data-resa-year="0">Tout</span></div>';
+  const resas=(S.reservations||[]).filter(r=>year===0||(r.date_arrivee||"").startsWith(String(year)));
+  const srcBadge=s=>s==="airbnb"?'<span class="badge" style="background:#FF5A5F;color:#fff;font-size:9px">Airbnb</span>'
+    :s==="booking"?'<span class="badge" style="background:#003580;color:#fff;font-size:9px">Booking</span>'
+    :'<span class="badge" style="background:#00B4D8;color:#fff;font-size:9px">Lodgify</span>';
+  function roomTable(items,room){
+    const total=items.reduce((s,r)=>s+(r.montant_total||0),0);
+    const nuits=items.reduce((s,r)=>s+(r.nb_nuits||0),0);
+    const rows=items.map(function(r){
+      const incomplete=!r.montant_total||r.guest_name.includes("***");
+      return '<tr style="'+(incomplete?"background:#FFF9E6":"")+'">'
+        +'<td style="font-size:11px">'+dateLabel(r.date_arrivee)+'</td>'
+        +'<td style="font-size:11px">'+dateLabel(r.date_depart)+'</td>'
+        +'<td style="text-align:center">'+( r.nb_nuits||"-")+'</td>'
+        +'<td>'+( r.guest_name&&!r.guest_name.includes("***")?r.guest_name:'<span style="color:var(--text3)">Anonyme</span>')+'</td>'
+        +'<td style="text-align:right">'+( r.montant_nuits?fmt(r.montant_nuits):"—")+'</td>'
+        +'<td style="text-align:right">'+( r.frais_menage?fmt(r.frais_menage):"—")+'</td>'
+        +'<td style="text-align:right;font-weight:600">'+( r.montant_total?fmt(r.montant_total):'<span style="color:var(--amber)">⚠ à compléter</span>')+'</td>'
+        +'<td>'+srcBadge(r.source)+'</td>'
+        +'<td style="white-space:nowrap">'
+          +'<button class="btn btn-sm" data-edit-resa="'+r.id+'" style="font-size:10px;padding:2px 5px">✎ Compléter</button>'
+          +(isAdmin()?'<button class="btn btn-d btn-sm" data-del-resa="'+r.id+'" style="font-size:10px;padding:2px 5px;margin-left:3px">&#10005;</button>':"")
+        +'</td></tr>';
+    }).join("");
+    return '<div class="card" style="margin-bottom:16px">'
+      +'<div style="display:flex;justify-content:space-between;padding-bottom:8px;margin-bottom:10px;border-bottom:2px solid var(--blue)">'
+        +'<div style="font-size:14px;font-weight:700;color:var(--blue)">'+room+'</div>'
+        +'<div style="font-size:12px;color:var(--text2)">'+items.length+' résa — '+nuits+' nuits — '+fmt(total)+'</div>'
+      +'</div>'
+      +(items.length?'<div style="overflow-x:auto"><table style="min-width:600px"><thead><tr>'
+        +'<th style="font-size:10px">Arrivée</th><th style="font-size:10px">Départ</th>'
+        +'<th style="font-size:10px;text-align:center">Nuits</th><th style="font-size:10px">Hôte</th>'
+        +'<th style="font-size:10px;text-align:right">Nuits €</th><th style="font-size:10px;text-align:right">Ménage</th>'
+        +'<th style="font-size:10px;text-align:right">Vers. hôte</th><th style="font-size:10px">Source</th><th></th>'
+        +'</tr></thead><tbody>'+rows+'</tbody></table></div>'
+        :'<div style="color:var(--text2);font-size:12px">Aucune réservation pour cette période</div>')
+      +'</div>';
+  }
+  return '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">'
+    +'<h2 style="margin:0">Réservations courte durée</h2>'
+    +'<button class="btn btn-p" id="btn-sync-lodgify">🔄 Sync Lodgify</button>'
+  +'</div>'
+  +yearBar
+  +roomTable(resas.filter(r=>r.room==="Studio"),"Studio")
+  +roomTable(resas.filter(r=>r.room==="T2"),"T2");
+}
+
+function renderLocatif(){
   const tab = S.locatifTab||'tenants';
   const MONTHS = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
   const year = S.locatifYear||2026;
@@ -5229,6 +5284,30 @@ function renderModal(){
   }
 
 
+  if(m.type==='edit-resa'){
+    const r=m.resa;
+    html=mhd('Compléter la réservation — '+(r.room||''))
+      +'<div class="g2c">'
+        +'<div class="form-group"><label>Nom hôte</label><input id="resa-name" value="'+(r.guest_name&&!r.guest_name.includes("***")?r.guest_name:'')+'"></div>'
+        +'<div class="form-group"><label>Email</label><input id="resa-email" type="email" value="'+(r.guest_email||'')+'"></div>'
+      +'</div>'
+      +'<div class="g2c">'
+        +'<div class="form-group"><label>Nb adultes</label><input id="resa-adultes" type="number" value="'+(r.nb_adultes||'')+'"></div>'
+        +'<div class="form-group"><label>Source</label><select id="resa-source"><option value="airbnb" '+(r.source==="airbnb"?"selected":"")+'>Airbnb</option><option value="booking" '+(r.source==="booking"?"selected":"")+'>Booking</option><option value="lodgify" '+(r.source==="lodgify"?"selected":"")+'>Lodgify Direct</option></select></div>'
+      +'</div>'
+      +'<div class="g2c">'
+        +'<div class="form-group"><label>Montant nuits (€)</label><input id="resa-nuits" type="number" step="0.01" value="'+(r.montant_nuits||'')+'"></div>'
+        +'<div class="form-group"><label>Frais ménage (€)</label><input id="resa-menage" type="number" step="0.01" value="'+(r.frais_menage||'')+'"></div>'
+      +'</div>'
+      +'<div class="g2c">'
+        +'<div class="form-group"><label>Frais résa (€)</label><input id="resa-fraisresa" type="number" step="0.01" value="'+(r.frais_resa||'')+'"></div>'
+        +'<div class="form-group"><label>Versement hôte (€)</label><input id="resa-total" type="number" step="0.01" value="'+(r.montant_total||'')+'"></div>'
+      +'</div>'
+      +'<div class="form-group"><label>Notes</label><textarea id="resa-notes" rows="2">'+(r.notes||'')+'</textarea></div>'
+      +mf;
+  }
+
+
   return `<div class="modal-ov" id="mov"><div class="modal">${html}</div></div>`;
 }
 
@@ -5801,6 +5880,17 @@ async function saveModal(){
     }
   }
 
+  if(m.type==='edit-resa'){
+    const r=m.resa;
+    const upd={guest_name:q('resa-name')?.value||r.guest_name,guest_email:q('resa-email')?.value||null,
+      nb_adultes:parseInt(q('resa-adultes')?.value)||null,source:q('resa-source')?.value||r.source,
+      montant_nuits:parseFloat(q('resa-nuits')?.value)||null,frais_menage:parseFloat(q('resa-menage')?.value)||null,
+      frais_resa:parseFloat(q('resa-fraisresa')?.value)||null,
+      montant_total:parseFloat(q('resa-total')?.value)||null,notes:q('resa-notes')?.value||null};
+    const{error}=await sb.from('reservations').update(upd).eq('id',r.id);
+    if(error){alert('Erreur : '+error.message);return;}
+    Object.assign(r,upd);S.modal=null;render();return;
+  }
   // ── Crèche contrat save
   if(m.type==='add-enfant-tab'){
     const tabLabel=m.forTab==='creche'?'Crèche':'École';
@@ -6105,6 +6195,20 @@ async function sendFactureEauRelance(tenant, releve, cpt, isRelance){
 
 function bindAll(){
   const q = id => document.getElementById(id);
+  const btnSync=document.getElementById('btn-sync-lodgify');
+  if(btnSync)btnSync.onclick=async()=>{
+    btnSync.textContent='Sync en cours...';
+    try{
+      const r=await fetch('https://jbiphusmneoccarwkucq.supabase.co/functions/v1/lodgify-sync',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+      const d=await r.json();
+      if(d.ok){await loadAll();render();alert('\u2713 '+d.inserted+' r\u00e9servations sync\u00e9es !');}
+      else alert('Erreur : '+d.error);
+    }catch(e){alert('Erreur : '+e.message);}
+    btnSync.textContent='\uD83D\uDD04 Sync Lodgify';
+  };
+  document.querySelectorAll('[data-resa-year]').forEach(el=>el.onclick=()=>{S.resaYear=parseInt(el.dataset.resaYear);render();});
+  document.querySelectorAll('[data-edit-resa]').forEach(el=>el.onclick=()=>{const r=S.reservations.find(x=>x.id===el.dataset.editResa);if(!r)return;S.modal={type:'edit-resa',resa:r};render();});
+  document.querySelectorAll('[data-del-resa]').forEach(el=>el.onclick=async()=>{if(!confirm('Supprimer ?'))return;const{error}=await sb.from('reservations').delete().eq('id',el.dataset.delResa);if(error){alert(error.message);return;}S.reservations=S.reservations.filter(r=>r.id!==el.dataset.delResa);render();});
   document.querySelectorAll('[data-nav]').forEach(el=>el.onclick=()=>{S.view=el.dataset.nav;S.selectedAsset=null;S.filter={cat:'all',search:''};if(el.dataset.nav!=='topology'){S.topoState.zoneId=null;S.topoState.subZoneId=null;S.topoState.tradeId=null;}if(el.dataset.nav!=='assets'){S.assetNav={propId:null,zoneId:null,subId:null};}render();});
   if(q('btn-logout'))q('btn-logout').onclick=()=>{S.currentUser=null;render();};
   if(q('btn-back'))q('btn-back').onclick=()=>{S.view='assets';S.selectedAsset=null;render();};
