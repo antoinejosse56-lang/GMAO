@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v100-20260403-170453">
+<meta name="version" content="v101-20260403-203847">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -1635,6 +1635,44 @@ function renderVehicles(){
   +yearBar
   +roomTable(resas.filter(r=>r.room==="Studio"),"Studio")
   +roomTable(resas.filter(r=>r.room==="T2"),"T2")
+  // Tableau ménage
+  const menageTable=rooms.map(function(room2){
+    const allForRoom=(S.reservations||[]).filter(r=>(S.resaYear===0||(r.date_arrivee||'').startsWith(String(S.resaYear||year)))&&r.room===room2);
+    if(!allForRoom.length)return '';
+    const byMoM={};
+    allForRoom.forEach(function(r){
+      const mo=r.date_arrivee?r.date_arrivee.slice(0,7):'?';
+      if(!byMoM[mo])byMoM[mo]=[];
+      byMoM[mo].push(r);
+    });
+    const rowsM=Object.keys(byMoM).sort().map(function(mo){
+      const mrs=byMoM[mo];
+      const nbResa=mrs.length;
+      const nbPresta=mrs.filter(r=>r.menage_prestataire!==false).length;
+      const montantPresta=mrs.filter(r=>r.menage_prestataire!==false).reduce((s,r)=>s+(r.frais_menage||(r.room==='T2'?35:30)),0);
+      const montantClient=mrs.reduce((s,r)=>s+(r.frais_menage||(r.room==='T2'?35:30)),0);
+      const label=new Date(mo+'-01').toLocaleDateString('fr-FR',{month:'long',year:'numeric'});
+      return '<tr><td>'+label+'</td>'
+        +'<td style="text-align:center">'+nbResa+'</td>'
+        +'<td style="text-align:center">'+(nbPresta>0?'<span style="color:var(--green);font-weight:600">'+nbPresta+'</span>':'<span style="color:var(--amber)">0</span>')+'</td>'
+        +'<td style="text-align:right">'+fmt(montantPresta)+'</td>'
+        +'<td style="text-align:right;color:var(--text2)">'+fmt(montantClient)+'</td>'
+        +'</tr>';
+    }).join('');
+    return '<div class="card" style="margin-bottom:12px">'
+      +'<div style="display:flex;justify-content:space-between;padding-bottom:6px;margin-bottom:8px;border-bottom:1.5px solid var(--amber)">'
+        +'<div style="font-size:13px;font-weight:700;color:var(--amber)">&#129529; '+room2+' — Suivi ménage</div>'
+      +'</div>'
+      +'<div style="overflow-x:auto"><table><thead><tr>'
+        +'<th style="font-size:10px">Mois</th>'
+        +'<th style="font-size:10px;text-align:center">Résa</th>'
+        +'<th style="font-size:10px;text-align:center">Prestations prestataire</th>'
+        +'<th style="font-size:10px;text-align:right">Ménage prestataire (€)</th>'
+        +'<th style="font-size:10px;text-align:right">Ménage facturé client (€)</th>'
+      +'</tr></thead><tbody>'+rowsM+'</tbody></table></div>'
+    +'</div>';
+  }).join('');
+  +(menageTable?'<h3 style="margin:20px 0 10px">Suivi ménage</h3>'+menageTable:'')
   +(resasLodgify.length?'<h3 style="margin:20px 0 10px">Déclaration taxe de séjour</h3>'+taxeTable:'');
 }
 
