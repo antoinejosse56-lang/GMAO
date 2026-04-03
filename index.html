@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v100-20260403-170050">
+<meta name="version" content="v100-20260403-170453">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -5340,6 +5340,7 @@ function renderModal(){
 
   if(m.type==='edit-resa'){
     const r=m.resa;
+    const fmt=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(n||0);
     html=mhd('Compléter la réservation — '+(r.room||''))
       +'<div class="g2c">'
         +'<div class="form-group"><label>Nom hôte</label><input id="resa-name" value="'+(r.guest_name&&!r.guest_name.includes("***")?r.guest_name:'')+'"></div>'
@@ -5941,6 +5942,7 @@ async function saveModal(){
 
   if(m.type==='edit-resa'){
     const r=m.resa;
+    const fmt=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(n||0);
     const upd={guest_name:q('resa-name')?.value||r.guest_name,guest_email:q('resa-email')?.value||null,
       nb_adultes:parseInt(q('resa-adultes')?.value)||null,source:q('resa-source')?.value||r.source,
       montant_nuits:parseFloat(q('resa-nuits')?.value)||null,frais_menage:parseFloat(q('resa-menage')?.value)||null,
