@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v100-20260403-165720">
+<meta name="version" content="v100-20260403-170050">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -1543,6 +1543,7 @@ function renderVehicles(){
     </div>`:''}
   </div>`;
 }function renderReservations(){
+  const taux=S.taxeSejourTaux||5;const plafond=S.taxeSejourPlafond||4.60;
   const fmt=n=>new Intl.NumberFormat("fr-FR",{style:"currency",currency:"EUR"}).format(n||0);
   const year=S.resaYear||new Date().getFullYear();
   const yearBar='<div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">'
@@ -1626,7 +1627,6 @@ function renderVehicles(){
       +'</div>'
     +'</div>';
   }).join('');
-  const taux=S.taxeSejourTaux||5;const plafond=S.taxeSejourPlafond||4.60;
 
   return '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">'
     +'<h2 style="margin:0">Réservations courte durée</h2>'
