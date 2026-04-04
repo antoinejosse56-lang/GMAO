@@ -102,6 +102,10 @@ input:checked+.toggle-slider:before{transform:translateX(22px)}
       <div class="day-date" id="day-date"></div>
       <div class="day-sub" id="day-sub"></div>
     </div>
+    <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">
+      <button onclick="changeDay(-1)" style="background:rgba(255,255,255,0.2);border:none;border-radius:8px;color:#fff;padding:6px 10px;font-size:16px;cursor:pointer">◀</button>
+      <button onclick="changeDay(1)" id="btn-next" style="background:rgba(255,255,255,0.2);border:none;border-radius:8px;color:#fff;padding:6px 10px;font-size:16px;cursor:pointer">▶</button>
+    </div>
   </div>
 
   <div class="tabs">
@@ -200,12 +204,93 @@ const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
 const PIN = '2110';
 
 let pinValue = '';
-let today = new Date();
-let todayStr = today.toISOString().split('T')[0];
+let currentDate = new Date();
+let todayReal = new Date();
+let todayStr = currentDate.toISOString().split('T')[0];
 let enfantCreche = null;
 let enfantEcole = null;
 let saisieCreche = null;
 let saisieEcole = null;
+
+function changeDay(delta) {
+  currentDate.setDate(currentDate.getDate() + delta);
+  todayStr = currentDate.toISOString().split('T')[0];
+  // Hide next button if today or future
+  const isToday = currentDate.toDateString() === todayReal.toDateString();
+  const isFuture = currentDate > todayReal;
+  document.getElementById('btn-next').style.opacity = (isToday || isFuture) ? '0.3' : '1';
+  document.getElementById('btn-next').disabled = isToday || isFuture;
+  saisieCreche = null;
+  saisieEcole = null;
+  loadDay();
+}
+
+async function loadDay() {
+  const days = ['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'];
+  const months = ['janvier','février','mars','avril','mai','juin','juillet','août','septembre','octobre','novembre','décembre'];
+  const d = currentDate;
+  const isToday = d.toDateString() === todayReal.toDateString();
+  document.getElementById('day-date').textContent = days[d.getDay()] + ' ' + d.getDate() + ' ' + months[d.getMonth()];
+  document.getElementById('day-sub').textContent = isToday ? "Aujourd'hui" : todayStr.split('-').reverse().join('/');
+
+  const annee = d.getFullYear();
+  const mois = d.getMonth() + 1;
+  const jour = d.getDate();
+
+  // Reset fields
+  ['c-dep-antic','c-rec-tard','c-arr-tard','c-dep-antic2'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('c-absent').checked = false;
+  ['e-mat','e-soir'].forEach(id => document.getElementById(id).value = '');
+  ['e-mat-type','e-soir-type'].forEach(id => document.getElementById(id).value = 'prevu');
+  ['e-cantine','e-centre','e-absent'].forEach(id => document.getElementById(id).checked = false);
+  // Reset styles
+  document.getElementById('ecole-fields').style.opacity = '1';
+  document.getElementById('ecole-fields').style.pointerEvents = '';
+
+  // Load creche saisie
+  if (enfantCreche) {
+    const cr = await fetch(`${SUPABASE_URL}/rest/v1/creche_saisies?enfant_id=eq.${enfantCreche.id}&annee=eq.${annee}&mois=eq.${mois}&jour=eq.${jour}`, {
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY }
+    });
+    const crData = await cr.json();
+    saisieCreche = crData[0] || null;
+    if (saisieCreche) {
+      if (saisieCreche.depose_anticipee) document.getElementById('c-dep-antic').value = saisieCreche.depose_anticipee.slice(0,5);
+      if (saisieCreche.recuperation_tardive) document.getElementById('c-rec-tard').value = saisieCreche.recuperation_tardive.slice(0,5);
+      if (saisieCreche.arrivee_tardive) document.getElementById('c-arr-tard').value = saisieCreche.arrivee_tardive.slice(0,5);
+      if (saisieCreche.depart_anticipe) document.getElementById('c-dep-antic2').value = saisieCreche.depart_anticipe.slice(0,5);
+      if (saisieCreche.absence_autorisee) { document.getElementById('c-absent').checked = true; toggleAbsent(); }
+    }
+  }
+
+  // Load ecole saisie
+  if (enfantEcole) {
+    const ec = await fetch(`${SUPABASE_URL}/rest/v1/ecole_saisies?enfant_id=eq.${enfantEcole.id}&annee=eq.${annee}&mois=eq.${mois}&jour=eq.${jour}`, {
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY }
+    });
+    const ecData = await ec.json();
+    saisieEcole = ecData[0] || null;
+    if (saisieEcole) {
+      const durMat = saisieEcole.peri_matin_min || saisieEcole.peri_matin_np_min || 0;
+      const durSoir = saisieEcole.peri_soir_min || saisieEcole.peri_soir_np_min || 0;
+      document.getElementById('e-mat').value = durMat || '';
+      document.getElementById('e-soir').value = durSoir || '';
+      if (saisieEcole.peri_matin_np_min > 0) document.getElementById('e-mat-type').value = 'non_prevu';
+      if (saisieEcole.peri_soir_np_min > 0) document.getElementById('e-soir-type').value = 'non_prevu';
+      document.getElementById('e-cantine').checked = !!saisieEcole.cantine;
+      document.getElementById('e-centre').checked = !!saisieEcole.centre_loisir;
+      document.getElementById('e-absent').checked = !!saisieEcole.absence_autorisee;
+      if (saisieEcole.centre_loisir) toggleCentre();
+      if (saisieEcole.absence_autorisee) toggleAbsentEcole();
+    }
+  }
+
+  // Mercredi = no peri
+  if (d.getDay() === 3) {
+    document.getElementById('ecole-fields').style.opacity = '0.4';
+    document.getElementById('ecole-fields').style.pointerEvents = 'none';
+  }
+}
 
 // ── PIN ──────────────────────────────────────────────────
 function pinPress(d) {
@@ -239,67 +324,16 @@ function updateDots() {
 
 // ── Init ─────────────────────────────────────────────────
 async function init() {
-  const days = ['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'];
-  const months = ['janvier','février','mars','avril','mai','juin','juillet','août','septembre','octobre','novembre','décembre'];
-  const d = today;
-  document.getElementById('day-date').textContent = days[d.getDay()] + ' ' + d.getDate() + ' ' + months[d.getMonth()];
-  document.getElementById('day-sub').textContent = 'Saisie du ' + todayStr.split('-').reverse().join('/');
-
-  // Load famille members
   const res = await fetch(`${SUPABASE_URL}/rest/v1/famille?select=*`, {
     headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY }
   });
   const famille = await res.json();
   enfantCreche = famille.find(m => m.type_membre === 'creche');
   enfantEcole = famille.find(m => m.type_membre === 'ecole');
-
-  const annee = today.getFullYear();
-  const mois = today.getMonth() + 1;
-  const jour = today.getDate();
-
-  // Load today's creche saisie
-  if (enfantCreche) {
-    const cr = await fetch(`${SUPABASE_URL}/rest/v1/creche_saisies?enfant_id=eq.${enfantCreche.id}&annee=eq.${annee}&mois=eq.${mois}&jour=eq.${jour}`, {
-      headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY }
-    });
-    const crData = await cr.json();
-    saisieCreche = crData[0] || null;
-    if (saisieCreche) {
-      if (saisieCreche.depose_anticipee) document.getElementById('c-dep-antic').value = saisieCreche.depose_anticipee.slice(0,5);
-      if (saisieCreche.recuperation_tardive) document.getElementById('c-rec-tard').value = saisieCreche.recuperation_tardive.slice(0,5);
-      if (saisieCreche.arrivee_tardive) document.getElementById('c-arr-tard').value = saisieCreche.arrivee_tardive.slice(0,5);
-      if (saisieCreche.depart_anticipe) document.getElementById('c-dep-antic2').value = saisieCreche.depart_anticipe.slice(0,5);
-      if (saisieCreche.absence_autorisee) document.getElementById('c-absent').checked = true;
-    }
-  }
-
-  // Load today's ecole saisie
-  if (enfantEcole) {
-    const ec = await fetch(`${SUPABASE_URL}/rest/v1/ecole_saisies?enfant_id=eq.${enfantEcole.id}&annee=eq.${annee}&mois=eq.${mois}&jour=eq.${jour}`, {
-      headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY }
-    });
-    const ecData = await ec.json();
-    saisieEcole = ecData[0] || null;
-    if (saisieEcole) {
-      const durMat = saisieEcole.peri_matin_min || saisieEcole.peri_matin_np_min || 0;
-      const durSoir = saisieEcole.peri_soir_min || saisieEcole.peri_soir_np_min || 0;
-      document.getElementById('e-mat').value = durMat || '';
-      document.getElementById('e-soir').value = durSoir || '';
-      if (saisieEcole.peri_matin_np_min > 0) document.getElementById('e-mat-type').value = 'non_prevu';
-      if (saisieEcole.peri_soir_np_min > 0) document.getElementById('e-soir-type').value = 'non_prevu';
-      document.getElementById('e-cantine').checked = !!saisieEcole.cantine;
-      document.getElementById('e-centre').checked = !!saisieEcole.centre_loisir;
-      document.getElementById('e-absent').checked = !!saisieEcole.absence_autorisee;
-      if (saisieEcole.centre_loisir) toggleCentre();
-      if (saisieEcole.absence_autorisee) toggleAbsentEcole();
-    }
-  }
-
-  // Mercredi = no peri
-  if (today.getDay() === 3) {
-    document.getElementById('ecole-fields').style.opacity = '0.4';
-    document.getElementById('ecole-fields').style.pointerEvents = 'none';
-  }
+  // Disable next button on load (already today)
+  document.getElementById('btn-next').style.opacity = '0.3';
+  document.getElementById('btn-next').disabled = true;
+  await loadDay();
 }
 
 // ── Tabs ─────────────────────────────────────────────────
@@ -338,9 +372,9 @@ async function saveCreche() {
   btn.textContent = '⏳ Enregistrement...';
   btn.disabled = true;
 
-  const annee = today.getFullYear();
-  const mois = today.getMonth() + 1;
-  const jour = today.getDate();
+  const annee = currentDate.getFullYear();
+  const mois = currentDate.getMonth() + 1;
+  const jour = currentDate.getDate();
   const rec = {
     enfant_id: enfantCreche.id, annee, mois, jour,
     depose_anticipee: document.getElementById('c-dep-antic').value || null,
@@ -385,9 +419,9 @@ async function saveEcole() {
   btn.textContent = '⏳ Enregistrement...';
   btn.disabled = true;
 
-  const annee = today.getFullYear();
-  const mois = today.getMonth() + 1;
-  const jour = today.getDate();
+  const annee = currentDate.getFullYear();
+  const mois = currentDate.getMonth() + 1;
+  const jour = currentDate.getDate();
   const isCentre = document.getElementById('e-centre').checked;
   const isAbsent = document.getElementById('e-absent').checked;
   const durMat = isCentre||isAbsent ? 0 : parseInt(document.getElementById('e-mat').value)||0;
