@@ -16,7 +16,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v105-20260404-061900">
+<meta name="version" content="v105-20260404-062715">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -8985,9 +8985,9 @@ loadAll().then(async()=>{
   setTimeout(()=>checkAndSendAlerts(),3000);
 });
 
-// PWA Service Worker
-if("serviceWorker" in navigator){
-  navigator.serviceWorker.register("sw.js").catch(e=>console.log("SW:",e));
+// PWA Service Worker — only on GitHub Pages
+if("serviceWorker" in navigator && location.hostname.includes('github.io')){
+  navigator.serviceWorker.register("/GMAO/sw.js").catch(e=>console.log("SW:",e));
 }
 
 // Handle quick launch from PWA shortcuts
