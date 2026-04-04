@@ -1,9 +1,28 @@
 {
-  "name": "GMAO Pro",
+  "name": "GMAO",
   "short_name": "GMAO",
-  "description": "Gestion de maintenance et patrimoine immobilier",
+  "description": "Gestion maintenance et locatif",
   "start_url": "/GMAO/",
   "display": "standalone",
-  "background_color": "#ffffff",
-  "theme_color": "#1D9E75"
+  "background_color": "#1a1a2e",
+  "theme_color": "#185FA5",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "icon.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {"name": "Saisie Crèche/École", "url": "/GMAO/saisie.html", "icons": [{"src": "icon.png", "sizes": "96x96"}]},
+    {"name": "Loyer & Meublé", "url": "/GMAO/gestion.html", "icons": [{"src": "icon.png", "sizes": "96x96"}]}
+  ]
 }

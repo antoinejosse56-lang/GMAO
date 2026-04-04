@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#185FA5">
+<meta name="apple-mobile-web-app-title" content="GMAO Gestion">
+<link rel="apple-touch-icon" href="icon.png">
+<title>GMAO Gestion</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f0f4f8;min-height:100vh;color:#1a1a2e}
+.screen{display:none;min-height:100vh;padding:16px;max-width:480px;margin:0 auto}
+.screen.active{display:block}
+/* PIN */
+.pin-header{text-align:center;padding:40px 0 30px}
+.pin-logo{width:80px;height:80px;border-radius:20px;object-fit:contain;background:#fff;padding:8px;box-shadow:0 4px 16px rgba(0,0,0,0.1);margin-bottom:16px}
+.pin-title{font-size:22px;font-weight:700;color:#185FA5}
+.pin-subtitle{font-size:14px;color:#666;margin-top:6px}
+.pin-dots{display:flex;gap:12px;justify-content:center;margin:24px 0}
+.pin-dot{width:16px;height:16px;border-radius:50%;background:#ddd;transition:background 0.2s}
+.pin-dot.filled{background:#185FA5}
+.pin-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;max-width:280px;margin:0 auto}
+.pin-btn{background:#fff;border:none;border-radius:16px;padding:18px;font-size:22px;font-weight:600;color:#1a1a2e;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,0.08);transition:transform 0.1s}
+.pin-btn:active{transform:scale(0.93)}
+.pin-btn.del{color:#E74C3C}
+.pin-error{text-align:center;color:#E74C3C;font-size:13px;margin-top:12px;height:20px}
+/* Header */
+.app-header{background:linear-gradient(135deg,#185FA5,#1D9E75);border-radius:16px;padding:14px 16px;margin-bottom:14px;color:#fff;display:flex;align-items:center;gap:12px}
+.app-logo{width:40px;height:40px;border-radius:10px;background:#fff;padding:4px;object-fit:contain}
+.app-title{font-size:16px;font-weight:700}
+.app-sub{font-size:12px;opacity:0.8}
+/* Tabs */
+.tabs{display:flex;gap:8px;margin-bottom:16px}
+.tab-btn{flex:1;padding:12px;border:none;border-radius:12px;font-size:14px;font-weight:600;cursor:pointer;transition:all 0.2s}
+.tab-btn.active{background:#185FA5;color:#fff;box-shadow:0 4px 12px rgba(24,95,165,0.3)}
+.tab-btn:not(.active){background:#fff;color:#666}
+/* Cards */
+.card{background:#fff;border-radius:16px;padding:16px;margin-bottom:12px;box-shadow:0 2px 8px rgba(0,0,0,0.06)}
+.card-title{font-size:12px;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px}
+/* Fields */
+.field{margin-bottom:12px}
+.field label{display:block;font-size:13px;color:#444;margin-bottom:5px;font-weight:500}
+.field input,.field select{width:100%;padding:12px 14px;border:1.5px solid #e0e0e0;border-radius:10px;font-size:16px;outline:none;background:#fff;transition:border-color 0.2s}
+.field input:focus,.field select:focus{border-color:#185FA5}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+/* Info box */
+.info-box{background:#e8f4ff;border-radius:10px;padding:10px 14px;font-size:13px;color:#185FA5;margin-bottom:12px;display:flex;justify-content:space-between}
+.info-box span{font-weight:700}
+/* Toggle */
+.toggle-row{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid #f5f5f5}
+.toggle-row:last-child{border-bottom:none}
+.toggle-label{font-size:14px;color:#1a1a2e}
+.toggle{position:relative;width:50px;height:28px;flex-shrink:0}
+.toggle input{opacity:0;width:0;height:0}
+.toggle-slider{position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:#ddd;border-radius:28px;transition:0.3s}
+.toggle-slider:before{position:absolute;content:"";height:22px;width:22px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:0.3s;box-shadow:0 2px 4px rgba(0,0,0,0.2)}
+input:checked+.toggle-slider{background:#185FA5}
+input:checked+.toggle-slider:before{transform:translateX(22px)}
+/* Radio */
+.radio-group{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:4px}
+.radio-btn{flex:1;min-width:80px;padding:10px 6px;border:1.5px solid #e0e0e0;border-radius:10px;text-align:center;font-size:13px;font-weight:500;cursor:pointer;transition:all 0.2s;background:#fff;color:#444}
+.radio-btn.selected{border-color:#185FA5;background:#e8f4ff;color:#185FA5;font-weight:700}
+/* Save */
+.save-btn{width:100%;padding:18px;background:linear-gradient(135deg,#1D9E75,#185FA5);color:#fff;border:none;border-radius:16px;font-size:18px;font-weight:700;cursor:pointer;margin-top:8px;box-shadow:0 4px 16px rgba(29,158,117,0.3);transition:transform 0.1s}
+.save-btn:active{transform:scale(0.97)}
+.success-msg{text-align:center;padding:12px;border-radius:12px;font-weight:600;font-size:14px;margin-top:8px;display:none}
+/* Resa list */
+.resa-item{background:#fff;border-radius:12px;padding:12px 14px;margin-bottom:8px;cursor:pointer;border:2px solid transparent;transition:all 0.2s;box-shadow:0 2px 6px rgba(0,0,0,0.05)}
+.resa-item.selected{border-color:#185FA5;background:#e8f4ff}
+.resa-item-date{font-size:13px;font-weight:700;color:#1a1a2e}
+.resa-item-sub{font-size:12px;color:#666;margin-top:2px}
+.badge{display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;margin-left:6px}
+.badge-airbnb{background:#FF5A5F;color:#fff}
+.badge-booking{background:#003580;color:#fff}
+.badge-lodgify{background:#00B4D8;color:#fff}
+.badge-gray{background:#eee;color:#666}
+.section-dynamic{margin-top:4px}
+</style>
+</head>
+<body>
+
+<!-- PIN -->
+<div id="pin-screen" class="screen active">
+  <div class="pin-header">
+    <img src="icon.png" class="pin-logo" alt="GMAO">
+    <div class="pin-title">GMAO Gestion</div>
+    <div class="pin-subtitle">Loyer &amp; Location meublée</div>
+  </div>
+  <div class="pin-dots">
+    <div class="pin-dot" id="d0"></div><div class="pin-dot" id="d1"></div>
+    <div class="pin-dot" id="d2"></div><div class="pin-dot" id="d3"></div>
+  </div>
+  <div class="pin-grid">
+    <button class="pin-btn" onclick="pinPress('1')">1</button>
+    <button class="pin-btn" onclick="pinPress('2')">2</button>
+    <button class="pin-btn" onclick="pinPress('3')">3</button>
+    <button class="pin-btn" onclick="pinPress('4')">4</button>
+    <button class="pin-btn" onclick="pinPress('5')">5</button>
+    <button class="pin-btn" onclick="pinPress('6')">6</button>
+    <button class="pin-btn" onclick="pinPress('7')">7</button>
+    <button class="pin-btn" onclick="pinPress('8')">8</button>
+    <button class="pin-btn" onclick="pinPress('9')">9</button>
+    <button class="pin-btn"></button>
+    <button class="pin-btn" onclick="pinPress('0')">0</button>
+    <button class="pin-btn del" onclick="pinDel()">⌫</button>
+  </div>
+  <div class="pin-error" id="pin-error"></div>
+</div>
+
+<!-- Main -->
+<div id="main-screen" class="screen">
+  <div class="app-header">
+    <img src="icon.png" class="app-logo" alt="">
+    <div>
+      <div class="app-title">GMAO Gestion</div>
+      <div class="app-sub" id="header-sub">Chargement...</div>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab-btn active" id="tab-loyer" onclick="switchTab('loyer')">💰 Loyer</button>
+    <button class="tab-btn" id="tab-meuble" onclick="switchTab('meuble')">🏠 Meublé</button>
+  </div>
+
+  <!-- LOYER -->
+  <div id="panel-loyer">
+    <div class="card">
+      <div class="card-title">Période</div>
+      <div class="row2">
+        <div class="field">
+          <label>Mois</label>
+          <select id="l-mois" onchange="loadLoyer()">
+            <option value="1">Janvier</option><option value="2">Février</option>
+            <option value="3">Mars</option><option value="4">Avril</option>
+            <option value="5">Mai</option><option value="6">Juin</option>
+            <option value="7">Juillet</option><option value="8">Août</option>
+            <option value="9">Septembre</option><option value="10">Octobre</option>
+            <option value="11">Novembre</option><option value="12">Décembre</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Année</label>
+          <select id="l-annee" onchange="loadLoyer()">
+            <option value="2025">2025</option>
+            <option value="2026" selected>2026</option>
+            <option value="2027">2027</option>
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label>Locataire</label>
+        <select id="l-tenant" onchange="selectTenant()">
+          <option value="">— Sélectionner —</option>
+        </select>
+      </div>
+    </div>
+
+    <div id="loyer-detail" style="display:none">
+      <div class="info-box">
+        <div>Loyer attendu<br><span id="l-attendu">—</span></div>
+        <div style="text-align:right">CAF<br><span id="l-caf-info">—</span></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Virement locataire</div>
+        <div class="row2">
+          <div class="field">
+            <label>Montant (€)</label>
+            <input type="number" id="l-part-loc" step="0.01" placeholder="0.00">
+          </div>
+          <div class="field">
+            <label>Date reçu</label>
+            <input type="date" id="l-date-loc">
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Virement CAF</div>
+        <div class="row2">
+          <div class="field">
+            <label>Montant (€)</label>
+            <input type="number" id="l-part-caf" step="0.01" placeholder="0.00">
+          </div>
+          <div class="field">
+            <label>Date reçu</label>
+            <input type="date" id="l-date-caf">
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="toggle-row">
+          <span class="toggle-label">Paiement partiel</span>
+          <label class="toggle"><input type="checkbox" id="l-partiel"><span class="toggle-slider"></span></label>
+        </div>
+        <div class="field" style="margin-top:10px">
+          <label>Commentaire</label>
+          <input type="text" id="l-note" placeholder="Optionnel">
+        </div>
+      </div>
+
+      <button class="save-btn" onclick="saveLoyer()">✅ Enregistrer</button>
+      <div class="success-msg" id="loyer-success"></div>
+    </div>
+  </div>
+
+  <!-- MEUBLE -->
+  <div id="panel-meuble" style="display:none">
+    <div class="card">
+      <div class="card-title">Réservation</div>
+      <div id="resa-list">
+        <div style="text-align:center;color:#999;padding:16px">Chargement...</div>
+      </div>
+    </div>
+
+    <div id="meuble-detail" style="display:none">
+      <div class="card">
+        <div class="card-title">Source de réservation</div>
+        <div class="radio-group">
+          <div class="radio-btn selected" id="src-airbnb" onclick="selectSource('airbnb')">✈️ Airbnb</div>
+          <div class="radio-btn" id="src-booking" onclick="selectSource('booking')">🏨 Booking</div>
+          <div class="radio-btn" id="src-lodgify" onclick="selectSource('lodgify')">🔗 Lodgify</div>
+        </div>
+      </div>
+
+      <div id="meuble-fields" class="card">
+        <div class="card-title" id="meuble-fields-title">Montants</div>
+        <div id="section-dynamic"></div>
+
+        <div class="row2" style="margin-top:10px">
+          <div class="field">
+            <label>Nb adultes</label>
+            <input type="number" id="m-adultes" min="1" max="10" value="2">
+          </div>
+          <div class="field">
+            <label>Frais ménage (€)</label>
+            <input type="number" id="m-menage" step="0.01">
+          </div>
+        </div>
+
+        <div class="toggle-row" style="margin-top:8px">
+          <span class="toggle-label">🧹 Ménage prestataire</span>
+          <label class="toggle"><input type="checkbox" id="m-presta" checked><span class="toggle-slider"></span></label>
+        </div>
+      </div>
+
+      <button class="save-btn" onclick="saveMeuble()">✅ Enregistrer</button>
+      <div class="success-msg" id="meuble-success"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const SB = 'https://jbiphusmneoccarwkucq.supabase.co';
+const KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpiaXBodXNtbmVvY2NhcndrdWNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3MTI3ODIsImV4cCI6MjA4OTI4ODc4Mn0.meNA4EocaV5J8_9RL929w3fUOwFI5exFHnXr2nKRHjM';
+const PIN = '2110';
+const H = {'apikey':KEY,'Authorization':'Bearer '+KEY,'Content-Type':'application/json'};
+const fmt = n => new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(n||0);
+const MOIS = ['','Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+
+let pinValue = '';
+let tenants = [];
+let selectedTenant = null;
+let existingPayment = null;
+let reservations = [];
+let selectedResa = null;
+let selectedSource = 'airbnb';
+
+// ── PIN ──────────────────────────────────────────────────
+function pinPress(d) {
+  if (!d || pinValue.length >= 4) return;
+  pinValue += d;
+  updateDots();
+  if (pinValue.length === 4) {
+    setTimeout(() => {
+      if (pinValue === PIN) {
+        document.getElementById('pin-screen').classList.remove('active');
+        document.getElementById('main-screen').classList.add('active');
+        init();
+      } else {
+        document.getElementById('pin-error').textContent = 'Code incorrect';
+        pinValue = ''; updateDots();
+        setTimeout(() => document.getElementById('pin-error').textContent = '', 1500);
+      }
+    }, 200);
+  }
+}
+function pinDel() { pinValue = pinValue.slice(0,-1); updateDots(); }
+function updateDots() {
+  for (let i=0;i<4;i++) document.getElementById('d'+i).classList.toggle('filled', i < pinValue.length);
+}
+
+// ── Init ─────────────────────────────────────────────────
+async function init() {
+  const now = new Date();
+  document.getElementById('header-sub').textContent = now.toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'});
+  document.getElementById('l-mois').value = now.getMonth()+1;
+  document.getElementById('l-annee').value = now.getFullYear();
+
+  // Load tenants
+  const r = await fetch(`${SB}/rest/v1/tenants?actif=eq.true&select=*`,{headers:H});
+  tenants = await r.json();
+  const sel = document.getElementById('l-tenant');
+  tenants.forEach(t => {
+    const opt = document.createElement('option');
+    opt.value = t.id; opt.textContent = (t.nom||'') + ' — ' + (t.logement||'');
+    sel.appendChild(opt);
+  });
+
+  // Load reservations (last 15 days + ongoing)
+  const d15 = new Date(); d15.setDate(d15.getDate()-15);
+  const d15str = d15.toISOString().split('T')[0];
+  const rr = await fetch(`${SB}/rest/v1/reservations?date_depart=gte.${d15str}&order=date_arrivee.desc`,{headers:H});
+  reservations = await rr.json();
+  renderResaList();
+}
+
+// ── TABS ─────────────────────────────────────────────────
+function switchTab(tab) {
+  document.getElementById('panel-loyer').style.display = tab==='loyer'?'block':'none';
+  document.getElementById('panel-meuble').style.display = tab==='meuble'?'block':'none';
+  document.getElementById('tab-loyer').classList.toggle('active', tab==='loyer');
+  document.getElementById('tab-meuble').classList.toggle('active', tab==='meuble');
+}
+
+// ── LOYER ────────────────────────────────────────────────
+async function loadLoyer() {
+  if (!selectedTenant) return;
+  const mois = MOIS[parseInt(document.getElementById('l-mois').value)];
+  const annee = parseInt(document.getElementById('l-annee').value);
+  const r = await fetch(`${SB}/rest/v1/rent_payments?tenant_id=eq.${selectedTenant.id}&mois=eq.${mois}&annee=eq.${annee}`,{headers:H});
+  const data = await r.json();
+  existingPayment = data[0] || null;
+  showLoyerDetail();
+}
+
+function selectTenant() {
+  const id = document.getElementById('l-tenant').value;
+  selectedTenant = tenants.find(t=>t.id===id) || null;
+  if (!selectedTenant) { document.getElementById('loyer-detail').style.display='none'; return; }
+  loadLoyer();
+}
+
+function showLoyerDetail() {
+  if (!selectedTenant) return;
+  document.getElementById('loyer-detail').style.display='block';
+  document.getElementById('l-attendu').textContent = fmt(selectedTenant.loyer_ref);
+  document.getElementById('l-caf-info').textContent = fmt(selectedTenant.caf);
+  const p = existingPayment;
+  document.getElementById('l-part-loc').value = p?.locataire_part || selectedTenant.loyer_ref - (selectedTenant.caf||0) || '';
+  document.getElementById('l-part-caf').value = p?.caf || selectedTenant.caf || '';
+  document.getElementById('l-date-loc').value = p?.date_loc || '';
+  document.getElementById('l-date-caf').value = p?.date_caf || '';
+  document.getElementById('l-partiel').checked = false;
+  document.getElementById('l-note').value = p?.commentaire || '';
+}
+
+async function saveLoyer() {
+  if (!selectedTenant) return;
+  const btn = document.querySelector('#panel-loyer .save-btn');
+  btn.textContent = '⏳...'; btn.disabled = true;
+  const mois = MOIS[parseInt(document.getElementById('l-mois').value)];
+  const moisNum = parseInt(document.getElementById('l-mois').value);
+  const annee = parseInt(document.getElementById('l-annee').value);
+  const locPart = parseFloat(document.getElementById('l-part-loc').value)||0;
+  const cafPart = parseFloat(document.getElementById('l-part-caf').value)||0;
+  const dateLoc = document.getElementById('l-date-loc').value||null;
+  const dateCaf = document.getElementById('l-date-caf').value||null;
+  const partiel = document.getElementById('l-partiel').checked;
+  const note = document.getElementById('l-note').value||null;
+  const rec = {
+    tenant_id:selectedTenant.id, mois, mois_num:moisNum, annee,
+    loyer:selectedTenant.loyer_ref,
+    locataire_part:locPart, caf:cafPart,
+    date_loc:dateLoc, date_caf:dateCaf,
+    paye: !partiel && (locPart+cafPart) >= (selectedTenant.loyer_ref*0.99),
+    commentaire:note
+  };
+  let ok;
+  if (existingPayment) {
+    const r = await fetch(`${SB}/rest/v1/rent_payments?id=eq.${existingPayment.id}`,{method:'PATCH',headers:{...H,'Prefer':'return=minimal'},body:JSON.stringify(rec)});
+    ok = r.ok;
+  } else {
+    const r = await fetch(`${SB}/rest/v1/rent_payments`,{method:'POST',headers:{...H,'Prefer':'return=representation'},body:JSON.stringify(rec)});
+    ok = r.ok;
+    if(ok) existingPayment = (await r.json())[0];
+  }
+  btn.textContent='✅ Enregistrer'; btn.disabled=false;
+  const msg=document.getElementById('loyer-success');
+  msg.style.display='block';
+  msg.textContent = ok ? '✓ Loyer enregistré !' : '❌ Erreur';
+  msg.style.background = ok?'#e8f8f2':'#fde8e8';
+  msg.style.color = ok?'#1D9E75':'#E74C3C';
+  setTimeout(()=>msg.style.display='none',3000);
+}
+
+// ── MEUBLE ───────────────────────────────────────────────
+function renderResaList() {
+  const div = document.getElementById('resa-list');
+  if (!reservations.length) { div.innerHTML='<div style="text-align:center;color:#999;padding:16px">Aucune réservation récente</div>'; return; }
+  div.innerHTML = reservations.map(r => {
+    const src = r.source||'lodgify';
+    const badge = src==='airbnb'?'badge-airbnb':src==='booking'?'badge-booking':'badge-lodgify';
+    const srcLabel = src==='airbnb'?'Airbnb':src==='booking'?'Booking':'Lodgify';
+    const hasAmount = !!r.montant_total;
+    return `<div class="resa-item${selectedResa?.id===r.id?' selected':''}" onclick="selectResa('${r.id}')">
+      <div class="resa-item-date">
+        ${r.room||''} &nbsp; <span class="badge ${badge}">${srcLabel}</span>
+        ${hasAmount?'<span class="badge" style="background:#e8f8f2;color:#1D9E75">✓</span>':'<span class="badge badge-gray">À compléter</span>'}
+      </div>
+      <div class="resa-item-sub">
+        ${r.date_arrivee||'?'} → ${r.date_depart||'?'} · ${r.nb_nuits||'?'} nuits · ${r.guest_name&&!r.guest_name.includes('***')?r.guest_name:'Anonyme'}
+        ${r.montant_total?' · '+fmt(r.montant_total):''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function selectResa(id) {
+  selectedResa = reservations.find(r=>r.id===id);
+  if (!selectedResa) return;
+  renderResaList();
+  document.getElementById('meuble-detail').style.display='block';
+  // Pre-fill source
+  const src = selectedResa.source||'airbnb';
+  selectSource(src);
+  // Pre-fill fields
+  document.getElementById('m-adultes').value = selectedResa.nb_adultes||2;
+  const defMenage = selectedResa.room==='T2'?35:30;
+  document.getElementById('m-menage').value = selectedResa.frais_menage||defMenage;
+  document.getElementById('m-presta').checked = selectedResa.menage_prestataire!==false;
+  // Fill source-specific field
+  if (src==='airbnb') document.getElementById('m-total').value = selectedResa.montant_total||'';
+  else if (src==='booking') document.getElementById('m-total').value = selectedResa.montant_total||'';
+  else document.getElementById('m-nuits').value = selectedResa.montant_nuits||'';
+}
+
+function selectSource(src) {
+  selectedSource = src;
+  ['airbnb','booking','lodgify'].forEach(s => document.getElementById('src-'+s).classList.toggle('selected',s===src));
+  const dyn = document.getElementById('section-dynamic');
+  if (src==='airbnb') {
+    dyn.innerHTML=`<div class="field"><label>Versement hôte Airbnb (€)</label><input type="number" id="m-total" step="0.01" placeholder="Ce que vous recevez"></div>`;
+  } else if (src==='booking') {
+    dyn.innerHTML=`<div class="field"><label>Total facturé client (€)</label><input type="number" id="m-total" step="0.01" placeholder="Nuits+ménage+commission+taxe"></div>`;
+  } else {
+    dyn.innerHTML=`<div class="field"><label>Montant nuits (€)</label><input type="number" id="m-nuits" step="0.01" placeholder="Hors ménage et taxe"></div>`;
+  }
+  // Refill if resa selected
+  if (selectedResa) {
+    if (src==='airbnb'||src==='booking') {
+      const el=document.getElementById('m-total'); if(el) el.value=selectedResa.montant_total||'';
+    } else {
+      const el=document.getElementById('m-nuits'); if(el) el.value=selectedResa.montant_nuits||'';
+    }
+  }
+}
+
+async function saveMeuble() {
+  if (!selectedResa) return;
+  const btn=document.querySelector('#panel-meuble .save-btn');
+  btn.textContent='⏳...'; btn.disabled=true;
+  const adultes=parseInt(document.getElementById('m-adultes').value)||1;
+  const menage=parseFloat(document.getElementById('m-menage').value)||0;
+  const presta=document.getElementById('m-presta').checked;
+  const nuits=selectedResa.nb_nuits||1;
+  const TAUX=5; const PLAFOND=4.60;
+  let upd={source:selectedSource, nb_adultes:adultes, frais_menage:menage, menage_prestataire:presta};
+  if (selectedSource==='airbnb') {
+    upd.montant_total=parseFloat(document.getElementById('m-total').value)||null;
+  } else if (selectedSource==='booking') {
+    const total=parseFloat(document.getElementById('m-total').value)||0;
+    const comm=Math.round((total-menage)*0.18/1.18*100)/100;
+    const baseNuits=total-menage-comm;
+    const taxe=Math.round(Math.min(baseNuits/nuits*TAUX/100,PLAFOND)*adultes*nuits*100)/100;
+    upd.montant_total=total; upd.frais_resa=comm; upd.taxe_sejour=taxe;
+    upd.montant_nuits=Math.round((baseNuits-taxe)*100)/100;
+  } else {
+    const nuitsMt=parseFloat(document.getElementById('m-nuits').value)||0;
+    const taxe=Math.round(Math.min(nuitsMt/nuits*TAUX/100,PLAFOND)*adultes*nuits*100)/100;
+    upd.montant_nuits=nuitsMt; upd.taxe_sejour=taxe;
+    upd.montant_total=Math.round((nuitsMt+menage+taxe)*100)/100;
+  }
+  const r=await fetch(`${SB}/rest/v1/reservations?id=eq.${selectedResa.id}`,{method:'PATCH',headers:{...H,'Prefer':'return=minimal'},body:JSON.stringify(upd)});
+  Object.assign(selectedResa,upd);
+  btn.textContent='✅ Enregistrer'; btn.disabled=false;
+  renderResaList();
+  const msg=document.getElementById('meuble-success');
+  msg.style.display='block';
+  msg.textContent=r.ok?'✓ Enregistré !':'❌ Erreur';
+  msg.style.background=r.ok?'#e8f8f2':'#fde8e8';
+  msg.style.color=r.ok?'#1D9E75':'#E74C3C';
+  setTimeout(()=>msg.style.display='none',3000);
+}
+</script>
+</body>
+</html>
