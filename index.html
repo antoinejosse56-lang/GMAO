@@ -16,7 +16,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v103-20260403-212015">
+<meta name="version" content="v104-20260404-045605">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -202,7 +202,7 @@ function ensureBrevoKey(){
 let BREVO_API_KEY = getBrevoKey();
 
 let S = {
-  currentUser: null, view: /Mobi|Android/i.test(navigator.userAgent)?'mobile_home':'dashboard', modal: null,
+  currentUser: null, view: 'mobile_home', modal: null,
   subTab: 'info', filter: {cat:'all', search:''},
   selectedAsset: null,
   topoState: {propId: null, tradeId: null, zoneId: null, expanded: {}},
@@ -1720,7 +1720,7 @@ function renderMobileHome(){
       +(loanedN?'<div>🔧 '+loanedN+' outil'+(loanedN>1?"s":"")+" en prêt</div>":'')
     +'</div>':'')
     // Tiles grid
-    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px">'
+    +'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:14px;margin-bottom:20px">'
 +'<div class="mobile-tile" data-nav="compteurs" style="background:#185FA5" onclick="S.view=\'compteurs\';render()">'
   +'<div style="font-size:36px;margin-bottom:8px">💧</div>'
   +'<div style="font-size:13px;font-weight:600;color:#fff">Relevé compteur</div>'
@@ -6484,6 +6484,10 @@ function bindAll(){
     S.taxeSejourPlafond=parseFloat(document.getElementById('set-taxe-plafond')?.value)||4.60;
     alert('\u2713 Paramètres taxe de séjour enregistrés');
   };
+  // Mobile hamburger via floating approach
+  document.querySelectorAll('.nav-item').forEach(el=>el.addEventListener('click',()=>{
+    document.querySelector('.nav')?.classList.remove('nav-open');
+  }));
   document.querySelectorAll('[data-nav]').forEach(el=>el.onclick=()=>{S.view=el.dataset.nav;S.selectedAsset=null;S.filter={cat:'all',search:''};if(el.dataset.nav!=='topology'){S.topoState.zoneId=null;S.topoState.subZoneId=null;S.topoState.tradeId=null;}if(el.dataset.nav!=='assets'){S.assetNav={propId:null,zoneId:null,subId:null};}render();});
   if(q('btn-logout'))q('btn-logout').onclick=()=>{S.currentUser=null;render();};
   if(q('btn-back'))q('btn-back').onclick=()=>{S.view='assets';S.selectedAsset=null;render();};
