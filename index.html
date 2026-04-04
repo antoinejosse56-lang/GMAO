@@ -16,7 +16,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v105-20260404-070747">
+<meta name="version" content="v105-20260404-072543">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -1569,7 +1569,7 @@ function renderVehicles(){
     const nuits=items.reduce((s,r)=>s+(r.nb_nuits||0),0);
     const rows=items.map(function(r){
       const isFerme=r.statut==='ferme';
-      const incomplete=!isFerme&&(!r.montant_total||r.guest_name.includes("***"));
+      const incomplete=!isFerme&&!r.montant_total;
       const menagePresta=r.menage_prestataire!==false;
       return '<tr style="'+(isFerme?'background:#f5f5f5;opacity:0.6':incomplete?'background:#FFF9E6':'')+'">'
         +'<td style="font-size:11px">'+dateLabel(r.date_arrivee)+'</td>'
@@ -2834,7 +2834,77 @@ function renderFinances(){
           +'<span>TOTAL GÉNÉRAL '+year+'</span>'
           +'<span style="color:var(--green)">'+fmt(grandTotal)+'</span>'
         +'</div>'
-      +'</div>';
+      +'</div>'
+      +(function(){
+        const MONTHS=['Janvier','F\u00e9vrier','Mars','Avril','Mai','Juin','Juillet','Ao\u00fbt','Septembre','Octobre','Novembre','D\u00e9cembre'];
+        const resas=(S.reservations||[]).filter(function(r){
+          return r.statut!=='ferme'&&r.montant_total&&(year===0||(r.date_arrivee||'').startsWith(String(year)));
+        });
+        function revenusNets(r){
+          const src=r.source||'lodgify';
+          if(src==='airbnb') return (r.montant_total||0)-(r.frais_menage||0);
+          if(src==='booking') return (r.montant_total||0)-(r.taxe_sejour||0)-(r.frais_resa||0)-(r.frais_menage||0);
+          return r.montant_nuits||0; // lodgify
+        }
+        function meubleTable(room,label){
+          const items=resas.filter(function(r){return r.room===room;});
+          if(!items.length) return '';
+          const byMonth={};
+          items.forEach(function(r){
+            const mo=r.date_arrivee?parseInt(r.date_arrivee.split('-')[1])-1:0;
+            if(!byMonth[mo])byMonth[mo]={resas:0,nuits:0,rev:0,menage:0};
+            byMonth[mo].resas++;
+            byMonth[mo].nuits+=(r.nb_nuits||0);
+            byMonth[mo].rev+=revenusNets(r);
+            if(r.menage_prestataire!==false)byMonth[mo].menage+=(r.frais_menage||0);
+          });
+          const totalRev=items.reduce(function(s,r){return s+revenusNets(r);},0);
+          const totalMenage=items.filter(function(r){return r.menage_prestataire!==false;}).reduce(function(s,r){return s+(r.frais_menage||0);},0);
+          const rows=MONTHS.map(function(m,i){
+            const d=byMonth[i];
+            if(!d)return '';
+            return '<tr>'
+              +'<td style="font-size:12px">'+m+'</td>'
+              +'<td style="text-align:center;font-size:12px">'+d.resas+'</td>'
+              +'<td style="text-align:center;font-size:12px">'+d.nuits+'</td>'
+              +'<td style="text-align:right;color:var(--green);font-size:12px">'+fmt(d.rev)+'</td>'
+              +'<td style="text-align:right;color:var(--amber);font-size:12px">'+(d.menage?fmt(d.menage):'—')+'</td>'
+              +'<td style="text-align:right;font-weight:600;font-size:12px">'+fmt(d.rev+(d.menage||0))+'</td>'
+              +'</tr>';
+          }).join('');
+          return '<div class="card" style="margin-bottom:16px">'
+            +'<div style="display:flex;justify-content:space-between;padding-bottom:8px;margin-bottom:10px;border-bottom:2px solid #9B59B6">'
+              +'<div style="font-size:14px;font-weight:700;color:#9B59B6">&#127968; Location meublée — '+label+'</div>'
+              +'<div style="font-size:12px;color:var(--text2)">'+items.length+' résa · '+fmt(totalRev)+' nuits · '+fmt(totalMenage)+' ménage</div>'
+            +'</div>'
+            +'<div style="overflow-x:auto"><table style="min-width:500px">'
+              +'<thead><tr>'
+                +'<th style="font-size:10px">Mois</th>'
+                +'<th style="font-size:10px;text-align:center">Résa</th>'
+                +'<th style="font-size:10px;text-align:center">Nuits</th>'
+                +'<th style="font-size:10px;text-align:right">Rev. nuits</th>'
+                +'<th style="font-size:10px;text-align:right">Ménage presta</th>'
+                +'<th style="font-size:10px;text-align:right">Total encaissé</th>'
+              +'</tr></thead>'
+              +'<tbody>'+rows+'</tbody>'
+              +'<tfoot><tr style="border-top:2px solid var(--border);font-weight:600;background:var(--bg2)">'
+                +'<td colspan="3">Total '+year+'</td>'
+                +'<td style="text-align:right;color:var(--green)">'+fmt(totalRev)+'</td>'
+                +'<td style="text-align:right;color:var(--amber)">'+fmt(totalMenage)+'</td>'
+                +'<td style="text-align:right">'+fmt(totalRev+totalMenage)+'</td>'
+              +'</tr></tfoot>'
+            +'</table></div>'
+          +'</div>';
+        }
+        const studioBlock=meubleTable('Studio','Studio (Rue Calvin)');
+        const t2Block=meubleTable('T2','T2 (Rue Calvin)');
+        if(!studioBlock&&!t2Block)return '';
+        return '<div style="margin-top:20px">'
+          +'<div style="font-size:15px;font-weight:700;margin-bottom:12px;color:#9B59B6">&#127968; Location courte durée — Rue CALVIN</div>'
+          +studioBlock+t2Block
+        +'</div>';
+      }());
+
   }
 
   if(fTab==='membres'){
