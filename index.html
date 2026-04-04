@@ -16,7 +16,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v105-20260404-144814">
+<meta name="version" content="v105-20260404-105651">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -1786,8 +1786,7 @@ function renderLocatif(){
   if(tab==='tenants'){
     const colors=['#185FA5','#1D9E75','#9B59B6','#E67E22','#E74C3C'];
     // Group tenants by property from topology
-    const visProps=isDubail?S.topology.properties.filter(p=>dubailFilter(p.name)):S.topology.properties;
-    const propBlocks=visProps.map(function(prop,pi){
+    const propBlocks=S.topology.properties.map(function(prop,pi){
       const propTenants=tenants.filter(function(t){
         return (t.logement||'').toLowerCase().startsWith(prop.name.toLowerCase());
       });
@@ -2487,11 +2486,6 @@ function renderFinances(){
   const year = S.finYear||2026;
 
   // === COSTS: from work_orders only ===
-  const isDubail=isDubailProfile();
-  function dubailTenantFilter(t){
-    if(!isDubail)return true;
-    return dubailFilter(t.logement||'');
-  }
   function getAllCosts(){
     return getFilteredWOs().filter(w=>{
       if(!(w.cost>0&&w.date&&w.date.startsWith(String(year))))return false;
@@ -2509,8 +2503,7 @@ function renderFinances(){
   const totalCosts = getAllCosts().reduce((s,w)=>s+parseFloat(w.cost||0),0);
 
   // === REVENUES: from rent_payments ===
-  const dubailTenantIds=isDubail?S.tenants.filter(t=>dubailFilter(t.logement||'')).map(t=>t.id):null;
-  const yearPayments = S.rentPayments.filter(p=>p.paye&&p.annee===year&&(!dubailTenantIds||dubailTenantIds.includes(p.tenant_id)));
+  const yearPayments = S.rentPayments.filter(p=>p.paye&&p.annee===year);
   const totalRevenues = yearPayments.reduce((s,p)=>s+(p.loyer||0),0);
 
   const typeColors={'Urgence':'#E24B4A','Réparation':'#BA7517','Amélioration':'#185FA5','Entretien':'#1D9E75','Remplacement':'#534AB7','Autre':'#888'};
@@ -2756,11 +2749,10 @@ function renderFinances(){
   if(fTab==='revenus'){
     const MONTHS=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
     const colors=['#185FA5','#1D9E75','#9B59B6','#E67E22','#E74C3C','#2ECC71','#3498DB','#F39C12'];
-    const allTenants=S.tenants.filter(function(t){return t.actif!==false&&(!isDubail||dubailFilter(t.logement||''));});
+    const allTenants=S.tenants.filter(function(t){return t.actif!==false;});
     const allPmts=S.rentPayments.filter(function(p){return p.annee===year;});
 
-    const visProps=isDubail?S.topology.properties.filter(p=>dubailFilter(p.name)):S.topology.properties;
-    const propBlocks=visProps.map(function(prop,pi){
+    const propBlocks=S.topology.properties.map(function(prop,pi){
       const propTenants=allTenants.filter(function(t){
         return (t.logement||'').toLowerCase().startsWith(prop.name.toLowerCase());
       });
@@ -2845,8 +2837,6 @@ function renderFinances(){
       +'</div>'
       +(function(){
         const MONTHS=['Janvier','F\u00e9vrier','Mars','Avril','Mai','Juin','Juillet','Ao\u00fbt','Septembre','Octobre','Novembre','D\u00e9cembre'];
-        // Loc courte durée only visible for non-dubail users
-        if(isDubail)return '';
         const resas=(S.reservations||[]).filter(function(r){
           return r.statut!=='ferme'&&r.montant_total&&(year===0||(r.date_arrivee||'').startsWith(String(year)));
         });
@@ -5943,29 +5933,12 @@ async function saveModal(){
 
 
 
-  if(m.type==='add-user'||m.type==='edit-user'){
-    const name=(q('m-un')?.value||'').trim();if(!name)return alert('Nom requis');
-    const email=(q('m-ue')?.value||'').trim();
-    const pwd=q('m-up')?.value||'';
-    const role=q('m-ur')?.value||'user';
-    const profile=q('m-uprof')?.value||'custom';
-    const initials=name.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2);
-    const rec={name,email,role,profile,initials};
-    if(m.type==='add-user'){
-      if(!pwd)return alert('Mot de passe requis');
-      const{data,error}=await sb.from('users').insert({...rec,password:pwd}).select().single();
+  if(m.type==='add-user'){
+      const pwd=q('m-upwd')?.value;if(!pwd)return alert('Mot de passe requis');
+      const {data,error}=await sb.from('users').insert({...rec,password:pwd,initials:name.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2)}).select().single();
       if(error){alert('Erreur : '+error.message);return;}
       if(data)S.users.push(data);
-    } else {
-      const u=m.user;
-      const upd=pwd?{...rec,password:pwd}:rec;
-      const{error}=await sb.from('users').update(upd).eq('id',u.id);
-      if(error){alert('Erreur : '+error.message);return;}
-      Object.assign(u,rec);
     }
-    S.modal=null;render();
-    return;
-  }
 
 
 
@@ -6004,47 +5977,6 @@ async function saveModal(){
       Object.assign(m.asset,rec);
     }
   }
-  if(m.type==='edit-cg'){
-    const asset=m.asset;
-    const gv=id=>document.getElementById(id)?.value||null;
-    const gn=id=>{const v=document.getElementById(id)?.value;return v?parseFloat(v):null;};
-    const cg={
-      immat:gv('cg-immat'),
-      date_1ere_immat:gv('cg-date1'),
-      titulaire:gv('cg-titulaire'),
-      adresse:gv('cg-adresse'),
-      marque:gv('cg-marque'),
-      denomination:gv('cg-denom'),
-      type_variante:gv('cg-type'),
-      vin:gv('cg-vin'),
-      masse_max:gn('cg-mmr'),
-      masse_charge:gn('cg-mmc'),
-      masse_service:gn('cg-ms'),
-      cylindree:gn('cg-cyl'),
-      puissance_kw:gn('cg-pkw'),
-      carburant:gv('cg-carb'),
-      puissance_cv:gn('cg-pcv'),
-      categorie:gv('cg-cat'),
-      usage:gv('cg-usage'),
-      carrosserie_ce:gv('cg-carce'),
-      carrosserie_nat:gv('cg-carnat'),
-      places_assises:gn('cg-pass'),
-      places_debout:gn('cg-pdeb'),
-      couleur:gv('cg-coul'),
-      classe_env:gv('cg-env'),
-      niveau_sonore:gn('cg-son'),
-      regime_moteur:gn('cg-rpm'),
-      co2:gn('cg-co2'),
-      date_ct:gv('cg-ct'),
-      remarques:gv('cg-rem'),
-    };
-    const{error}=await sb.from('assets').update({carte_grise:cg}).eq('id',asset.id);
-    if(error){alert('Erreur : '+error.message);return;}
-    asset.carte_grise=cg;
-    S.modal=null;render();
-    return;
-  }
-
 
   if(m.type==='add-facture'||m.type==='edit-facture'){
     const fourn=q('fac-four')?.value.trim();if(!fourn)return alert('Fournisseur requis');
