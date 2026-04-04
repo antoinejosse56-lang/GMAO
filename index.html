@@ -16,7 +16,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v105-20260404-075458">
+<meta name="version" content="v105-20260404-105651">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -3179,7 +3179,10 @@ function renderFamille(){
       +'<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--border)">'
         +'<div style="display:flex;flex-direction:column;gap:2px">'
           +'<label style="font-size:10px;color:var(--text2)">TAUX HORAIRE (€/h)</label>'
-          +'<input id="creche-taux-normal" type="number" step="0.01" value="'+(txNormal||'')+'" placeholder="0.00" style="width:80px;padding:4px 8px;font-size:13px;font-weight:600;border:1.5px solid var(--border2);border-radius:6px;background:var(--bg)">'
+          +'<div style="display:flex;gap:4px;align-items:center">'
+            +'<input id="creche-taux-normal" type="number" step="0.01" value="'+(txNormal||'')+'" placeholder="0.00" style="width:80px;padding:4px 8px;font-size:13px;font-weight:600;border:1.5px solid var(--border2);border-radius:6px;background:var(--bg)">'
+            +'<button class="btn btn-p btn-sm" id="btn-creche-save-taux" style="font-size:11px;padding:4px 8px">&#10003;</button>'
+          +'</div>'
         +'</div>'
         +'<div style="display:flex;flex-direction:column;gap:2px">'
           +'<label style="font-size:10px;color:var(--text2)">H. CONTRAT/JOUR</label>'
@@ -7635,6 +7638,23 @@ function bindAll(){
     render();
     alert('✓ Planning enregistré !');
   }
+  // Save creche taux only
+  const btnCrecheSaveTaux=document.getElementById('btn-creche-save-taux');
+  if(btnCrecheSaveTaux)btnCrecheSaveTaux.onclick=async()=>{
+    const crecheMembers=S.famille.filter(m=>m.type_membre==='creche');
+    const enf=S.famille.find(x=>x.id===S.familleEnfant)||(crecheMembers[0]||null);
+    if(!enf){alert('Aucun enfant crèche trouvé');return;}
+    const tauxEl=document.getElementById('creche-taux-normal');
+    const tauxVal=tauxEl?parseFloat(tauxEl.value):null;
+    if(tauxVal==null||isNaN(tauxVal)){alert('Valeur invalide');return;}
+    const updContrat={...(enf.contrat_creche||{}),taux_normal:tauxVal};
+    const{error}=await sb.from('famille').update({contrat_creche:updContrat}).eq('id',enf.id);
+    if(error){alert('Erreur : '+error.message);return;}
+    enf.contrat_creche=updContrat;
+    btnCrecheSaveTaux.textContent='✓';
+    btnCrecheSaveTaux.style.background='var(--green)';
+    setTimeout(()=>{btnCrecheSaveTaux.textContent='✓';btnCrecheSaveTaux.style.background='';render();},1500);
+  };
   const btnCrecheSaveAll=document.getElementById('btn-creche-save-all');
   if(btnCrecheSaveAll)btnCrecheSaveAll.onclick=window.saveCrecheAll;
   const btnCrecheSaveAllBot=document.getElementById('btn-creche-save-all-bot');
