@@ -16,7 +16,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v105-20260404-065040">
+<meta name="version" content="v105-20260404-070747">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -1588,7 +1588,10 @@ function renderVehicles(){
         +'<td style="text-align:right;font-weight:600">'+( r.montant_total?fmt(r.montant_total):'<span style="color:var(--amber)">⚠ à compléter</span>')+'</td>'
         +'<td>'+srcBadge(r.source)+'</td>'
         +'<td style="white-space:nowrap">'
-          +'<button class="btn btn-sm" data-edit-resa="'+r.id+'" style="font-size:10px;padding:2px 5px">✎</button>'
+          +(isFerme
+            ?'<button class="btn btn-sm" data-toggle-ferme="'+r.id+'" style="font-size:10px;padding:2px 5px;background:var(--green);color:#fff">&#9745; Ouvrir</button>'
+            :'<button class="btn btn-sm" data-edit-resa="'+r.id+'" style="font-size:10px;padding:2px 5px">&#9998;</button>'
+             +'<button class="btn btn-sm" data-toggle-ferme="'+r.id+'" style="font-size:10px;padding:2px 5px;margin-left:2px;background:#95a5a6;color:#fff" title="Fermer logement">&#128683;</button>')
           +(r.montant_total?'<button class="btn btn-sm btn-p" data-facture-resa="'+r.id+'" style="font-size:10px;padding:2px 5px;margin-left:3px">&#128438; Facture</button>':'')
           +(isAdmin()?'<button class="btn btn-d btn-sm" data-del-resa="'+r.id+'" style="font-size:10px;padding:2px 5px;margin-left:3px">&#10005;</button>':"")
         +'</td></tr>';
