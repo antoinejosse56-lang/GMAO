@@ -16,7 +16,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v105-20260404-062715">
+<meta name="version" content="v105-20260404-063931">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -646,6 +646,7 @@ function renderApp(){
       <div class="content">${views[S.view]||''}</div>
     </div>
     <div class="sidebar-overlay" id="sidebar-overlay"></div>
+    <button class="mobile-home-btn" onclick="S.view='mobile_home';render()">&#127968;</button>
     ${S.modal ? renderModal() : ''}
   </div>`;
 }
@@ -6497,18 +6498,29 @@ function bindAll(){
     document.querySelector('.nav')?.classList.remove('nav-open');
   }));
   // Hamburger + swipe nav
-  const hamBtn=document.getElementById('hamburger-btn');
-  if(hamBtn)hamBtn.onclick=()=>document.querySelector('.nav')?.classList.toggle('nav-open');
+  const hamBtn=document.getElementById('btn-hamburger');
+  if(hamBtn)hamBtn.onclick=()=>{
+    document.querySelector('.sidebar')?.classList.toggle('open');
+    document.querySelector('.sidebar-overlay')?.classList.toggle('open');
+  };
+  // Close sidebar on overlay click
+  document.querySelector('.sidebar-overlay')?.addEventListener('click',()=>{
+    document.querySelector('.sidebar')?.classList.remove('open');
+    document.querySelector('.sidebar-overlay')?.classList.remove('open');
+  });
   let _tx=0;
   document.addEventListener('touchstart',e=>{_tx=e.touches[0].clientX;},{passive:true});
   document.addEventListener('touchend',e=>{
     const dx=e.changedTouches[0].clientX-_tx;
-    const nav=document.querySelector('.nav');
-    if(_tx<40&&dx>60)nav?.classList.add('nav-open');
-    if(dx<-60)nav?.classList.remove('nav-open');
+    const sb=document.querySelector('.sidebar');
+    const ov=document.querySelector('.sidebar-overlay');
+    if(_tx<40&&dx>60){sb?.classList.add('open');ov?.classList.add('open');}
+    if(dx<-60){sb?.classList.remove('open');ov?.classList.remove('open');}
   },{passive:true});
-  document.querySelectorAll('.nav-item').forEach(el=>el.addEventListener('click',()=>{
-    document.querySelector('.nav')?.classList.remove('nav-open');
+  // Close sidebar on nav item click (mobile)
+  document.querySelectorAll('.nav-item,[data-nav]').forEach(el=>el.addEventListener('click',()=>{
+    document.querySelector('.sidebar')?.classList.remove('open');
+    document.querySelector('.sidebar-overlay')?.classList.remove('open');
   }));
   document.querySelectorAll('[data-nav]').forEach(el=>el.onclick=()=>{S.view=el.dataset.nav;S.selectedAsset=null;S.filter={cat:'all',search:''};if(el.dataset.nav!=='topology'){S.topoState.zoneId=null;S.topoState.subZoneId=null;S.topoState.tradeId=null;}if(el.dataset.nav!=='assets'){S.assetNav={propId:null,zoneId:null,subId:null};}render();});
   if(q('btn-logout'))q('btn-logout').onclick=()=>{S.currentUser=null;render();};
