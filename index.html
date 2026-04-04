@@ -16,7 +16,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v105-20260404-063931">
+<meta name="version" content="v105-20260404-065040">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -1568,7 +1568,8 @@ function renderVehicles(){
     const total=items.reduce((s,r)=>s+(r.montant_total||0),0);
     const nuits=items.reduce((s,r)=>s+(r.nb_nuits||0),0);
     const rows=items.map(function(r){
-      const incomplete=!r.montant_total||r.guest_name.includes("***");
+      const isFerme=r.statut==='ferme';
+      const incomplete=!isFerme&&(!r.montant_total||r.guest_name.includes("***"));
       const menagePresta=r.menage_prestataire!==false;
       return '<tr style="'+(isFerme?'background:#f5f5f5;opacity:0.6':incomplete?'background:#FFF9E6':'')+'">'
         +'<td style="font-size:11px">'+dateLabel(r.date_arrivee)+'</td>'
