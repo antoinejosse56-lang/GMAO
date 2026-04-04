@@ -16,7 +16,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v103-20260403-210809">
+<meta name="version" content="v103-20260403-212015">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -1705,6 +1705,10 @@ function renderMobileHome(){
   return '<div style="padding:16px;max-width:480px;margin:0 auto">'
     // Header
     +'<div style="background:linear-gradient(135deg,#185FA5,#1D9E75);border-radius:16px;padding:20px;margin-bottom:20px;color:#fff">'
+      +'<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">'
+        +'<img src="https://l.icdbcdn.com/oh/1b1524f2-63aa-4ebe-b8b0-b0797f1c602a.png?w=400" style="width:48px;height:48px;object-fit:contain;border-radius:10px;background:#fff;padding:4px">'
+        +'<div><div style="font-size:16px;font-weight:700">GMAO</div><div style="font-size:11px;opacity:0.8">Escale Pro Lorient</div></div>'
+      +'</div>'
       +'<div style="font-size:13px;opacity:0.85">'+dateStr+'</div>'
       +'<div style="font-size:28px;font-weight:700;margin:4px 0">'+timeStr+'</div>'
       +'<div style="font-size:12px;opacity:0.8">Bonjour, '+(S.currentUser?.name||"Antoine")+' 👋</div>'

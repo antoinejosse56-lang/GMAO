@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#185FA5">
+<title>Saisie du jour</title>
+<link rel="manifest" href="manifest-saisie.json">
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f0f4f8;min-height:100vh;color:#1a1a2e}
+.screen{display:none;min-height:100vh;padding:16px;max-width:480px;margin:0 auto}
+.screen.active{display:block}
+/* PIN screen */
+.pin-header{text-align:center;padding:40px 0 30px}
+.pin-logo{width:80px;height:80px;border-radius:20px;object-fit:contain;background:#fff;padding:8px;box-shadow:0 4px 16px rgba(0,0,0,0.1);margin-bottom:16px}
+.pin-title{font-size:22px;font-weight:700;color:#185FA5}
+.pin-subtitle{font-size:14px;color:#666;margin-top:6px}
+.pin-dots{display:flex;gap:12px;justify-content:center;margin:24px 0}
+.pin-dot{width:16px;height:16px;border-radius:50%;background:#ddd;transition:background 0.2s}
+.pin-dot.filled{background:#185FA5}
+.pin-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;max-width:280px;margin:0 auto}
+.pin-btn{background:#fff;border:none;border-radius:16px;padding:18px;font-size:22px;font-weight:600;color:#1a1a2e;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,0.08);transition:transform 0.1s,background 0.1s}
+.pin-btn:active{transform:scale(0.93);background:#e8f0fe}
+.pin-btn.del{color:#E74C3C}
+.pin-error{text-align:center;color:#E74C3C;font-size:13px;margin-top:12px;height:20px}
+/* Main screen */
+.day-header{background:linear-gradient(135deg,#185FA5,#1D9E75);border-radius:16px;padding:16px 20px;margin-bottom:16px;color:#fff;display:flex;align-items:center;gap:12px}
+.day-logo{width:40px;height:40px;border-radius:10px;background:#fff;padding:4px;object-fit:contain}
+.day-info{flex:1}
+.day-date{font-size:16px;font-weight:700}
+.day-sub{font-size:12px;opacity:0.85}
+.tabs{display:flex;gap:8px;margin-bottom:16px}
+.tab-btn{flex:1;padding:12px;border:none;border-radius:12px;font-size:14px;font-weight:600;cursor:pointer;transition:all 0.2s}
+.tab-btn.active{background:#185FA5;color:#fff;box-shadow:0 4px 12px rgba(24,95,165,0.3)}
+.tab-btn:not(.active){background:#fff;color:#666}
+.card{background:#fff;border-radius:16px;padding:16px;margin-bottom:12px;box-shadow:0 2px 8px rgba(0,0,0,0.06)}
+.card-title{font-size:13px;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px}
+.field{margin-bottom:14px}
+.field label{display:block;font-size:13px;color:#444;margin-bottom:6px;font-weight:500}
+.field input[type=number]{width:100%;padding:12px 14px;border:1.5px solid #e0e0e0;border-radius:10px;font-size:16px;outline:none;transition:border-color 0.2s}
+.field input[type=number]:focus{border-color:#185FA5}
+.field input[type=time]{width:100%;padding:12px 14px;border:1.5px solid #e0e0e0;border-radius:10px;font-size:16px;outline:none}
+.field input[type=time]:focus{border-color:#185FA5}
+.toggle-row{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid #f0f0f0}
+.toggle-row:last-child{border-bottom:none}
+.toggle-label{font-size:15px;color:#1a1a2e}
+.toggle{position:relative;width:50px;height:28px}
+.toggle input{opacity:0;width:0;height:0}
+.toggle-slider{position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:#ddd;border-radius:28px;transition:0.3s}
+.toggle-slider:before{position:absolute;content:"";height:22px;width:22px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:0.3s;box-shadow:0 2px 4px rgba(0,0,0,0.2)}
+input:checked+.toggle-slider{background:#185FA5}
+input:checked+.toggle-slider:before{transform:translateX(22px)}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.select-field{width:100%;padding:12px 14px;border:1.5px solid #e0e0e0;border-radius:10px;font-size:15px;background:#fff;outline:none}
+.select-field:focus{border-color:#185FA5}
+.save-btn{width:100%;padding:18px;background:linear-gradient(135deg,#1D9E75,#185FA5);color:#fff;border:none;border-radius:16px;font-size:18px;font-weight:700;cursor:pointer;margin-top:8px;box-shadow:0 4px 16px rgba(29,158,117,0.3);transition:transform 0.1s,opacity 0.1s}
+.save-btn:active{transform:scale(0.97);opacity:0.9}
+.success-msg{text-align:center;padding:12px;background:#e8f8f2;border-radius:12px;color:#1D9E75;font-weight:600;font-size:14px;margin-top:8px;display:none}
+.absent-overlay{opacity:0.4;pointer-events:none}
+</style>
+</head>
+<body>
+
+<!-- PIN Screen -->
+<div id="pin-screen" class="screen active">
+  <div class="pin-header">
+    <img src="https://l.icdbcdn.com/oh/1b1524f2-63aa-4ebe-b8b0-b0797f1c602a.png?w=400" class="pin-logo" alt="GMAO">
+    <div class="pin-title">GMAO Saisie</div>
+    <div class="pin-subtitle">Crèche &amp; École</div>
+  </div>
+  <div class="pin-dots">
+    <div class="pin-dot" id="d0"></div>
+    <div class="pin-dot" id="d1"></div>
+    <div class="pin-dot" id="d2"></div>
+    <div class="pin-dot" id="d3"></div>
+  </div>
+  <div class="pin-grid">
+    <button class="pin-btn" onclick="pinPress('1')">1</button>
+    <button class="pin-btn" onclick="pinPress('2')">2</button>
+    <button class="pin-btn" onclick="pinPress('3')">3</button>
+    <button class="pin-btn" onclick="pinPress('4')">4</button>
+    <button class="pin-btn" onclick="pinPress('5')">5</button>
+    <button class="pin-btn" onclick="pinPress('6')">6</button>
+    <button class="pin-btn" onclick="pinPress('7')">7</button>
+    <button class="pin-btn" onclick="pinPress('8')">8</button>
+    <button class="pin-btn" onclick="pinPress('9')">9</button>
+    <button class="pin-btn" onclick="pinPress('')"></button>
+    <button class="pin-btn" onclick="pinPress('0')">0</button>
+    <button class="pin-btn del" onclick="pinDel()">⌫</button>
+  </div>
+  <div class="pin-error" id="pin-error"></div>
+</div>
+
+<!-- Main Screen -->
+<div id="main-screen" class="screen">
+  <div class="day-header">
+    <img src="https://l.icdbcdn.com/oh/1b1524f2-63aa-4ebe-b8b0-b0797f1c602a.png?w=400" class="day-logo" alt="">
+    <div class="day-info">
+      <div class="day-date" id="day-date"></div>
+      <div class="day-sub" id="day-sub"></div>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab-btn active" id="tab-creche" onclick="switchTab('creche')">🍼 Crèche</button>
+    <button class="tab-btn" id="tab-ecole" onclick="switchTab('ecole')">🏫 École</button>
+  </div>
+
+  <!-- Crèche -->
+  <div id="panel-creche">
+    <div class="card">
+      <div class="card-title">Horaires du jour</div>
+      <div class="row2">
+        <div class="field">
+          <label>Dépose anticipée</label>
+          <input type="time" id="c-dep-antic" placeholder="--:--">
+        </div>
+        <div class="field">
+          <label>Récup. tardive</label>
+          <input type="time" id="c-rec-tard" placeholder="--:--">
+        </div>
+      </div>
+      <div class="row2">
+        <div class="field">
+          <label>Arrivée tardive</label>
+          <input type="time" id="c-arr-tard" placeholder="--:--">
+        </div>
+        <div class="field">
+          <label>Départ anticipé</label>
+          <input type="time" id="c-dep-antic2" placeholder="--:--">
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="toggle-row">
+        <span class="toggle-label">Absente aujourd'hui</span>
+        <label class="toggle"><input type="checkbox" id="c-absent" onchange="toggleAbsent()"><span class="toggle-slider"></span></label>
+      </div>
+    </div>
+    <button class="save-btn" onclick="saveCreche()">✅ Enregistrer</button>
+    <div class="success-msg" id="creche-success">✓ Enregistré !</div>
+  </div>
+
+  <!-- École -->
+  <div id="panel-ecole" style="display:none">
+    <div class="card" id="ecole-fields">
+      <div class="card-title">Périscolaire</div>
+      <div class="row2">
+        <div class="field">
+          <label>Péri matin (min)</label>
+          <input type="number" id="e-mat" min="0" step="15" placeholder="0">
+        </div>
+        <div class="field">
+          <label>Type matin</label>
+          <select class="select-field" id="e-mat-type">
+            <option value="prevu">Prévu</option>
+            <option value="non_prevu">Non prévu</option>
+          </select>
+        </div>
+      </div>
+      <div class="row2">
+        <div class="field">
+          <label>Péri soir (min)</label>
+          <input type="number" id="e-soir" min="0" step="15" placeholder="0">
+        </div>
+        <div class="field">
+          <label>Type soir</label>
+          <select class="select-field" id="e-soir-type">
+            <option value="prevu">Prévu</option>
+            <option value="non_prevu">Non prévu</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="toggle-row">
+        <span class="toggle-label">🍽️ Cantine</span>
+        <label class="toggle"><input type="checkbox" id="e-cantine"><span class="toggle-slider"></span></label>
+      </div>
+      <div class="toggle-row">
+        <span class="toggle-label">🎨 Centre loisirs</span>
+        <label class="toggle"><input type="checkbox" id="e-centre" onchange="toggleCentre()"><span class="toggle-slider"></span></label>
+      </div>
+      <div class="toggle-row">
+        <span class="toggle-label">🏠 Absente</span>
+        <label class="toggle"><input type="checkbox" id="e-absent" onchange="toggleAbsentEcole()"><span class="toggle-slider"></span></label>
+      </div>
+    </div>
+    <button class="save-btn" onclick="saveEcole()">✅ Enregistrer</button>
+    <div class="success-msg" id="ecole-success">✓ Enregistré !</div>
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL = 'https://jbiphusmneoccarwkucq.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpiaXBodXNtbmVvY2NhcndrdWNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3MTI3ODIsImV4cCI6MjA4OTI4ODc4Mn0.meNA4EocaV5J8_9RL929w3fUOwFI5exFHnXr2nKRHjM';
+const PIN = '2110';
+
+let pinValue = '';
+let today = new Date();
+let todayStr = today.toISOString().split('T')[0];
+let enfantCreche = null;
+let enfantEcole = null;
+let saisieCreche = null;
+let saisieEcole = null;
+
+// ── PIN ──────────────────────────────────────────────────
+function pinPress(d) {
+  if (!d || pinValue.length >= 4) return;
+  pinValue += d;
+  updateDots();
+  if (pinValue.length === 4) {
+    setTimeout(() => {
+      if (pinValue === PIN) {
+        document.getElementById('pin-screen').classList.remove('active');
+        document.getElementById('main-screen').classList.add('active');
+        init();
+      } else {
+        document.getElementById('pin-error').textContent = 'Code incorrect';
+        pinValue = '';
+        updateDots();
+        setTimeout(() => document.getElementById('pin-error').textContent = '', 1500);
+      }
+    }, 200);
+  }
+}
+function pinDel() {
+  pinValue = pinValue.slice(0, -1);
+  updateDots();
+}
+function updateDots() {
+  for (let i = 0; i < 4; i++) {
+    document.getElementById('d' + i).classList.toggle('filled', i < pinValue.length);
+  }
+}
+
+// ── Init ─────────────────────────────────────────────────
+async function init() {
+  const days = ['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'];
+  const months = ['janvier','février','mars','avril','mai','juin','juillet','août','septembre','octobre','novembre','décembre'];
+  const d = today;
+  document.getElementById('day-date').textContent = days[d.getDay()] + ' ' + d.getDate() + ' ' + months[d.getMonth()];
+  document.getElementById('day-sub').textContent = 'Saisie du ' + todayStr.split('-').reverse().join('/');
+
+  // Load famille members
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/famille?select=*`, {
+    headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY }
+  });
+  const famille = await res.json();
+  enfantCreche = famille.find(m => m.type_membre === 'creche');
+  enfantEcole = famille.find(m => m.type_membre === 'ecole');
+
+  const annee = today.getFullYear();
+  const mois = today.getMonth() + 1;
+  const jour = today.getDate();
+
+  // Load today's creche saisie
+  if (enfantCreche) {
+    const cr = await fetch(`${SUPABASE_URL}/rest/v1/creche_saisies?enfant_id=eq.${enfantCreche.id}&annee=eq.${annee}&mois=eq.${mois}&jour=eq.${jour}`, {
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY }
+    });
+    const crData = await cr.json();
+    saisieCreche = crData[0] || null;
+    if (saisieCreche) {
+      if (saisieCreche.depose_anticipee) document.getElementById('c-dep-antic').value = saisieCreche.depose_anticipee.slice(0,5);
+      if (saisieCreche.recuperation_tardive) document.getElementById('c-rec-tard').value = saisieCreche.recuperation_tardive.slice(0,5);
+      if (saisieCreche.arrivee_tardive) document.getElementById('c-arr-tard').value = saisieCreche.arrivee_tardive.slice(0,5);
+      if (saisieCreche.depart_anticipe) document.getElementById('c-dep-antic2').value = saisieCreche.depart_anticipe.slice(0,5);
+      if (saisieCreche.absence_autorisee) document.getElementById('c-absent').checked = true;
+    }
+  }
+
+  // Load today's ecole saisie
+  if (enfantEcole) {
+    const ec = await fetch(`${SUPABASE_URL}/rest/v1/ecole_saisies?enfant_id=eq.${enfantEcole.id}&annee=eq.${annee}&mois=eq.${mois}&jour=eq.${jour}`, {
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY }
+    });
+    const ecData = await ec.json();
+    saisieEcole = ecData[0] || null;
+    if (saisieEcole) {
+      const durMat = saisieEcole.peri_matin_min || saisieEcole.peri_matin_np_min || 0;
+      const durSoir = saisieEcole.peri_soir_min || saisieEcole.peri_soir_np_min || 0;
+      document.getElementById('e-mat').value = durMat || '';
+      document.getElementById('e-soir').value = durSoir || '';
+      if (saisieEcole.peri_matin_np_min > 0) document.getElementById('e-mat-type').value = 'non_prevu';
+      if (saisieEcole.peri_soir_np_min > 0) document.getElementById('e-soir-type').value = 'non_prevu';
+      document.getElementById('e-cantine').checked = !!saisieEcole.cantine;
+      document.getElementById('e-centre').checked = !!saisieEcole.centre_loisir;
+      document.getElementById('e-absent').checked = !!saisieEcole.absence_autorisee;
+      if (saisieEcole.centre_loisir) toggleCentre();
+      if (saisieEcole.absence_autorisee) toggleAbsentEcole();
+    }
+  }
+
+  // Mercredi = no peri
+  if (today.getDay() === 3) {
+    document.getElementById('ecole-fields').style.opacity = '0.4';
+    document.getElementById('ecole-fields').style.pointerEvents = 'none';
+  }
+}
+
+// ── Tabs ─────────────────────────────────────────────────
+function switchTab(tab) {
+  document.getElementById('panel-creche').style.display = tab === 'creche' ? 'block' : 'none';
+  document.getElementById('panel-ecole').style.display = tab === 'ecole' ? 'block' : 'none';
+  document.getElementById('tab-creche').classList.toggle('active', tab === 'creche');
+  document.getElementById('tab-ecole').classList.toggle('active', tab === 'ecole');
+}
+
+// ── Toggles ───────────────────────────────────────────────
+function toggleAbsent() {
+  const absent = document.getElementById('c-absent').checked;
+  const fields = document.querySelectorAll('#panel-creche input[type=time]');
+  fields.forEach(f => { f.disabled = absent; f.style.opacity = absent ? '0.4' : '1'; });
+}
+function toggleCentre() {
+  const centre = document.getElementById('e-centre').checked;
+  document.getElementById('ecole-fields').style.opacity = centre ? '0.4' : '1';
+  document.getElementById('ecole-fields').style.pointerEvents = centre ? 'none' : '';
+}
+function toggleAbsentEcole() {
+  const absent = document.getElementById('e-absent').checked;
+  const card = document.getElementById('ecole-fields');
+  card.style.opacity = absent ? '0.4' : '1';
+  card.style.pointerEvents = absent ? 'none' : '';
+  const centre = document.getElementById('e-centre');
+  centre.disabled = absent;
+  centre.parentElement.parentElement.style.opacity = absent ? '0.4' : '1';
+}
+
+// ── Save Crèche ───────────────────────────────────────────
+async function saveCreche() {
+  if (!enfantCreche) { alert('Aucun enfant crèche configuré'); return; }
+  const btn = document.querySelector('#panel-creche .save-btn');
+  btn.textContent = '⏳ Enregistrement...';
+  btn.disabled = true;
+
+  const annee = today.getFullYear();
+  const mois = today.getMonth() + 1;
+  const jour = today.getDate();
+  const rec = {
+    enfant_id: enfantCreche.id, annee, mois, jour,
+    depose_anticipee: document.getElementById('c-dep-antic').value || null,
+    recuperation_tardive: document.getElementById('c-rec-tard').value || null,
+    arrivee_tardive: document.getElementById('c-arr-tard').value || null,
+    depart_anticipe: document.getElementById('c-dep-antic2').value || null,
+    absence_autorisee: document.getElementById('c-absent').checked,
+  };
+
+  let ok;
+  if (saisieCreche) {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/creche_saisies?id=eq.${saisieCreche.id}`, {
+      method: 'PATCH',
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
+      body: JSON.stringify(rec)
+    });
+    ok = r.ok;
+  } else {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/creche_saisies`, {
+      method: 'POST',
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY, 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
+      body: JSON.stringify(rec)
+    });
+    ok = r.ok;
+    if (ok) saisieCreche = (await r.json())[0];
+  }
+
+  btn.textContent = '✅ Enregistrer';
+  btn.disabled = false;
+  const msg = document.getElementById('creche-success');
+  msg.style.display = 'block';
+  msg.textContent = ok ? '✓ Enregistré !' : '❌ Erreur, réessayez';
+  msg.style.background = ok ? '#e8f8f2' : '#fde8e8';
+  msg.style.color = ok ? '#1D9E75' : '#E74C3C';
+  setTimeout(() => msg.style.display = 'none', 3000);
+}
+
+// ── Save École ────────────────────────────────────────────
+async function saveEcole() {
+  if (!enfantEcole) { alert('Aucun enfant école configuré'); return; }
+  const btn = document.querySelector('#panel-ecole .save-btn');
+  btn.textContent = '⏳ Enregistrement...';
+  btn.disabled = true;
+
+  const annee = today.getFullYear();
+  const mois = today.getMonth() + 1;
+  const jour = today.getDate();
+  const isCentre = document.getElementById('e-centre').checked;
+  const isAbsent = document.getElementById('e-absent').checked;
+  const durMat = isCentre||isAbsent ? 0 : parseInt(document.getElementById('e-mat').value)||0;
+  const durSoir = isCentre||isAbsent ? 0 : parseInt(document.getElementById('e-soir').value)||0;
+  const typeMat = document.getElementById('e-mat-type').value;
+  const typeSoir = document.getElementById('e-soir-type').value;
+  const durMatQ = Math.ceil(durMat/15)*15;
+  const durSoirQ = Math.ceil(durSoir/15)*15;
+
+  const rec = {
+    enfant_id: enfantEcole.id, annee, mois, jour,
+    peri_matin_min: typeMat==='prevu' ? durMatQ : 0,
+    peri_soir_min: typeSoir==='prevu' ? durSoirQ : 0,
+    peri_matin_np_min: typeMat==='non_prevu' ? durMatQ : 0,
+    peri_soir_np_min: typeSoir==='non_prevu' ? durSoirQ : 0,
+    type_peri: 'prevu',
+    cantine: !isAbsent && document.getElementById('e-cantine').checked,
+    centre_loisir: isCentre,
+    absence_autorisee: isAbsent,
+    peri_matin_dep: null, peri_matin_fin: null, peri_soir_dep: null, peri_soir_fin: null,
+  };
+
+  let ok;
+  if (saisieEcole) {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/ecole_saisies?id=eq.${saisieEcole.id}`, {
+      method: 'PATCH',
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
+      body: JSON.stringify(rec)
+    });
+    ok = r.ok;
+  } else {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/ecole_saisies`, {
+      method: 'POST',
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY, 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
+      body: JSON.stringify(rec)
+    });
+    ok = r.ok;
+    if (ok) saisieEcole = (await r.json())[0];
+  }
+
+  btn.textContent = '✅ Enregistrer';
+  btn.disabled = false;
+  const msg = document.getElementById('ecole-success');
+  msg.style.display = 'block';
+  msg.textContent = ok ? '✓ Enregistré !' : '❌ Erreur, réessayez';
+  msg.style.background = ok ? '#e8f8f2' : '#fde8e8';
+  msg.style.color = ok ? '#1D9E75' : '#E74C3C';
+  setTimeout(() => msg.style.display = 'none', 3000);
+}
+</script>
+</body>
+</html>
