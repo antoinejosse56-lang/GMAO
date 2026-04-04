@@ -16,7 +16,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v104-20260404-045605">
+<meta name="version" content="v105-20260404-061900">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -1569,7 +1569,7 @@ function renderVehicles(){
     const rows=items.map(function(r){
       const incomplete=!r.montant_total||r.guest_name.includes("***");
       const menagePresta=r.menage_prestataire!==false;
-      return '<tr style="'+(incomplete?"background:#FFF9E6":"")+'">'
+      return '<tr style="'+(isFerme?'background:#f5f5f5;opacity:0.6':incomplete?'background:#FFF9E6':'')+'">'
         +'<td style="font-size:11px">'+dateLabel(r.date_arrivee)+'</td>'
         +'<td style="font-size:11px">'+dateLabel(r.date_depart)+'</td>'
         +'<td style="text-align:center">'+( r.nb_nuits||"-")+'</td>'
@@ -1733,11 +1733,11 @@ function renderMobileHome(){
   +'<div style="font-size:36px;margin-bottom:8px">🏠</div>'
   +'<div style="font-size:13px;font-weight:600;color:#fff">Location meublée</div>'
 +'</div>'
-+'<div class="mobile-tile" data-nav="famille" style="background:#F39C12" onclick="S.view=\'famille_creche\';S.familleTab=\'creche\';render()">'
++'<div class="mobile-tile" data-nav="famille" style="background:#F39C12" onclick="S.view=\'famille\';S.familleTab=\'creche\';render()">'
   +'<div style="font-size:36px;margin-bottom:8px">🍼</div>'
   +'<div style="font-size:13px;font-weight:600;color:#fff">Crèche du jour</div>'
 +'</div>'
-+'<div class="mobile-tile" data-nav="famille" style="background:#E74C3C" onclick="S.view=\'famille_ecole\';S.familleTab=\'ecole\';render()">'
++'<div class="mobile-tile" data-nav="famille" style="background:#E74C3C" onclick="S.view=\'famille\';S.familleTab=\'ecole\';render()">'
   +'<div style="font-size:36px;margin-bottom:8px">🏫</div>'
   +'<div style="font-size:13px;font-weight:600;color:#fff">École du jour</div>'
 +'</div>'
@@ -6468,6 +6468,14 @@ function bindAll(){
     r.facture_numero=num;r.facture_generee=true;
     genFactureResaPDF({...r,facture_numero:num});
   });
+  document.querySelectorAll('[data-toggle-ferme]').forEach(el=>el.onclick=async()=>{
+    const r=S.reservations.find(x=>x.id===el.dataset.toggleFerme);
+    if(!r)return;
+    const newStatut=r.statut==='ferme'?'confirmed':'ferme';
+    const{error}=await sb.from('reservations').update({statut:newStatut}).eq('id',r.id);
+    if(error){alert('Erreur : '+error.message);return;}
+    r.statut=newStatut;render();
+  });
   document.querySelectorAll('[data-toggle-menage]').forEach(el=>el.onclick=async()=>{
     const r=S.reservations.find(x=>x.id===el.dataset.toggleMenage);
     if(!r)return;
@@ -6485,6 +6493,20 @@ function bindAll(){
     alert('\u2713 Paramètres taxe de séjour enregistrés');
   };
   // Mobile hamburger via floating approach
+  document.querySelectorAll('.nav-item').forEach(el=>el.addEventListener('click',()=>{
+    document.querySelector('.nav')?.classList.remove('nav-open');
+  }));
+  // Hamburger + swipe nav
+  const hamBtn=document.getElementById('hamburger-btn');
+  if(hamBtn)hamBtn.onclick=()=>document.querySelector('.nav')?.classList.toggle('nav-open');
+  let _tx=0;
+  document.addEventListener('touchstart',e=>{_tx=e.touches[0].clientX;},{passive:true});
+  document.addEventListener('touchend',e=>{
+    const dx=e.changedTouches[0].clientX-_tx;
+    const nav=document.querySelector('.nav');
+    if(_tx<40&&dx>60)nav?.classList.add('nav-open');
+    if(dx<-60)nav?.classList.remove('nav-open');
+  },{passive:true});
   document.querySelectorAll('.nav-item').forEach(el=>el.addEventListener('click',()=>{
     document.querySelector('.nav')?.classList.remove('nav-open');
   }));
