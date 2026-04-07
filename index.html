@@ -16,7 +16,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v105-20260407-150825">
+<meta name="version" content="v105-20260407-152043">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -3565,7 +3565,7 @@ function printLabel(tool, siteUrl){
     +'  body *{visibility:hidden}'
     +'  #label{visibility:visible}'
     +'  .hd{background:#000!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}'
-    +'  @page{size:var(--pw) var(--ph);margin:0}'
+    +'  @page{size:var(--ph) var(--pw) landscape;margin:0}'
     +'}'
     +'</style></head><body>'
     +'<div class="size-bar hint" style="display:flex;align-items:center;gap:10px;margin-bottom:10px;font-size:12px">'
@@ -3599,12 +3599,13 @@ function printLabel(tool, siteUrl){
     +'<script>'
     +'function updateSize(){'
     +'  var s=parseInt(document.getElementById("tape-size").value);'
-    +'  var h=Math.round(s*1.5);'
+    +'  var l=Math.round(s*4);'  /* length = 4x tape width */
     +'  document.documentElement.style.setProperty("--pw",s+"mm");'
-    +'  document.documentElement.style.setProperty("--ph",h+"mm");'
-    +'  document.getElementById("size-info").textContent=s+"mm × "+h+"mm";'
+    +'  document.documentElement.style.setProperty("--ph",l+"mm");'
+    +'  document.getElementById("size-info").textContent=l+"mm × "+s+"mm (paysage)";'
     +'  var scale=s/36;'
-    +'  document.getElementById("label").style.width=(340*scale)+"px";'
+    +'  document.getElementById("label").style.height=(s*3.78)+"px";'
+    +'  document.getElementById("label").style.width=(l*3.78)+"px";'
     +'}'
     +'updateSize();'
     +'var img=new Image();'
