@@ -16,7 +16,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v105-20260407-101312">
+<meta name="version" content="v105-20260407-101723">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -1763,6 +1763,7 @@ function renderMobileHome(){
 }
 
 function renderLocatif(){
+  const isDubail=isDubailProfile();
   const tab = S.locatifTab||'tenants';
   const MONTHS = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
   const year = S.locatifYear||2026;
@@ -1786,7 +1787,6 @@ function renderLocatif(){
   if(tab==='tenants'){
     const colors=['#185FA5','#1D9E75','#9B59B6','#E67E22','#E74C3C'];
     // Group tenants by property from topology
-    const isDubail=isDubailProfile();
     const visProps=isDubail?S.topology.properties.filter(p=>dubailFilter(p.name)):S.topology.properties;
     const propBlocks=visProps.map(function(prop,pi){
       const propTenants=tenants.filter(function(t){
@@ -2025,8 +2025,8 @@ function renderLocatif(){
     
     const propBlocks=allProps.map((prop,i)=>{
       const propPmts=filteredPayments.filter(p=>prop.tenants.some(t=>t.id===p.tenant_id));
-      const isDubail=dubailFilter(prop.name);
-      const icon=isDubail?'🏢':'🏠';
+      const isThisPropDubail=dubailFilter(prop.name);
+      const icon=isThisPropDubail?'🏢':'🏠';
       const color=colors[i%colors.length];
       return statsBlock(icon+' '+prop.name,prop.tenants,propPmts,color);
     }).join('');
