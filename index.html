@@ -16,7 +16,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v105-20260407-152043">
+<meta name="version" content="v105-20260407-153851">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -3599,10 +3599,10 @@ function printLabel(tool, siteUrl){
     +'<script>'
     +'function updateSize(){'
     +'  var s=parseInt(document.getElementById("tape-size").value);'
-    +'  var l=Math.round(s*4);'  /* length = 4x tape width */
+    +'  var l=Math.round(s*2);'
     +'  document.documentElement.style.setProperty("--pw",s+"mm");'
     +'  document.documentElement.style.setProperty("--ph",l+"mm");'
-    +'  document.getElementById("size-info").textContent=l+"mm × "+s+"mm (paysage)";'
+    +'  document.getElementById("size-info").textContent=l+"mm (long) × "+s+"mm (larg)";'
     +'  var scale=s/36;'
     +'  document.getElementById("label").style.height=(s*3.78)+"px";'
     +'  document.getElementById("label").style.width=(l*3.78)+"px";'
