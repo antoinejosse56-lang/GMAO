@@ -16,7 +16,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v105-20260407-153851">
+<meta name="version" content="v105-20260407-155132">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -3529,95 +3529,79 @@ function renderEtiquettes(){
 
 function printLabel(tool, siteUrl){
   const qrData = siteUrl+'?tool='+tool.id;
-  const owner = 'Antoine JOSSE';
-  const toolName = tool.name||'';
+  const toolName = tool.name||'' ;
   const toolCat = tool.category||'Outil';
-  const toolLoc = tool.location||'Emplacement non défini';
-  const toolDesc = tool.description||'';
-  const toolId = tool.id.slice(0,12);
-
-  const w = window.open('','_blank','width=520,height=680');
-  if(!w){ alert('Popup bloquée — autorisez les popups pour ce site'); return; }
-
-  const html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>'+toolName+'</title>'
-    +'<style>'
-    +'*{box-sizing:border-box;margin:0;padding:0}'
-    +'body{font-family:Arial,sans-serif;background:#f0f0f0;display:flex;flex-direction:column;align-items:center;padding:24px;gap:16px}'
-    +'.label{background:#fff;border:2.5px solid #111;border-radius:8px;width:340px;overflow:hidden;box-shadow:0 3px 12px rgba(0,0,0,.2)}'
-    +'.hd{background:#111;color:#fff;padding:9px 14px;display:flex;justify-content:space-between;align-items:center}'
-    +'.hd .own{font-size:14px;font-weight:700;letter-spacing:.5px}'
-    +'.hd .cat{font-size:10px;background:rgba(255,255,255,.25);padding:2px 8px;border-radius:10px;font-weight:500}'
-    +'.bd{display:flex;align-items:center;padding:16px 14px;gap:14px;min-height:120px}'
-    +'.info{flex:1;min-width:0}'
-    +'.info .nm{font-size:18px;font-weight:700;line-height:1.2;margin-bottom:8px;word-break:break-word}'
-    +'.info .lc{font-size:12px;color:#333;font-weight:500;margin-bottom:3px}'
-    +'.info .ds{font-size:10px;color:#777;margin-top:4px}'
-    +'.ft{background:#f5f5f5;border-top:1px solid #ddd;padding:6px 14px;display:flex;justify-content:space-between}'
-    +'.ft span{font-size:9px;color:#999;font-family:monospace}'
-    +'.btns{display:flex;gap:10px}'
-    +'.bp{padding:9px 22px;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;background:#111;color:#fff}'
-    +'.bc{padding:9px 22px;border:1px solid #ccc;border-radius:6px;cursor:pointer;font-size:13px;background:#fff}'
-    +'@media print{'
-    +'  body{background:#fff;padding:0;margin:0}'
-    +'  .btns,.hint,.size-bar{display:none!important}'
-    +'  #label{position:absolute;top:0;left:0;border:none!important;box-shadow:none!important;margin:0!important;padding:0!important}'
-    +'  #label *{visibility:visible}'
-    +'  body *{visibility:hidden}'
-    +'  #label{visibility:visible}'
-    +'  .hd{background:#000!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}'
-    +'  @page{size:var(--ph) var(--pw) landscape;margin:0}'
-    +'}'
-    +'</style></head><body>'
-    +'<div class="size-bar hint" style="display:flex;align-items:center;gap:10px;margin-bottom:10px;font-size:12px">'
-    +'<label>Ruban Brother P900W :</label>'
-    +'<select id="tape-size" onchange="updateSize()" style="padding:4px 8px;border-radius:6px;border:1px solid #ccc">'
-    +'<option value="8">8 mm</option>'
-    +'<option value="12">12 mm</option>'
-    +'<option value="24">24 mm</option>'
-    +'<option value="36" selected>36 mm</option>'
-    +'</select>'
-    +'<span id="size-info" style="color:#888">36mm × 54mm</span>'
-    +'</div>'
-    +'<p class="hint" style="font-size:11px;color:#888;margin-bottom:8px">Aperçu — sélectionnez la taille du ruban puis cliquez Imprimer</p>'
-    +'<div class="label" id="label">'
-    +'<div class="hd"><span class="own">'+owner+'</span><span class="cat">'+toolCat+'</span></div>'
-    +'<div class="bd">'
-    +'<canvas id="qrc" width="110" height="110"></canvas>'
-    +'<div class="info">'
-    +'<div class="nm">'+toolName+'</div>'
-    +'<div class="lc">&#128230; '+toolLoc+'</div>'
-    +(toolDesc?'<div class="ds">'+toolDesc+'</div>':'')
-    +'</div></div>'
-    +'<div class="ft"><span>ID: '+toolId+'</span><span>&#128247; Scanner pour acc&#232;s rapide</span></div>'
-    +'</div>'
-    +'<div class="btns">'
-    +'<button class="bp" onclick="updateSize();window.print()">&#128438; Imprimer (Brother)</button>'
-    +'<button class="bc" onclick="window.print()">&#128438; Imprimer (normal)</button>'
-    +'<button class="bc" onclick="window.close()">Fermer</button>'
-    +'</div>'
-    // QRCode inline via API publique (pas de librairie externe à charger)
-    +'<script>'
-    +'function updateSize(){'
-    +'  var s=parseInt(document.getElementById("tape-size").value);'
-    +'  var l=Math.round(s*2);'
-    +'  document.documentElement.style.setProperty("--pw",s+"mm");'
-    +'  document.documentElement.style.setProperty("--ph",l+"mm");'
-    +'  document.getElementById("size-info").textContent=l+"mm (long) × "+s+"mm (larg)";'
-    +'  var scale=s/36;'
-    +'  document.getElementById("label").style.height=(s*3.78)+"px";'
-    +'  document.getElementById("label").style.width=(l*3.78)+"px";'
-    +'}'
-    +'updateSize();'
-    +'var img=new Image();'
-    +'img.onload=function(){var c=document.getElementById("qrc");var ctx=c.getContext("2d");ctx.drawImage(img,0,0,110,110);};'
-    +'img.src="https://api.qrserver.com/v1/create-qr-code/?size=110x110&data="+encodeURIComponent("'+qrData+'");'
-    +'<\/script>'
-    +'</body></html>';
-
+  const toolLoc = tool.location||'';
+  const toolId = tool.id.slice(0,8);
+  const w = window.open('','_blank','width=620,height=480');
+  if(!w){ alert('Popup bloquée'); return; }
+  const PX = 3.7795;
+  const sizes = [8,12,24,36];
+  const opts = sizes.map(function(s){return '<option value="'+s+'"'+(s===36?' selected':'')+'>'+ s +' mm</option>';}).join('');
+  var html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>'+toolName+'</title>';
+  html += '<style>';
+  html += ':root{--pw:72mm;--ph:36mm}';
+  html += '*{box-sizing:border-box;margin:0;padding:0}';
+  html += 'body{font-family:Arial,sans-serif;background:#eee;display:flex;flex-direction:column;align-items:center;padding:16px;gap:10px}';
+  html += '.ctrl{display:flex;align-items:center;gap:8px;font-size:13px;background:#fff;padding:10px 14px;border-radius:8px;flex-wrap:wrap}';
+  html += 'select{padding:4px 8px;border-radius:4px;border:1px solid #ccc;font-size:13px}';
+  html += '.bp{padding:6px 14px;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;background:#111;color:#fff}';
+  html += '.bc{padding:6px 14px;border:1px solid #ccc;border-radius:6px;cursor:pointer;font-size:13px;background:#eee}';
+  html += '#wrap{background:#fff;display:flex;align-items:center;justify-content:center;border:1px solid #aaa;overflow:hidden}';
+  html += '#inner{display:flex;align-items:center;width:100%;height:100%;padding:2px 4px;gap:4px;overflow:hidden}';
+  html += '.lt{flex:1;overflow:hidden;display:flex;flex-direction:column;justify-content:center;gap:1px;min-width:0}';
+  html += '.ln{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}';
+  html += '.ll{color:#444;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}';
+  html += '.lc{color:#fff;background:#111;border-radius:3px;display:inline-block;padding:1px 3px}';
+  html += '.li{color:#999;font-family:monospace}';
+  html += '@media print{body *{visibility:hidden}#wrap,#wrap *{visibility:visible}#wrap{position:fixed;top:0;left:0;border:none!important}.ctrl{display:none!important}@page{size:var(--pw) var(--ph);margin:0}}';
+  html += '</style></head><body>';
+  html += '<div class="ctrl">';
+  html += '<label>Ruban :</label>';
+  html += '<select id="sz" onchange="ap()">'+opts+'</select>';
+  html += '<span id="di" style="color:#888;font-size:12px">72×36 mm</span>';
+  html += '<button class="bp" onclick="ap();window.print()">&#128438; Brother</button>';
+  html += '<button class="bc" onclick="window.print()">Impression normale</button>';
+  html += '<button class="bc" onclick="window.close()">Fermer</button>';
+  html += '</div>';
+  html += '<div id="wrap"><div id="inner">';
+  html += '<canvas id="qrc"></canvas>';
+  html += '<div class="lt">';
+  html += '<div class="ln" id="ln">'+toolName+'</div>';
+  html += '<div class="ll" id="ll">'+toolLoc+'</div>';
+  html += '<div style="display:flex;gap:3px;align-items:center">';
+  html += '<span class="lc" id="lc">'+toolCat+'</span>';
+  html += '<span class="li">'+toolId+'</span>';
+  html += '</div></div></div></div>';
+  html += '<script>';
+  html += 'var PX=3.7795;';
+  html += 'function ap(){';
+  html += '  var s=parseInt(document.getElementById("sz").value);';
+  html += '  var l=s*2;';
+  html += '  var wp=Math.round(l*PX),hp=Math.round(s*PX);';
+  html += '  document.documentElement.style.setProperty("--pw",l+"mm");';
+  html += '  document.documentElement.style.setProperty("--ph",s+"mm");';
+  html += '  document.getElementById("di").textContent=l+"\u00d7"+s+" mm";';
+  html += '  var wrap=document.getElementById("wrap");';
+  html += '  wrap.style.width=wp+"px";wrap.style.height=hp+"px";';
+  html += '  var qp=Math.round(hp*0.88);';
+  html += '  document.getElementById("ln").style.fontSize=Math.max(6,Math.round(hp*0.28))+"px";';
+  html += '  document.getElementById("ll").style.fontSize=Math.max(5,Math.round(hp*0.20))+"px";';
+  html += '  document.getElementById("lc").style.fontSize=Math.max(4,Math.round(hp*0.16))+"px";';
+  html += '  var c=document.getElementById("qrc");';
+  html += '  c.width=qp;c.height=qp;';
+  html += '  var img=new Image();';
+  html += '  img.onload=function(){c.getContext("2d").drawImage(img,0,0,qp,qp);};';
+  html += '  img.src="https://api.qrserver.com/v1/create-qr-code/?size="+qp+"x"+qp+"&data="+encodeURIComponent("'+qrData+'");';
+  html += '}';
+  html += 'ap();';
+  html += '<\/script></body></html>';
   w.document.open();
   w.document.write(html);
   w.document.close();
 }
+
+
 
 function printCsoLabel(c, siteUrl){
   const qrUrl=siteUrl+'?cso='+encodeURIComponent(c.id);
