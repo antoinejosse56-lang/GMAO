@@ -16,7 +16,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v105-20260407-100257">
+<meta name="version" content="v105-20260407-101312">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -2064,11 +2064,12 @@ function renderLocatif(){
   }
 
     if(tab==='emises'){
-    const allRp=S.rentPayments.filter(p=>p.annee===year&&p.paye);
+    const dubailTenantIds=isDubail?S.tenants.filter(t=>dubailFilter(t.logement||'')).map(t=>t.id):null;
+    const allRp=S.rentPayments.filter(p=>p.annee===year&&p.paye&&(!dubailTenantIds||dubailTenantIds.includes(p.tenant_id)));
     // Releves linked to tenants (water/charges invoices)
     const allRel=S.releves.filter(r=>{
       const cpt=S.compteurs.find(c=>c.id===r.compteur_id);
-      return cpt&&cpt.tenant_id&&(r.date||'').startsWith(String(year));
+      return cpt&&cpt.tenant_id&&(r.date||'').startsWith(String(year))&&(!dubailTenantIds||dubailTenantIds.includes(cpt.tenant_id));
     });
     function getBienE(t){if(!t||!t.logement)return 'Non class\u00e9';const sep=t.logement.includes(' \u2014 ')?' \u2014 ':' - ';return t.logement.split(sep)[0];}
     function getZoneE(t){if(!t||!t.logement)return '';const sep=t.logement.includes(' \u2014 ')?' \u2014 ':' - ';return t.logement.includes(sep)?t.logement.split(sep).slice(1).join(sep):'';}
@@ -2496,6 +2497,12 @@ function renderFinances(){
   function getAllCosts(){
     return getFilteredWOs().filter(w=>{
       if(!(w.cost>0&&w.date&&w.date.startsWith(String(year))))return false;
+      if(isDubail){
+        // Only show costs linked to dubail assets/topology
+        const asset=S.assets.find(a=>a.id===w.asset_id);
+        if(asset&&!dubailFilter(asset.location||asset.name||''))return false;
+        if(w.topo_ref&&!dubailFilter(JSON.stringify(w.topo_ref)))return false;
+      }
       return true;
     });
   }
