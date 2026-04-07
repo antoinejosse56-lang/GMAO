@@ -16,7 +16,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v105-20260407-103740">
+<meta name="version" content="v105-20260407-150825">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -3536,7 +3536,7 @@ function printLabel(tool, siteUrl){
   const toolDesc = tool.description||'';
   const toolId = tool.id.slice(0,12);
 
-  const w = window.open('','_blank','width=480,height=580');
+  const w = window.open('','_blank','width=520,height=680');
   if(!w){ alert('Popup bloquée — autorisez les popups pour ce site'); return; }
 
   const html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>'+toolName+'</title>'
@@ -3558,14 +3558,28 @@ function printLabel(tool, siteUrl){
     +'.bp{padding:9px 22px;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;background:#111;color:#fff}'
     +'.bc{padding:9px 22px;border:1px solid #ccc;border-radius:6px;cursor:pointer;font-size:13px;background:#fff}'
     +'@media print{'
-    +'  body{background:#fff;padding:0}'
-    +'  .btns,.hint{display:none!important}'
-    +'  .label{box-shadow:none;border-color:#000;width:300px;margin:0 auto}'
+    +'  body{background:#fff;padding:0;margin:0}'
+    +'  .btns,.hint,.size-bar{display:none!important}'
+    +'  #label{position:absolute;top:0;left:0;border:none!important;box-shadow:none!important;margin:0!important;padding:0!important}'
+    +'  #label *{visibility:visible}'
+    +'  body *{visibility:hidden}'
+    +'  #label{visibility:visible}'
     +'  .hd{background:#000!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}'
+    +'  @page{size:var(--pw) var(--ph);margin:0}'
     +'}'
     +'</style></head><body>'
-    +'<p class="hint" style="font-size:11px;color:#888">Aperçu — cliquez Imprimer</p>'
-    +'<div class="label">'
+    +'<div class="size-bar hint" style="display:flex;align-items:center;gap:10px;margin-bottom:10px;font-size:12px">'
+    +'<label>Ruban Brother P900W :</label>'
+    +'<select id="tape-size" onchange="updateSize()" style="padding:4px 8px;border-radius:6px;border:1px solid #ccc">'
+    +'<option value="8">8 mm</option>'
+    +'<option value="12">12 mm</option>'
+    +'<option value="24">24 mm</option>'
+    +'<option value="36" selected>36 mm</option>'
+    +'</select>'
+    +'<span id="size-info" style="color:#888">36mm × 54mm</span>'
+    +'</div>'
+    +'<p class="hint" style="font-size:11px;color:#888;margin-bottom:8px">Aperçu — sélectionnez la taille du ruban puis cliquez Imprimer</p>'
+    +'<div class="label" id="label">'
     +'<div class="hd"><span class="own">'+owner+'</span><span class="cat">'+toolCat+'</span></div>'
     +'<div class="bd">'
     +'<canvas id="qrc" width="110" height="110"></canvas>'
@@ -3577,11 +3591,22 @@ function printLabel(tool, siteUrl){
     +'<div class="ft"><span>ID: '+toolId+'</span><span>&#128247; Scanner pour acc&#232;s rapide</span></div>'
     +'</div>'
     +'<div class="btns">'
-    +'<button class="bp" onclick="window.print()">&#128438; Imprimer</button>'
+    +'<button class="bp" onclick="updateSize();window.print()">&#128438; Imprimer (Brother)</button>'
+    +'<button class="bc" onclick="window.print()">&#128438; Imprimer (normal)</button>'
     +'<button class="bc" onclick="window.close()">Fermer</button>'
     +'</div>'
     // QRCode inline via API publique (pas de librairie externe à charger)
     +'<script>'
+    +'function updateSize(){'
+    +'  var s=parseInt(document.getElementById("tape-size").value);'
+    +'  var h=Math.round(s*1.5);'
+    +'  document.documentElement.style.setProperty("--pw",s+"mm");'
+    +'  document.documentElement.style.setProperty("--ph",h+"mm");'
+    +'  document.getElementById("size-info").textContent=s+"mm × "+h+"mm";'
+    +'  var scale=s/36;'
+    +'  document.getElementById("label").style.width=(340*scale)+"px";'
+    +'}'
+    +'updateSize();'
     +'var img=new Image();'
     +'img.onload=function(){var c=document.getElementById("qrc");var ctx=c.getContext("2d");ctx.drawImage(img,0,0,110,110);};'
     +'img.src="https://api.qrserver.com/v1/create-qr-code/?size=110x110&data="+encodeURIComponent("'+qrData+'");'
