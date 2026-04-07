@@ -16,7 +16,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v105-20260407-155132">
+<meta name="version" content="v105-20260407-183309">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -3529,77 +3529,96 @@ function renderEtiquettes(){
 
 function printLabel(tool, siteUrl){
   const qrData = siteUrl+'?tool='+tool.id;
-  const toolName = tool.name||'' ;
+  const toolName = (tool.name||'').slice(0,40);
   const toolCat = tool.category||'Outil';
   const toolLoc = tool.location||'';
   const toolId = tool.id.slice(0,8);
-  const w = window.open('','_blank','width=620,height=480');
+  const w = window.open('','_blank','width=650,height=520');
   if(!w){ alert('Popup bloquée'); return; }
-  const PX = 3.7795;
-  const sizes = [8,12,24,36];
-  const opts = sizes.map(function(s){return '<option value="'+s+'"'+(s===36?' selected':'')+'>'+ s +' mm</option>';}).join('');
-  var html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>'+toolName+'</title>';
+
+  var html = '<!DOCTYPE html><html><head><meta charset="UTF-8">';
   html += '<style>';
-  html += ':root{--pw:72mm;--ph:36mm}';
   html += '*{box-sizing:border-box;margin:0;padding:0}';
-  html += 'body{font-family:Arial,sans-serif;background:#eee;display:flex;flex-direction:column;align-items:center;padding:16px;gap:10px}';
-  html += '.ctrl{display:flex;align-items:center;gap:8px;font-size:13px;background:#fff;padding:10px 14px;border-radius:8px;flex-wrap:wrap}';
-  html += 'select{padding:4px 8px;border-radius:4px;border:1px solid #ccc;font-size:13px}';
-  html += '.bp{padding:6px 14px;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;background:#111;color:#fff}';
-  html += '.bc{padding:6px 14px;border:1px solid #ccc;border-radius:6px;cursor:pointer;font-size:13px;background:#eee}';
-  html += '#wrap{background:#fff;display:flex;align-items:center;justify-content:center;border:1px solid #aaa;overflow:hidden}';
-  html += '#inner{display:flex;align-items:center;width:100%;height:100%;padding:2px 4px;gap:4px;overflow:hidden}';
-  html += '.lt{flex:1;overflow:hidden;display:flex;flex-direction:column;justify-content:center;gap:1px;min-width:0}';
-  html += '.ln{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}';
-  html += '.ll{color:#444;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}';
-  html += '.lc{color:#fff;background:#111;border-radius:3px;display:inline-block;padding:1px 3px}';
-  html += '.li{color:#999;font-family:monospace}';
-  html += '@media print{body *{visibility:hidden}#wrap,#wrap *{visibility:visible}#wrap{position:fixed;top:0;left:0;border:none!important}.ctrl{display:none!important}@page{size:var(--pw) var(--ph);margin:0}}';
+  html += 'body{font-family:Arial,sans-serif;background:#ddd;display:flex;flex-direction:column;align-items:center;padding:20px;gap:14px}';
+  html += '.ctrl{background:#fff;padding:12px 16px;border-radius:8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:13px;width:100%;max-width:600px}';
+  html += 'select{padding:5px 8px;border-radius:4px;border:1px solid #ccc;font-size:13px}';
+  html += 'button{padding:6px 14px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;border:1px solid #ccc}';
+  html += '.bp{background:#111;color:#fff;border-color:#111}';
+  html += '#stage{background:#fff;border:2px solid #111;overflow:hidden;display:flex;align-items:stretch}';
+  html += '#qr-zone{background:#f5f5f5;display:flex;align-items:center;justify-content:center;flex-shrink:0}';
+  html += '#txt-zone{flex:1;display:flex;flex-direction:column;justify-content:center;padding:4px 6px;overflow:hidden;gap:2px}';
+  html += '#lname{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}';
+  html += '#lloc{color:#444;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}';
+  html += '#lbottom{display:flex;align-items:center;gap:4px}';
+  html += '#lcat{background:#111;color:#fff;border-radius:3px;white-space:nowrap}';
+  html += '#lid{color:#999;font-family:monospace;white-space:nowrap}';
+  html += '#dims{color:#888;font-size:11px}';
+  html += '@media print{';
+  html += '  body{background:#fff!important;padding:0!important;gap:0!important;margin:0!important}';
+  html += '  .ctrl,#dims-line{display:none!important}';
+  html += '  #stage{border:none!important;position:fixed;top:0;left:0;margin:0!important}';
+  html += '  @page{margin:0;size:var(--pw) var(--ph)}';
+  html += '}';
   html += '</style></head><body>';
   html += '<div class="ctrl">';
-  html += '<label>Ruban :</label>';
-  html += '<select id="sz" onchange="ap()">'+opts+'</select>';
-  html += '<span id="di" style="color:#888;font-size:12px">72×36 mm</span>';
-  html += '<button class="bp" onclick="ap();window.print()">&#128438; Brother</button>';
-  html += '<button class="bc" onclick="window.print()">Impression normale</button>';
-  html += '<button class="bc" onclick="window.close()">Fermer</button>';
+  html += '<label><b>Ruban :</b></label>';
+  html += '<select id="sz" onchange="ap()">';
+  html += '<option value="12">12 mm</option>';
+  html += '<option value="18">18 mm</option>';
+  html += '<option value="24">24 mm</option>';
+  html += '<option value="36" selected>36 mm</option>';
+  html += '</select>';
+  html += '<span id="dims">72 × 36 mm</span>';
+  html += '<button class="bp" onclick="ap();window.print()">&#128438; Imprimer Brother</button>';
+  html += '<button onclick="window.close()">Fermer</button>';
   html += '</div>';
-  html += '<div id="wrap"><div id="inner">';
-  html += '<canvas id="qrc"></canvas>';
-  html += '<div class="lt">';
-  html += '<div class="ln" id="ln">'+toolName+'</div>';
-  html += '<div class="ll" id="ll">'+toolLoc+'</div>';
-  html += '<div style="display:flex;gap:3px;align-items:center">';
-  html += '<span class="lc" id="lc">'+toolCat+'</span>';
-  html += '<span class="li">'+toolId+'</span>';
-  html += '</div></div></div></div>';
+  html += '<div id="stage">';
+  html += '  <div id="qr-zone"><canvas id="qrc"></canvas></div>';
+  html += '  <div id="txt-zone">';
+  html += '    <div id="lname">'+toolName+'</div>';
+  html += '    <div id="lloc">'+toolLoc+'</div>';
+  html += '    <div id="lbottom"><span id="lcat">'+toolCat+'</span><span id="lid">'+toolId+'</span></div>';
+  html += '  </div>';
+  html += '</div>';
   html += '<script>';
   html += 'var PX=3.7795;';
+  html += 'var qd="'+qrData+'";';
   html += 'function ap(){';
-  html += '  var s=parseInt(document.getElementById("sz").value);';
-  html += '  var l=s*2;';
-  html += '  var wp=Math.round(l*PX),hp=Math.round(s*PX);';
-  html += '  document.documentElement.style.setProperty("--pw",l+"mm");';
-  html += '  document.documentElement.style.setProperty("--ph",s+"mm");';
-  html += '  document.getElementById("di").textContent=l+"\u00d7"+s+" mm";';
-  html += '  var wrap=document.getElementById("wrap");';
-  html += '  wrap.style.width=wp+"px";wrap.style.height=hp+"px";';
-  html += '  var qp=Math.round(hp*0.88);';
-  html += '  document.getElementById("ln").style.fontSize=Math.max(6,Math.round(hp*0.28))+"px";';
-  html += '  document.getElementById("ll").style.fontSize=Math.max(5,Math.round(hp*0.20))+"px";';
-  html += '  document.getElementById("lc").style.fontSize=Math.max(4,Math.round(hp*0.16))+"px";';
+  html += '  var h=parseInt(document.getElementById("sz").value);';
+  html += '  var w=h*2;';
+  html += '  var wp=Math.round(w*PX), hp=Math.round(h*PX);';
+  html += '  document.documentElement.style.setProperty("--pw",w+"mm");';
+  html += '  document.documentElement.style.setProperty("--ph",h+"mm");';
+  html += '  document.getElementById("dims").textContent=w+"×"+h+" mm";';
+  html += '  var st=document.getElementById("stage");';
+  html += '  st.style.width=wp+"px"; st.style.height=hp+"px";';
+  html += '  var qp=Math.round(hp*0.92);';
+  html += '  var qz=document.getElementById("qr-zone");';
+  html += '  qz.style.width=qp+"px"; qz.style.minWidth=qp+"px";';
+  html += '  var fn=Math.max(6,Math.round(hp*0.26))+"px";';
+  html += '  var fs=Math.max(5,Math.round(hp*0.18))+"px";';
+  html += '  var fc=Math.max(4,Math.round(hp*0.14))+"px";';
+  html += '  document.getElementById("lname").style.fontSize=fn;';
+  html += '  document.getElementById("lloc").style.fontSize=fs;';
+  html += '  document.getElementById("lcat").style.fontSize=fc;';
+  html += '  document.getElementById("lcat").style.padding="1px "+Math.max(2,Math.round(hp*0.04))+"px";';
+  html += '  document.getElementById("lid").style.fontSize=fc;';
+  html += '  document.getElementById("txt-zone").style.padding="2px "+Math.max(3,Math.round(hp*0.05))+"px";';
+  html += '  document.getElementById("txt-zone").style.gap=Math.max(1,Math.round(hp*0.02))+"px";';
   html += '  var c=document.getElementById("qrc");';
-  html += '  c.width=qp;c.height=qp;';
+  html += '  c.width=qp; c.height=qp;';
   html += '  var img=new Image();';
   html += '  img.onload=function(){c.getContext("2d").drawImage(img,0,0,qp,qp);};';
-  html += '  img.src="https://api.qrserver.com/v1/create-qr-code/?size="+qp+"x"+qp+"&data="+encodeURIComponent("'+qrData+'");';
+  html += '  img.src="https://api.qrserver.com/v1/create-qr-code/?size="+qp+"x"+qp+"&data="+encodeURIComponent(qd);';
   html += '}';
   html += 'ap();';
   html += '<\/script></body></html>';
+
   w.document.open();
   w.document.write(html);
   w.document.close();
 }
+
 
 
 
