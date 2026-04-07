@@ -16,7 +16,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v105-20260407-101723">
+<meta name="version" content="v105-20260407-102522">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -2497,12 +2497,7 @@ function renderFinances(){
   function getAllCosts(){
     return getFilteredWOs().filter(w=>{
       if(!(w.cost>0&&w.date&&w.date.startsWith(String(year))))return false;
-      if(isDubail){
-        // Only show costs linked to dubail assets/topology
-        const asset=S.assets.find(a=>a.id===w.asset_id);
-        if(asset&&!dubailFilter(asset.location||asset.name||''))return false;
-        if(w.topo_ref&&!dubailFilter(JSON.stringify(w.topo_ref)))return false;
-      }
+      // getFilteredWOs already handles dubail asset filtering
       return true;
     });
   }
