@@ -16,7 +16,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v105-20260404-144814">
+<meta name="version" content="v105-20260407-100257">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -1786,6 +1786,7 @@ function renderLocatif(){
   if(tab==='tenants'){
     const colors=['#185FA5','#1D9E75','#9B59B6','#E67E22','#E74C3C'];
     // Group tenants by property from topology
+    const isDubail=isDubailProfile();
     const visProps=isDubail?S.topology.properties.filter(p=>dubailFilter(p.name)):S.topology.properties;
     const propBlocks=visProps.map(function(prop,pi){
       const propTenants=tenants.filter(function(t){
