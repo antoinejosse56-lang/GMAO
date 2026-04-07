@@ -16,7 +16,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v105-20260407-183309">
+<meta name="version" content="v105-20260407-183808">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -3802,34 +3802,88 @@ function buildEcolePdf(type){
 
 function printLocationLabel(loc, tools, siteUrl){
   const qrUrl=siteUrl+'?emplacement='+encodeURIComponent(loc);
-  const rng=(S.rangements||[]).find(r=>r.nom===loc);
+  const rng=(S.rangements||[]).find(function(r){return r.nom===loc;});
   const desc=rng?.description||'';
-  const qrSrc='https://api.qrserver.com/v1/create-qr-code/?size=200x200&data='+encodeURIComponent(qrUrl)+'&format=png';
-  const parts=[
-    '<!DOCTYPE html><html><head><meta charset="UTF-8">',
-    '<style>',
-    'body{font-family:Arial,sans-serif;margin:0;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh}',
-    '.label{border:2px solid #222;border-radius:8px;padding:20px;text-align:center;width:240px}',
-    '.name{font-size:16px;font-weight:700;margin:10px 0 4px}',
-    '.desc{font-size:11px;color:#666}',
-    '.printbtn{position:fixed;top:12px;right:12px;background:#1D9E75;color:#fff;border:none;padding:8px 18px;border-radius:6px;cursor:pointer;font-weight:700;font-size:13px}',
-    '@media print{.printbtn{display:none}}',
-    '</style></head><body>',
-    '<button class="printbtn" onclick="window.print()">&#128424; Imprimer</button>',
-    '<div class="label">',
-    '<img src="'+qrSrc+'" width="200" height="200" alt="QR">',
-    '<div class="name">'+loc+'</div>',
-    desc?'<div class="desc">'+desc+'</div>':'',
-    '</div>',
-    '</body></html>'
-  ];
-  const html=parts.join('');
-  const blob=new Blob([html],{type:'text/html'});
-  const url=URL.createObjectURL(blob);
-  const a=document.createElement('a');a.href=url;a.target='_blank';
-  document.body.appendChild(a);a.click();document.body.removeChild(a);
-  setTimeout(()=>URL.revokeObjectURL(url),60000);
+  const toolCount=tools?tools.length:0;
+  const w=window.open('','_blank','width=650,height=520');
+  if(!w){alert('Popup bloquée');return;}
+
+  var html='<!DOCTYPE html><html><head><meta charset="UTF-8">';
+  html+='<style>';
+  html+='*{box-sizing:border-box;margin:0;padding:0}';
+  html+='body{font-family:Arial,sans-serif;background:#ddd;display:flex;flex-direction:column;align-items:center;padding:20px;gap:14px}';
+  html+='.ctrl{background:#fff;padding:12px 16px;border-radius:8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:13px;width:100%;max-width:600px}';
+  html+='select{padding:5px 8px;border-radius:4px;border:1px solid #ccc;font-size:13px}';
+  html+='button{padding:6px 14px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;border:1px solid #ccc}';
+  html+='.bp{background:#111;color:#fff;border-color:#111}';
+  html+='#stage{background:#fff;border:2px solid #111;overflow:hidden;display:flex;align-items:stretch}';
+  html+='#qr-zone{background:#f5f5f5;display:flex;align-items:center;justify-content:center;flex-shrink:0}';
+  html+='#txt-zone{flex:1;display:flex;flex-direction:column;justify-content:center;overflow:hidden;gap:2px}';
+  html+='#lname{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}';
+  html+='#ldesc{color:#555;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}';
+  html+='#lcount{color:#999;white-space:nowrap}';
+  html+='@media print{';
+  html+='  body{background:#fff!important;padding:0!important;gap:0!important;margin:0!important}';
+  html+='  .ctrl{display:none!important}';
+  html+='  #stage{border:none!important;position:fixed;top:0;left:0;margin:0!important}';
+  html+='  @page{margin:0;size:var(--pw) var(--ph)}';
+  html+='}';
+  html+='</style></head><body>';
+  html+='<div class="ctrl">';
+  html+='<label><b>Ruban :</b></label>';
+  html+='<select id="sz" onchange="ap()">';
+  html+='<option value="12">12 mm</option>';
+  html+='<option value="18">18 mm</option>';
+  html+='<option value="24">24 mm</option>';
+  html+='<option value="36" selected>36 mm</option>';
+  html+='</select>';
+  html+='<span id="dims">72×36 mm</span>';
+  html+='<button class="bp" onclick="ap();window.print()">&#128438; Imprimer Brother</button>';
+  html+='<button onclick="window.close()">Fermer</button>';
+  html+='</div>';
+  html+='<div id="stage">';
+  html+='  <div id="qr-zone"><canvas id="qrc"></canvas></div>';
+  html+='  <div id="txt-zone">';
+  html+='    <div id="lname">'+loc+'</div>';
+  html+=(desc?'    <div id="ldesc">'+desc+'</div>':'')+'';
+  html+='    <div id="lcount">'+toolCount+' outil'+(toolCount>1?'s':'')+'</div>';
+  html+='  </div>';
+  html+='</div>';
+  html+='<script>';
+  html+='var PX=3.7795;';
+  html+='var qd="'+qrUrl+'";';
+  html+='function ap(){';
+  html+='  var h=parseInt(document.getElementById("sz").value);';
+  html+='  var ww=h*2;';
+  html+='  var wp=Math.round(ww*PX),hp=Math.round(h*PX);';
+  html+='  document.documentElement.style.setProperty("--pw",ww+"mm");';
+  html+='  document.documentElement.style.setProperty("--ph",h+"mm");';
+  html+='  document.getElementById("dims").textContent=ww+"×"+h+" mm";';
+  html+='  var st=document.getElementById("stage");';
+  html+='  st.style.width=wp+"px";st.style.height=hp+"px";';
+  html+='  var qp=Math.round(hp*0.92);';
+  html+='  var qz=document.getElementById("qr-zone");';
+  html+='  qz.style.width=qp+"px";qz.style.minWidth=qp+"px";';
+  html+='  document.getElementById("lname").style.fontSize=Math.max(6,Math.round(hp*0.26))+"px";';
+  html+='  document.getElementById("lcount").style.fontSize=Math.max(5,Math.round(hp*0.18))+"px";';
+  html+='  var ld=document.getElementById("ldesc");';
+  html+='  if(ld)ld.style.fontSize=Math.max(5,Math.round(hp*0.18))+"px";';
+  html+='  document.getElementById("txt-zone").style.padding="2px "+Math.max(3,Math.round(hp*0.05))+"px";';
+  html+='  document.getElementById("txt-zone").style.gap=Math.max(1,Math.round(hp*0.03))+"px";';
+  html+='  var c=document.getElementById("qrc");';
+  html+='  c.width=qp;c.height=qp;';
+  html+='  var img=new Image();';
+  html+='  img.onload=function(){c.getContext("2d").drawImage(img,0,0,qp,qp);};';
+  html+='  img.src="https://api.qrserver.com/v1/create-qr-code/?size="+qp+"x"+qp+"&data="+encodeURIComponent(qd);';
+  html+='}';
+  html+='ap();';
+  html+='<\/script></body></html>';
+
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
 }
+
 
 
 function renderRangements(){
