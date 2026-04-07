@@ -16,7 +16,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v105-20260407-102522">
+<meta name="version" content="v105-20260407-103740">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -2577,7 +2577,7 @@ function renderFinances(){
   if(fTab==='depenses'){
     const selLocDep=S.finLoc||'';
     const showPaidOnly=S.finPaidOnly!==false;
-    const allWos=S.workOrders.filter(w=>{
+    const allWos=getFilteredWOs().filter(w=>{
       if(showPaidOnly&&!w.paid)return false;
       if(!w.cost>0)return false;
       if(year&&w.date&&!w.date.startsWith(String(year)))return false;
