@@ -16,7 +16,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v105-20260408-045950">
+<meta name="version" content="v105-20260408-050955">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -6582,57 +6582,49 @@ function genFactureResaPDF(resa){
 
 
 function exportRangementsExcel(){
-  // Group rangements by location (topology property)
-  const rng = S.rangements||[];
-  const tools = S.tools||[];
-  const conso = S.consommables||[];
-  if(!rng.length){alert("Aucun rangement à exporter");return;}
-
-  // Group by location (bien)
+  // Load XLSX dynamically if not present
+  if(typeof XLSX==='undefined'){
+    const s=document.createElement('script');
+    s.src='https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js';
+    s.onload=function(){doExportRng();};
+    document.head.appendChild(s);
+  } else {
+    doExportRng();
+  }
+}
+function doExportRng(){
+  const rng=S.rangements||[];
+  const tools=S.tools||[];
+  const conso=S.consommables||[];
+  if(!rng.length){alert('Aucun rangement à exporter');return;}
   const byLoc={};
   rng.forEach(function(r){
     const loc=r.location||r.localisation||r.bien||'Non classé';
     if(!byLoc[loc])byLoc[loc]=[];
     byLoc[loc].push(r);
   });
-
-  var wb = XLSX.utils.book_new();
-
+  const wb=XLSX.utils.book_new();
   Object.keys(byLoc).sort().forEach(function(loc){
-    var wsData=[];
-    var sheetName=loc.slice(0,31).replace(/[\\\/*?:\[\]]/g,'-');
-    var rowIdx=0;
-
+    const wsData=[];
+    const sheetName=loc.slice(0,31).replace(/[\\\/*?:\[\]]/g,'-');
     byLoc[loc].forEach(function(r,ri){
-      // Section header for each rangement
-      if(ri>0)wsData.push([]);  // empty row between rangements
-      wsData.push(['\uD83D\uDCE6 '+( r.nom||'Rangement')+(r.description?' — '+r.description:'')]);
+      if(ri>0)wsData.push([]);
+      wsData.push(['📦 '+(r.nom||'Rangement')+(r.description?' — '+r.description:'')]);
       wsData.push(['Nom','Type','Catégorie','Quantité','État','Description']);
-
-      // Tools in this rangement
-      var rngTools=tools.filter(function(t){return t.location===r.nom;});
-      var rngConso=conso.filter(function(c){return c.location===r.nom;});
-
-      if(!rngTools.length&&!rngConso.length){
-        wsData.push(['(vide)','','','','','']);
-      }
-      rngTools.forEach(function(t){
-        wsData.push([t.name||'','Outil',t.category||'',1,t.status||'',t.description||'']);
-      });
-      rngConso.forEach(function(c){
-        wsData.push([c.name||'','Consommable',c.category||'',c.quantite||c.qty||1,'',c.description||'']);
-      });
+      const rngTools=tools.filter(function(t){return t.location===r.nom;});
+      const rngConso=conso.filter(function(c){return c.location===r.nom;});
+      if(!rngTools.length&&!rngConso.length)wsData.push(['(vide)','','','','','']);
+      rngTools.forEach(function(t){wsData.push([t.name||'','Outil',t.category||'',1,t.status||'',t.description||'']);});
+      rngConso.forEach(function(c){wsData.push([c.name||'','Consommable',c.category||'',c.quantite||c.qty||1,'',c.description||'']);});
     });
-
-    var ws=XLSX.utils.aoa_to_sheet(wsData);
-    // Style: column widths
+    const ws=XLSX.utils.aoa_to_sheet(wsData);
     ws['!cols']=[{wch:35},{wch:14},{wch:18},{wch:10},{wch:12},{wch:30}];
     XLSX.utils.book_append_sheet(wb,ws,sheetName);
   });
-
-  var today=new Date().toISOString().split('T')[0];
+  const today=new Date().toISOString().split('T')[0];
   XLSX.writeFile(wb,'Inventaire_Rangements_'+today+'.xlsx');
 }
+
 function bindAll(){
   const q = id => document.getElementById(id);
   const btnSync=document.getElementById('btn-sync-lodgify');
