@@ -16,7 +16,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v105-20260408-101853">
+<meta name="version" content="v105-20260408-102614">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -3616,15 +3616,8 @@ function openLabelPrinter(opts){
   html+='ap();';
   html+='function doPrint(){';
   html+='  var btn=document.getElementById("pbtn");';
-  html+='  btn.textContent="⏳ Chargement...";btn.disabled=true;';
-  html+='  var img=document.getElementById("qrc").toDataURL();';
-  html+='  if(img&&img.length>1000){window.print();btn.textContent="\u2399 Imprimer";btn.disabled=false;return;}';
-  html+='  var attempts=0;';
-  html+='  var t=setInterval(function(){';
-  html+='    attempts++;';
-  html+='    var d=document.getElementById("qrc").toDataURL();';
-  html+='    if(d&&d.length>1000||attempts>20){clearInterval(t);window.print();btn.textContent="\u2399 Imprimer";btn.disabled=false;}';
-  html+='  },150);';
+  html+='  btn.textContent="⏳ Chargement...";';
+  html+='  setTimeout(function(){window.print();btn.textContent="\u2399 Imprimer";},800);';
   html+='}';
   html+='<\/script></body></html>';
   w.document.open();w.document.write(html);w.document.close();
