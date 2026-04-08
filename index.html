@@ -16,7 +16,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v105-20260408-044148">
+<meta name="version" content="v105-20260408-045950">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -3441,6 +3441,7 @@ function renderEtiquettes(){
     const cats = ['all',...new Set(S.tools.map(t=>t.category).filter(Boolean))];
     const filtered = selCat==='all'?S.tools:S.tools.filter(t=>t.category===selCat);
     return `${tabBar}
+    <div style="display:flex;justify-content:flex-end;margin-bottom:8px"><button class="btn btn-p btn-sm" id="btn-export-rng">&#128229; Exporter Excel</button></div>
     <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center">
       ${cats.map(c=>`<span class="pill ${selCat===c?'active':''}" data-efilter="${c}">${c==='all'?'Tous':c}</span>`).join('')}
     </div>
@@ -3491,6 +3492,7 @@ function renderEtiquettes(){
     const invState = S.inventState||{};
     const checked = locTools.filter(t=>invState[t.id]).length;
     return `${tabBar}
+    <div style="display:flex;justify-content:flex-end;margin-bottom:8px"><button class="btn btn-p btn-sm" id="btn-export-rng">&#128229; Exporter Excel</button></div>
     <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center">
       <select id="inv-loc-sel" style="padding:6px 10px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:13px">
         ${locations.map(l=>`<option value="${l}" ${l===selLoc?'selected':''}>${l}</option>`).join('')}
@@ -3528,42 +3530,51 @@ function renderEtiquettes(){
 }
 
 function openLabelPrinter(opts){
-  // opts = {qrData, line1, line2, line3}
   var qd=opts.qrData||'';
   var l1=opts.line1||'';
   var l2=opts.line2||'';
   var l3=opts.line3||'';
-  var w=window.open('','_blank','width=680,height=560');
+  var isMobile=/Mobi|Android/i.test(navigator.userAgent);
+  var w=window.open('','_blank',isMobile?'':' width=680,height=560');
   if(!w){alert('Popup bloquée');return;}
   var html='<!DOCTYPE html><html><head><meta charset="UTF-8">';
+  html+='<meta name="viewport" content="width=device-width,initial-scale=1">';
   html+='<style>*{box-sizing:border-box;margin:0;padding:0}';
-  html+='body{font-family:Arial,sans-serif;background:#ddd;display:flex;flex-direction:column;align-items:center;padding:16px;gap:12px}';
-  html+='.ctrl{background:#fff;padding:10px 14px;border-radius:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px;width:100%}';
-  html+='select{padding:4px 8px;border-radius:4px;border:1px solid #ccc;font-size:13px;cursor:pointer}';
-  html+='button{padding:5px 12px;border-radius:4px;border:1px solid #ccc;font-size:13px;cursor:pointer}';
+  html+='body{font-family:Arial,sans-serif;background:#ddd;display:flex;flex-direction:column;align-items:center;padding:16px;gap:12px;min-height:100vh}';
+  html+='.ctrl{background:#fff;padding:12px 16px;border-radius:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:15px;width:100%;max-width:650px}';
+  html+='label{font-weight:600;font-size:14px}';
+  html+='select{padding:8px 10px;border-radius:8px;border:1.5px solid #ccc;font-size:15px;cursor:pointer;-webkit-appearance:auto}';
+  html+='button{padding:10px 18px;border-radius:8px;border:1.5px solid #ccc;font-size:15px;cursor:pointer;min-height:44px}';
   html+='.bp{background:#111;color:#fff;border-color:#111;font-weight:600}';
   html+='#stage{background:#fff;border:2px solid #111;overflow:hidden;display:flex;align-items:stretch}';
   html+='#qz{background:#f5f5f5;display:flex;align-items:center;justify-content:center;flex-shrink:0}';
   html+='#tz{flex:1;display:flex;flex-direction:column;justify-content:center;overflow:hidden}';
   html+='#t1{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}';
   html+='#t2,#t3{color:#555;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}';
-  html+='@media print{body{background:#fff!important;padding:0!important;gap:0!important}.ctrl,.info{display:none!important}#stage{border:none!important;position:fixed;top:0;left:0;margin:0}@page{margin:0;size:var(--pw) var(--ph)}}';
+  html+='.mobile-hint{background:#FFF9E6;border:1px solid #F39C12;border-radius:10px;padding:12px 14px;font-size:13px;color:#7D6608;width:100%;max-width:650px;line-height:1.5}';
+  html+='@media print{body{background:#fff!important;padding:0!important;gap:0!important}.ctrl,.mobile-hint{display:none!important}#stage{border:none!important;position:fixed;top:0;left:0;margin:0}@page{margin:0;size:var(--pw) var(--ph)}}';
   html+='</style></head><body>';
   html+='<div class="ctrl">';
-  html+='<b>Type :</b><select id="tp" onchange="ap()">';
+  html+='<label>Type :</label><select id="tp" onchange="ap()">';
   html+='<option value="A">A — Emplacement (4×)</option>';
   html+='<option value="B">B — Avec texte (2×)</option>';
   html+='<option value="C">C — QR seul (carré)</option>';
   html+='</select>';
-  html+='<b>Ruban :</b><select id="sz" onchange="ap()">';
+  html+='<label>Ruban :</label><select id="sz" onchange="ap()">';
   html+='<option value="12">12 mm</option>';
   html+='<option value="18">18 mm</option>';
   html+='<option value="24">24 mm</option>';
   html+='<option value="36" selected>36 mm</option>';
   html+='</select>';
-  html+='<span class="info" id="di" style="color:#888;font-size:11px">36×36 mm</span>';
-  html+='<button class="bp" onclick="ap();window.print()">&#128438; Brother</button>';
+  html+='<span id="di" style="color:#888;font-size:12px">36×36 mm</span>';
+  html+='<button class="bp" onclick="ap();window.print()">&#128438; Imprimer</button>';
   html+='<button onclick="window.close()">Fermer</button>';
+  html+='</div>';
+  html+='<div class="mobile-hint">';
+  html+='<b>&#128241; Sur mobile (Brother P900W) :</b><br>';
+  html+='1. Installe <b>Brother Print Service Plugin</b> (Play Store)<br>';
+  html+='2. Active-le : Paramètres → Connexions → Impression<br>';
+  html+='3. Appuie sur Imprimer ci-dessus → sélectionne la P900W';
   html+='</div>';
   html+='<div id="stage">';
   html+='  <div id="qz"><canvas id="qrc"></canvas></div>';
@@ -3586,7 +3597,6 @@ function openLabelPrinter(opts){
   html+='st.style.width=wp+"px";st.style.height=hp+"px";';
   html+='var qp=Math.round(hp*0.92);';
   html+='var qz=document.getElementById("qz");';
-  html+='qz.style.width=qp+"px";qz.style.minWidth=qp+"px";';
   html+='var tz=document.getElementById("tz");';
   html+='if(tp==="C"){tz.style.display="none";qz.style.width=wp+"px";qz.style.minWidth=wp+"px";}';
   html+='else{tz.style.display="flex";qz.style.width=qp+"px";qz.style.minWidth=qp+"px";}';
@@ -3606,6 +3616,7 @@ function openLabelPrinter(opts){
   html+='ap();<\/script></body></html>';
   w.document.open();w.document.write(html);w.document.close();
 }
+
 
 function printLabel(tool, siteUrl){
   openLabelPrinter({qrData:siteUrl+'?tool='+tool.id,line1:tool.name||'',line2:tool.location||''});
@@ -6569,6 +6580,59 @@ function genFactureResaPDF(resa){
   setTimeout(()=>w.print(),500);
 }
 
+
+function exportRangementsExcel(){
+  // Group rangements by location (topology property)
+  const rng = S.rangements||[];
+  const tools = S.tools||[];
+  const conso = S.consommables||[];
+  if(!rng.length){alert("Aucun rangement à exporter");return;}
+
+  // Group by location (bien)
+  const byLoc={};
+  rng.forEach(function(r){
+    const loc=r.location||r.localisation||r.bien||'Non classé';
+    if(!byLoc[loc])byLoc[loc]=[];
+    byLoc[loc].push(r);
+  });
+
+  var wb = XLSX.utils.book_new();
+
+  Object.keys(byLoc).sort().forEach(function(loc){
+    var wsData=[];
+    var sheetName=loc.slice(0,31).replace(/[\\\/*?:\[\]]/g,'-');
+    var rowIdx=0;
+
+    byLoc[loc].forEach(function(r,ri){
+      // Section header for each rangement
+      if(ri>0)wsData.push([]);  // empty row between rangements
+      wsData.push(['\uD83D\uDCE6 '+( r.nom||'Rangement')+(r.description?' — '+r.description:'')]);
+      wsData.push(['Nom','Type','Catégorie','Quantité','État','Description']);
+
+      // Tools in this rangement
+      var rngTools=tools.filter(function(t){return t.location===r.nom;});
+      var rngConso=conso.filter(function(c){return c.location===r.nom;});
+
+      if(!rngTools.length&&!rngConso.length){
+        wsData.push(['(vide)','','','','','']);
+      }
+      rngTools.forEach(function(t){
+        wsData.push([t.name||'','Outil',t.category||'',1,t.status||'',t.description||'']);
+      });
+      rngConso.forEach(function(c){
+        wsData.push([c.name||'','Consommable',c.category||'',c.quantite||c.qty||1,'',c.description||'']);
+      });
+    });
+
+    var ws=XLSX.utils.aoa_to_sheet(wsData);
+    // Style: column widths
+    ws['!cols']=[{wch:35},{wch:14},{wch:18},{wch:10},{wch:12},{wch:30}];
+    XLSX.utils.book_append_sheet(wb,ws,sheetName);
+  });
+
+  var today=new Date().toISOString().split('T')[0];
+  XLSX.writeFile(wb,'Inventaire_Rangements_'+today+'.xlsx');
+}
 function bindAll(){
   const q = id => document.getElementById(id);
   const btnSync=document.getElementById('btn-sync-lodgify');
@@ -6655,6 +6719,8 @@ function bindAll(){
     document.querySelector('.sidebar')?.classList.remove('open');
     document.querySelector('.sidebar-overlay')?.classList.remove('open');
   }));
+  const btnExportRng=document.getElementById('btn-export-rng');
+  if(btnExportRng)btnExportRng.onclick=exportRangementsExcel;
   document.querySelectorAll('[data-nav]').forEach(el=>el.onclick=()=>{S.view=el.dataset.nav;S.selectedAsset=null;S.filter={cat:'all',search:''};if(el.dataset.nav!=='topology'){S.topoState.zoneId=null;S.topoState.subZoneId=null;S.topoState.tradeId=null;}if(el.dataset.nav!=='assets'){S.assetNav={propId:null,zoneId:null,subId:null};}render();});
   if(q('btn-logout'))q('btn-logout').onclick=()=>{S.currentUser=null;render();};
   if(q('btn-back'))q('btn-back').onclick=()=>{S.view='assets';S.selectedAsset=null;render();};
