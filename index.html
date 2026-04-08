@@ -16,7 +16,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v105-20260407-183808">
+<meta name="version" content="v105-20260408-044148">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -3527,131 +3527,100 @@ function renderEtiquettes(){
   return '';
 }
 
+function openLabelPrinter(opts){
+  // opts = {qrData, line1, line2, line3}
+  var qd=opts.qrData||'';
+  var l1=opts.line1||'';
+  var l2=opts.line2||'';
+  var l3=opts.line3||'';
+  var w=window.open('','_blank','width=680,height=560');
+  if(!w){alert('Popup bloquée');return;}
+  var html='<!DOCTYPE html><html><head><meta charset="UTF-8">';
+  html+='<style>*{box-sizing:border-box;margin:0;padding:0}';
+  html+='body{font-family:Arial,sans-serif;background:#ddd;display:flex;flex-direction:column;align-items:center;padding:16px;gap:12px}';
+  html+='.ctrl{background:#fff;padding:10px 14px;border-radius:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px;width:100%}';
+  html+='select{padding:4px 8px;border-radius:4px;border:1px solid #ccc;font-size:13px;cursor:pointer}';
+  html+='button{padding:5px 12px;border-radius:4px;border:1px solid #ccc;font-size:13px;cursor:pointer}';
+  html+='.bp{background:#111;color:#fff;border-color:#111;font-weight:600}';
+  html+='#stage{background:#fff;border:2px solid #111;overflow:hidden;display:flex;align-items:stretch}';
+  html+='#qz{background:#f5f5f5;display:flex;align-items:center;justify-content:center;flex-shrink:0}';
+  html+='#tz{flex:1;display:flex;flex-direction:column;justify-content:center;overflow:hidden}';
+  html+='#t1{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}';
+  html+='#t2,#t3{color:#555;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}';
+  html+='@media print{body{background:#fff!important;padding:0!important;gap:0!important}.ctrl,.info{display:none!important}#stage{border:none!important;position:fixed;top:0;left:0;margin:0}@page{margin:0;size:var(--pw) var(--ph)}}';
+  html+='</style></head><body>';
+  html+='<div class="ctrl">';
+  html+='<b>Type :</b><select id="tp" onchange="ap()">';
+  html+='<option value="A">A — Emplacement (4×)</option>';
+  html+='<option value="B">B — Avec texte (2×)</option>';
+  html+='<option value="C">C — QR seul (carré)</option>';
+  html+='</select>';
+  html+='<b>Ruban :</b><select id="sz" onchange="ap()">';
+  html+='<option value="12">12 mm</option>';
+  html+='<option value="18">18 mm</option>';
+  html+='<option value="24">24 mm</option>';
+  html+='<option value="36" selected>36 mm</option>';
+  html+='</select>';
+  html+='<span class="info" id="di" style="color:#888;font-size:11px">36×36 mm</span>';
+  html+='<button class="bp" onclick="ap();window.print()">&#128438; Brother</button>';
+  html+='<button onclick="window.close()">Fermer</button>';
+  html+='</div>';
+  html+='<div id="stage">';
+  html+='  <div id="qz"><canvas id="qrc"></canvas></div>';
+  html+='  <div id="tz">';
+  html+=(l1?'    <div id="t1">'+l1+'</div>':'')+'';
+  html+=(l2?'    <div id="t2">'+l2+'</div>':'')+'';
+  html+=(l3?'    <div id="t3">'+l3+'</div>':'')+'';
+  html+='  </div></div>';
+  html+='<script>var PX=3.7795,QD="'+qd+'";';
+  html+='function ap(){';
+  html+='var tp=document.getElementById("tp").value;';
+  html+='var h=parseInt(document.getElementById("sz").value);';
+  html+='var mult=(tp==="A"?4:tp==="B"?2:1);';
+  html+='var ww=h*mult;';
+  html+='var wp=Math.round(ww*PX),hp=Math.round(h*PX);';
+  html+='document.documentElement.style.setProperty("--pw",ww+"mm");';
+  html+='document.documentElement.style.setProperty("--ph",h+"mm");';
+  html+='document.getElementById("di").textContent=ww+"×"+h+" mm";';
+  html+='var st=document.getElementById("stage");';
+  html+='st.style.width=wp+"px";st.style.height=hp+"px";';
+  html+='var qp=Math.round(hp*0.92);';
+  html+='var qz=document.getElementById("qz");';
+  html+='qz.style.width=qp+"px";qz.style.minWidth=qp+"px";';
+  html+='var tz=document.getElementById("tz");';
+  html+='if(tp==="C"){tz.style.display="none";qz.style.width=wp+"px";qz.style.minWidth=wp+"px";}';
+  html+='else{tz.style.display="flex";qz.style.width=qp+"px";qz.style.minWidth=qp+"px";}';
+  html+='tz.style.padding="2px "+Math.max(2,Math.round(hp*0.04))+"px";';
+  html+='tz.style.gap=Math.max(1,Math.round(hp*0.03))+"px";';
+  html+='var t1=document.getElementById("t1");';
+  html+='var t2=document.getElementById("t2");';
+  html+='var t3=document.getElementById("t3");';
+  html+='if(t1)t1.style.fontSize=Math.max(6,Math.round(hp*0.28))+"px";';
+  html+='if(t2)t2.style.fontSize=Math.max(5,Math.round(hp*0.20))+"px";';
+  html+='if(t3)t3.style.fontSize=Math.max(4,Math.round(hp*0.16))+"px";';
+  html+='var sz=(tp==="C"?wp:qp);';
+  html+='var c=document.getElementById("qrc");c.width=sz;c.height=sz;';
+  html+='var img=new Image();';
+  html+='img.onload=function(){c.getContext("2d").drawImage(img,0,0,sz,sz);};';
+  html+='img.src="https://api.qrserver.com/v1/create-qr-code/?size="+sz+"x"+sz+"&data="+encodeURIComponent(QD);}';
+  html+='ap();<\/script></body></html>';
+  w.document.open();w.document.write(html);w.document.close();
+}
+
 function printLabel(tool, siteUrl){
-  const qrData = siteUrl+'?tool='+tool.id;
-  const toolName = (tool.name||'').slice(0,40);
-  const toolCat = tool.category||'Outil';
-  const toolLoc = tool.location||'';
-  const toolId = tool.id.slice(0,8);
-  const w = window.open('','_blank','width=650,height=520');
-  if(!w){ alert('Popup bloquée'); return; }
-
-  var html = '<!DOCTYPE html><html><head><meta charset="UTF-8">';
-  html += '<style>';
-  html += '*{box-sizing:border-box;margin:0;padding:0}';
-  html += 'body{font-family:Arial,sans-serif;background:#ddd;display:flex;flex-direction:column;align-items:center;padding:20px;gap:14px}';
-  html += '.ctrl{background:#fff;padding:12px 16px;border-radius:8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:13px;width:100%;max-width:600px}';
-  html += 'select{padding:5px 8px;border-radius:4px;border:1px solid #ccc;font-size:13px}';
-  html += 'button{padding:6px 14px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;border:1px solid #ccc}';
-  html += '.bp{background:#111;color:#fff;border-color:#111}';
-  html += '#stage{background:#fff;border:2px solid #111;overflow:hidden;display:flex;align-items:stretch}';
-  html += '#qr-zone{background:#f5f5f5;display:flex;align-items:center;justify-content:center;flex-shrink:0}';
-  html += '#txt-zone{flex:1;display:flex;flex-direction:column;justify-content:center;padding:4px 6px;overflow:hidden;gap:2px}';
-  html += '#lname{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}';
-  html += '#lloc{color:#444;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}';
-  html += '#lbottom{display:flex;align-items:center;gap:4px}';
-  html += '#lcat{background:#111;color:#fff;border-radius:3px;white-space:nowrap}';
-  html += '#lid{color:#999;font-family:monospace;white-space:nowrap}';
-  html += '#dims{color:#888;font-size:11px}';
-  html += '@media print{';
-  html += '  body{background:#fff!important;padding:0!important;gap:0!important;margin:0!important}';
-  html += '  .ctrl,#dims-line{display:none!important}';
-  html += '  #stage{border:none!important;position:fixed;top:0;left:0;margin:0!important}';
-  html += '  @page{margin:0;size:var(--pw) var(--ph)}';
-  html += '}';
-  html += '</style></head><body>';
-  html += '<div class="ctrl">';
-  html += '<label><b>Ruban :</b></label>';
-  html += '<select id="sz" onchange="ap()">';
-  html += '<option value="12">12 mm</option>';
-  html += '<option value="18">18 mm</option>';
-  html += '<option value="24">24 mm</option>';
-  html += '<option value="36" selected>36 mm</option>';
-  html += '</select>';
-  html += '<span id="dims">72 × 36 mm</span>';
-  html += '<button class="bp" onclick="ap();window.print()">&#128438; Imprimer Brother</button>';
-  html += '<button onclick="window.close()">Fermer</button>';
-  html += '</div>';
-  html += '<div id="stage">';
-  html += '  <div id="qr-zone"><canvas id="qrc"></canvas></div>';
-  html += '  <div id="txt-zone">';
-  html += '    <div id="lname">'+toolName+'</div>';
-  html += '    <div id="lloc">'+toolLoc+'</div>';
-  html += '    <div id="lbottom"><span id="lcat">'+toolCat+'</span><span id="lid">'+toolId+'</span></div>';
-  html += '  </div>';
-  html += '</div>';
-  html += '<script>';
-  html += 'var PX=3.7795;';
-  html += 'var qd="'+qrData+'";';
-  html += 'function ap(){';
-  html += '  var h=parseInt(document.getElementById("sz").value);';
-  html += '  var w=h*2;';
-  html += '  var wp=Math.round(w*PX), hp=Math.round(h*PX);';
-  html += '  document.documentElement.style.setProperty("--pw",w+"mm");';
-  html += '  document.documentElement.style.setProperty("--ph",h+"mm");';
-  html += '  document.getElementById("dims").textContent=w+"×"+h+" mm";';
-  html += '  var st=document.getElementById("stage");';
-  html += '  st.style.width=wp+"px"; st.style.height=hp+"px";';
-  html += '  var qp=Math.round(hp*0.92);';
-  html += '  var qz=document.getElementById("qr-zone");';
-  html += '  qz.style.width=qp+"px"; qz.style.minWidth=qp+"px";';
-  html += '  var fn=Math.max(6,Math.round(hp*0.26))+"px";';
-  html += '  var fs=Math.max(5,Math.round(hp*0.18))+"px";';
-  html += '  var fc=Math.max(4,Math.round(hp*0.14))+"px";';
-  html += '  document.getElementById("lname").style.fontSize=fn;';
-  html += '  document.getElementById("lloc").style.fontSize=fs;';
-  html += '  document.getElementById("lcat").style.fontSize=fc;';
-  html += '  document.getElementById("lcat").style.padding="1px "+Math.max(2,Math.round(hp*0.04))+"px";';
-  html += '  document.getElementById("lid").style.fontSize=fc;';
-  html += '  document.getElementById("txt-zone").style.padding="2px "+Math.max(3,Math.round(hp*0.05))+"px";';
-  html += '  document.getElementById("txt-zone").style.gap=Math.max(1,Math.round(hp*0.02))+"px";';
-  html += '  var c=document.getElementById("qrc");';
-  html += '  c.width=qp; c.height=qp;';
-  html += '  var img=new Image();';
-  html += '  img.onload=function(){c.getContext("2d").drawImage(img,0,0,qp,qp);};';
-  html += '  img.src="https://api.qrserver.com/v1/create-qr-code/?size="+qp+"x"+qp+"&data="+encodeURIComponent(qd);';
-  html += '}';
-  html += 'ap();';
-  html += '<\/script></body></html>';
-
-  w.document.open();
-  w.document.write(html);
-  w.document.close();
+  openLabelPrinter({qrData:siteUrl+'?tool='+tool.id,line1:tool.name||'',line2:tool.location||''});
 }
 
 
 
 
-function printCsoLabel(c, siteUrl){
-  const qrUrl=siteUrl+'?cso='+encodeURIComponent(c.id);
-  const qrSrc='https://api.qrserver.com/v1/create-qr-code/?size=200x200&data='+encodeURIComponent(qrUrl)+'&format=png';
-  const parts=[
-    '<!DOCTYPE html><html><head><meta charset="UTF-8">',
-    '<style>',
-    'body{font-family:Arial,sans-serif;margin:0;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh}',
-    '.label{border:2px solid #222;border-radius:8px;padding:20px;text-align:center;width:240px}',
-    '.name{font-size:15px;font-weight:700;margin:10px 0 4px;line-height:1.3}',
-    '.min{font-size:12px;color:#666;margin-top:4px}',
-    '.cat{font-size:11px;color:#999;margin-top:2px}',
-    '.printbtn{position:fixed;top:12px;right:12px;background:#1D9E75;color:#fff;border:none;padding:8px 18px;border-radius:6px;cursor:pointer;font-weight:700;font-size:13px}',
-    '@media print{.printbtn{display:none}}',
-    '</style></head><body>',
-    '<button class="printbtn" onclick="window.print()">&#128424; Imprimer</button>',
-    '<div class="label">',
-    '<img src="'+qrSrc+'" width="200" height="200" alt="QR">',
-    '<div class="name">'+c.nom+'</div>',
-    (c.categorie?'<div class="cat">'+c.categorie+'</div>':''),
-    (c.stock_min!=null?'<div class="min">Stock min : '+c.stock_min+' '+(c.unite||'')+'</div>':''),
-    '</div>',
-    '</body></html>'
-  ];
-  const html=parts.join('');
-  const blob=new Blob([html],{type:'text/html'});
-  const url=URL.createObjectURL(blob);
-  const a=document.createElement('a');a.href=url;a.target='_blank';
-  document.body.appendChild(a);a.click();document.body.removeChild(a);
-  setTimeout(()=>URL.revokeObjectURL(url),60000);
+
+
+function printCsoLabel(cso, siteUrl){
+  openLabelPrinter({qrData:siteUrl+'?cso='+cso.id,line1:cso.name||'',line2:cso.location||''});
 }
+
+
 
 function buildCrechePdf(){
   const enf=S.famille.find(x=>x.id===(S.familleEnfant||(S.famille[0]?.id)));
@@ -3801,88 +3770,13 @@ function buildEcolePdf(type){
 }
 
 function printLocationLabel(loc, tools, siteUrl){
-  const qrUrl=siteUrl+'?emplacement='+encodeURIComponent(loc);
   const rng=(S.rangements||[]).find(function(r){return r.nom===loc;});
-  const desc=rng?.description||'';
-  const toolCount=tools?tools.length:0;
-  const w=window.open('','_blank','width=650,height=520');
-  if(!w){alert('Popup bloquée');return;}
-
-  var html='<!DOCTYPE html><html><head><meta charset="UTF-8">';
-  html+='<style>';
-  html+='*{box-sizing:border-box;margin:0;padding:0}';
-  html+='body{font-family:Arial,sans-serif;background:#ddd;display:flex;flex-direction:column;align-items:center;padding:20px;gap:14px}';
-  html+='.ctrl{background:#fff;padding:12px 16px;border-radius:8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:13px;width:100%;max-width:600px}';
-  html+='select{padding:5px 8px;border-radius:4px;border:1px solid #ccc;font-size:13px}';
-  html+='button{padding:6px 14px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;border:1px solid #ccc}';
-  html+='.bp{background:#111;color:#fff;border-color:#111}';
-  html+='#stage{background:#fff;border:2px solid #111;overflow:hidden;display:flex;align-items:stretch}';
-  html+='#qr-zone{background:#f5f5f5;display:flex;align-items:center;justify-content:center;flex-shrink:0}';
-  html+='#txt-zone{flex:1;display:flex;flex-direction:column;justify-content:center;overflow:hidden;gap:2px}';
-  html+='#lname{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}';
-  html+='#ldesc{color:#555;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}';
-  html+='#lcount{color:#999;white-space:nowrap}';
-  html+='@media print{';
-  html+='  body{background:#fff!important;padding:0!important;gap:0!important;margin:0!important}';
-  html+='  .ctrl{display:none!important}';
-  html+='  #stage{border:none!important;position:fixed;top:0;left:0;margin:0!important}';
-  html+='  @page{margin:0;size:var(--pw) var(--ph)}';
-  html+='}';
-  html+='</style></head><body>';
-  html+='<div class="ctrl">';
-  html+='<label><b>Ruban :</b></label>';
-  html+='<select id="sz" onchange="ap()">';
-  html+='<option value="12">12 mm</option>';
-  html+='<option value="18">18 mm</option>';
-  html+='<option value="24">24 mm</option>';
-  html+='<option value="36" selected>36 mm</option>';
-  html+='</select>';
-  html+='<span id="dims">72×36 mm</span>';
-  html+='<button class="bp" onclick="ap();window.print()">&#128438; Imprimer Brother</button>';
-  html+='<button onclick="window.close()">Fermer</button>';
-  html+='</div>';
-  html+='<div id="stage">';
-  html+='  <div id="qr-zone"><canvas id="qrc"></canvas></div>';
-  html+='  <div id="txt-zone">';
-  html+='    <div id="lname">'+loc+'</div>';
-  html+=(desc?'    <div id="ldesc">'+desc+'</div>':'')+'';
-  html+='    <div id="lcount">'+toolCount+' outil'+(toolCount>1?'s':'')+'</div>';
-  html+='  </div>';
-  html+='</div>';
-  html+='<script>';
-  html+='var PX=3.7795;';
-  html+='var qd="'+qrUrl+'";';
-  html+='function ap(){';
-  html+='  var h=parseInt(document.getElementById("sz").value);';
-  html+='  var ww=h*2;';
-  html+='  var wp=Math.round(ww*PX),hp=Math.round(h*PX);';
-  html+='  document.documentElement.style.setProperty("--pw",ww+"mm");';
-  html+='  document.documentElement.style.setProperty("--ph",h+"mm");';
-  html+='  document.getElementById("dims").textContent=ww+"×"+h+" mm";';
-  html+='  var st=document.getElementById("stage");';
-  html+='  st.style.width=wp+"px";st.style.height=hp+"px";';
-  html+='  var qp=Math.round(hp*0.92);';
-  html+='  var qz=document.getElementById("qr-zone");';
-  html+='  qz.style.width=qp+"px";qz.style.minWidth=qp+"px";';
-  html+='  document.getElementById("lname").style.fontSize=Math.max(6,Math.round(hp*0.26))+"px";';
-  html+='  document.getElementById("lcount").style.fontSize=Math.max(5,Math.round(hp*0.18))+"px";';
-  html+='  var ld=document.getElementById("ldesc");';
-  html+='  if(ld)ld.style.fontSize=Math.max(5,Math.round(hp*0.18))+"px";';
-  html+='  document.getElementById("txt-zone").style.padding="2px "+Math.max(3,Math.round(hp*0.05))+"px";';
-  html+='  document.getElementById("txt-zone").style.gap=Math.max(1,Math.round(hp*0.03))+"px";';
-  html+='  var c=document.getElementById("qrc");';
-  html+='  c.width=qp;c.height=qp;';
-  html+='  var img=new Image();';
-  html+='  img.onload=function(){c.getContext("2d").drawImage(img,0,0,qp,qp);};';
-  html+='  img.src="https://api.qrserver.com/v1/create-qr-code/?size="+qp+"x"+qp+"&data="+encodeURIComponent(qd);';
-  html+='}';
-  html+='ap();';
-  html+='<\/script></body></html>';
-
-  w.document.open();
-  w.document.write(html);
-  w.document.close();
+  const tc=tools?tools.length:0;
+  openLabelPrinter({qrData:siteUrl+'?emplacement='+encodeURIComponent(loc),
+    line1:loc,line2:rng?.description||''+(tc?' — '+tc+' outil'+(tc>1?'s':'')+'':'')||''});
 }
+
+
 
 
 
