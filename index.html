@@ -16,7 +16,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v105-20260408-052845">
+<meta name="version" content="v105-20260408-101853">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -3567,7 +3567,7 @@ function openLabelPrinter(opts){
   html+='<option value="36" selected>36 mm</option>';
   html+='</select>';
   html+='<span id="di" style="color:#888;font-size:12px">36×36 mm</span>';
-  html+='<button class="bp" onclick="ap();window.print()">&#128438; Imprimer</button>';
+  html+='<button class="bp" id="pbtn" onclick="doPrint()">&#128438; Imprimer</button>';
   html+='<button onclick="window.close()">Fermer</button>';
   html+='</div>';
   html+='<div class="mobile-hint">';
@@ -3613,7 +3613,20 @@ function openLabelPrinter(opts){
   html+='var img=new Image();';
   html+='img.onload=function(){c.getContext("2d").drawImage(img,0,0,sz,sz);};';
   html+='img.src="https://api.qrserver.com/v1/create-qr-code/?size="+sz+"x"+sz+"&data="+encodeURIComponent(QD);}';
-  html+='ap();<\/script></body></html>';
+  html+='ap();';
+  html+='function doPrint(){';
+  html+='  var btn=document.getElementById("pbtn");';
+  html+='  btn.textContent="⏳ Chargement...";btn.disabled=true;';
+  html+='  var img=document.getElementById("qrc").toDataURL();';
+  html+='  if(img&&img.length>1000){window.print();btn.textContent="\u2399 Imprimer";btn.disabled=false;return;}';
+  html+='  var attempts=0;';
+  html+='  var t=setInterval(function(){';
+  html+='    attempts++;';
+  html+='    var d=document.getElementById("qrc").toDataURL();';
+  html+='    if(d&&d.length>1000||attempts>20){clearInterval(t);window.print();btn.textContent="\u2399 Imprimer";btn.disabled=false;}';
+  html+='  },150);';
+  html+='}';
+  html+='<\/script></body></html>';
   w.document.open();w.document.write(html);w.document.close();
 }
 
