@@ -16,7 +16,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v105-20260408-102614">
+<meta name="version" content="v105-20260408-131243">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -9226,6 +9226,39 @@ if(quickNav){
     if(quickNav==="creche")S.familleTab="creche";
     if(quickNav==="ecole")S.familleTab="ecole";
   }
+}
+
+// Handle QR code scans (?tool=id, ?cso=id, ?emplacement=name)
+const toolParam=urlParams.get("tool");
+const csoParam=urlParams.get("cso");
+const empParam=urlParams.get("emplacement");
+if(toolParam||csoParam||empParam){
+  loadAll().then(function(){
+    if(toolParam){
+      S.view="tools";
+      S.qrTool=toolParam;
+    } else if(csoParam){
+      S.view="consommables";
+      S.qrCso=csoParam;
+    } else if(empParam){
+      S.view="etiquettes";
+      S.eTab="inventaire";
+      S.qrEmplacement=decodeURIComponent(empParam);
+    }
+    render();
+    // Scroll/highlight the item after render
+    setTimeout(function(){
+      const id=toolParam||csoParam;
+      if(id){
+        const el=document.querySelector('[data-id="'+id+'"],[data-tool="'+id+'"],[data-cso="'+id+'"]');
+        if(el){el.scrollIntoView({behavior:"smooth",block:"center"});el.style.outline="3px solid #185FA5";}
+      }
+      if(empParam){
+        const el=document.querySelector('[data-rng="'+decodeURIComponent(empParam)+'"]');
+        if(el){el.scrollIntoView({behavior:"smooth",block:"center"});el.style.outline="3px solid #185FA5";}
+      }
+    },500);
+  });
 }
 </script>
 </body>
