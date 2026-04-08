@@ -16,7 +16,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v105-20260408-050955">
+<meta name="version" content="v105-20260408-052845">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -3782,9 +3782,8 @@ function buildEcolePdf(type){
 
 function printLocationLabel(loc, tools, siteUrl){
   const rng=(S.rangements||[]).find(function(r){return r.nom===loc;});
-  const tc=tools?tools.length:0;
   openLabelPrinter({qrData:siteUrl+'?emplacement='+encodeURIComponent(loc),
-    line1:loc,line2:rng?.description||''+(tc?' — '+tc+' outil'+(tc>1?'s':'')+'':'')||''});
+    line1:rng?.description||loc});
 }
 
 
