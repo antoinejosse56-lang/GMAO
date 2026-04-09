@@ -16,7 +16,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v105-20260408-131243">
+<meta name="version" content="v105-20260409-120945">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -6332,6 +6332,9 @@ function genQuittancePDF(tenant, payment, mois, annee){
   const solde=Math.round((loyer-recu)*100)/100;
   const fmt=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(n||0);
   const today=new Date().toLocaleDateString('fr-FR');
+  const isDubailT=dubailFilter(tenant.logement||'');
+  const bailleurName=isDubailT?'J\u0026A SAVADUR':'Antoine JOSSE';
+  const bailleurAddr=isDubailT?'26 RUE G\u00c9N\u00c9RAL DUBAIL':'5 RUE DE CALVIN';
   const html=`<!DOCTYPE html><html><head><meta charset="utf-8">
   <title>Quittance ${mois} ${annee}</title>
   <style>
@@ -6353,8 +6356,8 @@ function genQuittancePDF(tenant, payment, mois, annee){
   </style></head><body>
   <div class="header">
     <div class="bailleur">
-      <strong>J&amp;A SAVADUR</strong><br>
-      26 RUE GÉNÉRAL DUBAIL<br>
+      <strong>${bailleurName}</strong><br>
+      ${bailleurAddr}<br>
       56100 LORIENT<br>
     </div>
     <div style="text-align:right;font-size:12px">
@@ -8630,7 +8633,7 @@ async function sendAccuseEau(releve,cpt,tenant,montant){
 function buildQuittanceHtml(tenant,payment,mois,annee,loyer,charges,total,datePaiement,fmt,commentaire='',showPrintBar=true){
   const isDubail = dubailFilter(tenant.logement||'');
   const bailNom   = isDubail ? 'J&A SAVADUR'               : 'Antoine JOSSE';
-  const bailAddr  = isDubail ? '29 RUE VICE AMIRAL BOUVET' : '5 RUE DE CALVIN';
+  const bailAddr  = isDubail ? '26 RUE G\u00c9N\u00c9RAL DUBAIL' : '5 RUE DE CALVIN';
   const bailCP    = '56100 LORIENT';
   const bailEmail = isDubail ? 'savadur56@gmail.com'        : 'antoinejosse56@gmail.com';
   const bailTel   = isDubail ? '06.30.37.06.88'             : '';
