@@ -16,7 +16,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v105-20260410-105419">
+<meta name="version" content="v105-20260410-114651">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -241,7 +241,7 @@ async function loadAll() {
       sb.from('compteurs').select('*'),
       sb.from('releves').select('*').order('date', {ascending: false}),
       sb.from('tenants').select('*'),
-      sb.from('rent_payments').select('id,tenant_id,mois,mois_num,annee,loyer,locataire_part,caf,date_loc,date_caf,paye,notes,commentaire,quittance_envoyee,created_at'),
+      sb.from('rent_payments').select('id,tenant_id,mois,mois_num,annee,loyer,locataire_part,caf,date_loc,date_caf,paye,notes,commentaire,quittance_envoyee,dette_ant,created_at'),
       sb.from('water_readings').select('*'),
       sb.from('rangements').select('*').order('nom'),
       sb.from('famille').select('*').order('prenom'),
