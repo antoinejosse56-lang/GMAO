@@ -16,7 +16,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v105-20260410-120459">
+<meta name="version" content="v105-20260410-123307">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -8680,8 +8680,14 @@ function buildQuittanceHtml(tenant,payment,mois,annee,loyer,charges,total,datePa
     +'</div>'
     +'<div style="font-size:13px;margin:20px 0;line-height:1.7"><strong>POUR LOYER DU LOGEMENT SITUÉ :</strong><br>'
     +tenant.logement+'<br>26 RUE GÉNÉRAL DUBAIL<br>56100 LORIENT</div>'
-    +(chargesRef>0?'<table><tr><td>Loyer nu :</td><td>'+fmt(loyerRef)+'</td></tr><tr><td>Charges :</td><td>'+fmt(chargesRef)+'</td></tr><tr><td><strong>Total :</strong></td><td><strong>'+fmt(loyerRef+chargesRef)+'</strong></td></tr></table>':
-    '<table><tr><td>Loyer :</td><td>'+fmt(loyerRef)+'</td></tr></table>')
+    +(chargesRef>0?'<table><tr><td>Loyer nu :</td><td>'+fmt(loyerRef)+'</td></tr><tr><td>Charges :</td><td>'+fmt(chargesRef)+'</td></tr>'
+    +(payment.note_quittance?'<tr><td>'+payment.note_quittance+' :</td><td>'+fmt(payment.ajustement||0)+'</td></tr>':'')
+    +'<tr><td><strong>Total :</strong></td><td><strong>'+fmt(loyerRef+chargesRef+(payment.ajustement||0))+'</strong></td></tr></table>':
+    '<table>'
+    +'<tr><td>Loyer :</td><td>'+fmt(loyerRef)+'</td></tr>'
+    +(payment.note_quittance?'<tr><td>'+payment.note_quittance+' :</td><td>'+fmt(payment.ajustement||0)+'</td></tr>':'')
+    +(payment.note_quittance?'<tr><td><strong>Total :</strong></td><td><strong>'+fmt(loyerRef+(payment.ajustement||0))+'</strong></td></tr>':'')
+    +'</table>')
     +(tenant.dette>0?'<div style="background:#FFF3CD;border:1.5px solid #F0AD4E;border-radius:6px;padding:10px 14px;margin:12px 0;font-size:13px">'+'<strong>&#9888; Votre dette à ce jour s\'elève à : '+fmt(tenant.dette)+'</strong>'+'<br><span style="font-size:11px;color:#555">Ce montant sera inclus dans votre prochain appel de loyer.</span>'+'</div>':'')
     +'<div class="sig-block">'
     +'<div style="font-size:13px">Fait à Lorient, le '+new Date().toLocaleDateString('fr-FR')+'</div>'
