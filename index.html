@@ -16,7 +16,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v105-20260409-120945">
+<meta name="version" content="v105-20260410-102929">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -5256,8 +5256,8 @@ function renderModal(){
     <div style="border:0.5px solid var(--border2);border-radius:var(--radius);padding:12px;margin-bottom:12px">
       <div class="sec" style="margin-bottom:8px">Dette antérieure</div>
       <div class="g2c">
-        <div class="form-group"><label>Dette antérieure (&#8364;)</label><input id="m-sl-dette-ant" type="number" step="0.01" value="${t.dette||0}" placeholder="0.00"></div>
-        <div class="form-group"><label>Total attendu (&#8364;)</label><input type="number" value="${Math.round(((t.type_bail==='commercial'?(loyerRef+chargesRef)*1.2:(loyerRef+chargesRef))+(t.dette||0))*100)/100}" readonly style="background:var(--bg2)"></div>
+        <div class="form-group"><label>Dette antérieure (&#8364;)</label><input id="m-sl-dette-ant" type="number" step="0.01" value="${p.dette_ant!=null?p.dette_ant:(t.dette||0)}" placeholder="0.00"></div>
+        <div class="form-group"><label>Total attendu (&#8364;)</label><input type="number" value="${Math.round(((t.type_bail==='commercial'?(loyerRef+chargesRef)*1.2:(loyerRef+chargesRef))+(p.dette_ant!=null?p.dette_ant:(t.dette||0)))*100)/100}" readonly style="background:var(--bg2)"></div>
       </div>
     </div>
     <div class="form-group"><label>Payé intégralement ?</label><select id="m-sl-paye">
@@ -5906,6 +5906,7 @@ async function saveModal(){
       tenant_id:t.id,mois:m.mois,mois_num:moisNum,annee:m.annee,
       loyer:loyerAttendu,locataire_part:locPart,caf:cafPart,
       date_loc:dateL,date_caf:dateCaf,paye,notes,commentaire,
+      dette_ant:detteAnt,
       quittance_envoyee:false
     };
     let payment=m.existing;
