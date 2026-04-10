@@ -16,7 +16,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v105-20260410-123307">
+<meta name="version" content="v105-20260410-124316">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -2038,10 +2038,17 @@ function renderLocatif(){
 
   if(tab==='dettes'){
     const debts = tenants.map(t=>{
+      // Tous les paiements non soldés
       const unpaid = S.rentPayments.filter(p=>p.tenant_id===t.id&&!p.paye&&p.loyer>0);
-      const total = Math.round(unpaid.reduce((s,p)=>s+Math.max(0,(p.loyer||0)-(p.locataire_part||0)-(p.caf||0)),0)*100)/100;
-      const detteManuelle = unpaid.length===0?(t.dette||0):0;
-      return {t, unpaid, total: total+detteManuelle};
+      // Dette = solde du DERNIER paiement (le plus récent)
+      // trié par annee desc puis mois_num desc
+      const sorted = unpaid.slice().sort(function(a,b){
+        if(b.annee!==a.annee)return b.annee-a.annee;
+        return (b.mois_num||0)-(a.mois_num||0);
+      });
+      const last = sorted[0];
+      const total = last ? Math.max(0,Math.round(((last.loyer||0)-(last.locataire_part||0)-(last.caf||0))*100)/100) : (t.dette||0);
+      return {t, unpaid, total};
     }).filter(x=>x.total>0).sort((a,b)=>b.total-a.total);
     return `${tabBar}
     <div class="card">
