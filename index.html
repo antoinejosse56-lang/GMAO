@@ -16,7 +16,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v105-20260417-045525">
+<meta name="version" content="v105-20260417-050740">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -3648,15 +3648,16 @@ function printCsoLabel(cso, siteUrl){
 
 function buildCrechePdf(){
   const enf=S.famille.find(x=>x.id===(S.familleEnfant||(S.famille[0]?.id)));
-  if(!enf){alert('Aucun enfant s\u00e9lectionn\u00e9');return;}
+  if(!enf){alert('Aucun enfant sélectionné');return;}
   const y=S.familleYear||new Date().getFullYear();
   const mo=(S.familleMonth!=null?S.familleMonth:new Date().getMonth());
-  const MOIS=['Janvier','F\u00e9vrier','Mars','Avril','Mai','Juin','Juillet','Ao\u00fbt','Septembre','Octobre','Novembre','D\u00e9cembre'];
+  const MOIS=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
   const JOURS=['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'];
   const c=enf.contrat_creche||{};
   const depDef=c.heure_dep_defaut||'09:00';
   const recDef=c.heure_rec_defaut||'16:30';
-  const saisies=S.crecheSaisies.filter(s=>s.enfant_id===enf.id&&s.annee===y&&s.mois===mo+1);
+  // mois en DB = 1-based (mo est 0-based donc mo+1)
+  const saisies=S.crecheSaisies.filter(s=>s.enfant_id===enf.id&&s.annee===y&&s.mois===(mo+1));
   const daysInM=new Date(y,mo+1,0).getDate();
   const rows=[];
   let prevWasFriday=false;
@@ -3664,24 +3665,27 @@ function buildCrechePdf(){
     const date=new Date(y,mo,d);
     const dow=date.getDay();
     if(dow===0||dow===6)continue;
-    // Separator between friday and following monday
     if(prevWasFriday&&dow===1){
       rows.push('<tr><td colspan="3" style="border:none;height:10px;border-top:2px solid #1D9E75;padding:0"></td></tr>');
     }
     const s=saisies.find(x=>x.jour===d);
-    const absent=s?.absence_autorisee||false;
-    // Horaires contrat du jour (modifiés ou défaut)
-    const depC=s?.heure_contrat_dep||depDef;
-    const recC=s?.heure_contrat_rec||recDef;
-    const modified=s&&(s.heure_contrat_dep||s.heure_contrat_rec);
+    // Absence : true uniquement si explicitement coché
+    const absent=s&&s.absence_autorisee===true;
+    // Horaires contrat modifiés, sinon horaires par défaut
+    const depC=(s&&s.heure_contrat_dep)?s.heure_contrat_dep:depDef;
+    const recC=(s&&s.heure_contrat_rec)?s.heure_contrat_rec:recDef;
+    const modified=s&&(s.heure_contrat_dep||s.heure_contrat_rec)&&!absent;
+    const moisStr=String(mo+1).padStart(2,'0');
+    const jourStr=String(d).padStart(2,'0');
+    const dateStr=JOURS[dow]+' '+jourStr+'/'+moisStr+'/'+y;
     if(absent){
       rows.push('<tr style="background:#FFF0F0;color:#999">'
-        +'<td style="padding:5px 10px">'+JOURS[dow]+' '+(''+d).padStart(2,'0')+'/'+('+'+(mo+1)).padStart(2,'0')+'/'+y+'</td>'
+        +'<td style="padding:5px 10px">'+dateStr+'</td>'
         +'<td colspan="2" style="text-align:center;padding:5px 10px;font-style:italic">Absence</td>'
         +'</tr>');
     } else {
       rows.push('<tr'+(modified?' style="background:#FFF9E6;font-weight:600"':'')+'>'
-        +'<td style="padding:5px 10px">'+JOURS[dow]+' '+(''+d).padStart(2,'0')+'/'+('+'+(mo+1)).padStart(2,'0')+'/'+y+'</td>'
+        +'<td style="padding:5px 10px">'+dateStr+'</td>'
         +'<td style="text-align:center;padding:5px 10px">'+depC+'</td>'
         +'<td style="text-align:center;padding:5px 10px">'+recC+'</td>'
         +'</tr>');
@@ -3702,17 +3706,17 @@ function buildCrechePdf(){
     +'@media print{.printbtn{display:none}body{padding:15px}}'
     +'</style></head><body>'
     +'<button class="printbtn" onclick="window.print()">&#128424; Imprimer / PDF</button>'
-    +'<h1>&#128118; Planning cr\u00e8che \u2014 '+MOIS[mo]+' '+y+'</h1>'
+    +'<h1>&#128118; Planning crèche — '+MOIS[mo]+' '+y+'</h1>'
     +'<h2>'+enf.prenom+' '+(enf.nom||'')+'</h2>'
     +'<table>'
       +'<thead><tr>'
         +'<th>Jour</th>'
-        +'<th style="text-align:center">Heure d\u00e9pose</th>'
-        +'<th style="text-align:center">Heure r\u00e9cup\u00e9ration</th>'
+        +'<th style="text-align:center">Heure dépose</th>'
+        +'<th style="text-align:center">Heure récupération</th>'
       +'</tr></thead>'
       +'<tbody>'+rows.join('')+'</tbody>'
     +'</table>'
-    +'<p class="legend">Lignes fond jaune = horaires modifi\u00e9s par rapport au contrat standard ('+depDef+' \u2192 '+recDef+')</p>'
+    +'<p class="legend">Lignes fond jaune = horaires modifiés par rapport au contrat standard ('+depDef+' → '+recDef+')</p>'
     +'</body></html>';
   const blob=new Blob([html],{type:'text/html'});
   const url=URL.createObjectURL(blob);
@@ -3720,6 +3724,7 @@ function buildCrechePdf(){
   document.body.appendChild(a);a.click();document.body.removeChild(a);
   setTimeout(()=>URL.revokeObjectURL(url),60000);
 }
+
 
 
 function buildEcolePdf(type){
