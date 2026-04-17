@@ -16,7 +16,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v105-20260417-050740">
+<meta name="version" content="v105-20260417-120000">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -3669,12 +3669,17 @@ function buildCrechePdf(){
       rows.push('<tr><td colspan="3" style="border:none;height:10px;border-top:2px solid #1D9E75;padding:0"></td></tr>');
     }
     const s=saisies.find(x=>x.jour===d);
-    // Absence : true uniquement si explicitement coché
-    const absent=s&&s.absence_autorisee===true;
-    // Horaires contrat modifiés, sinon horaires par défaut
-    const depC=(s&&s.heure_contrat_dep)?s.heure_contrat_dep:depDef;
-    const recC=(s&&s.heure_contrat_rec)?s.heure_contrat_rec:recDef;
-    const modified=s&&(s.heure_contrat_dep||s.heure_contrat_rec)&&!absent;
+    // Absence : lire depuis le DOM en priorité (non sauvegardé possible)
+    const absentDom=document.querySelector('.creche-absent[data-day="'+d+'"]');
+    const absent=absentDom?absentDom.checked:(s&&s.absence_autorisee===true);
+    // Horaires contrat : lire depuis le DOM en priorité (inputs de la grille)
+    const domDep=document.querySelector('.creche-cont[data-day="'+d+'"]');
+    const domRec=document.querySelector('.creche-contr[data-day="'+d+'"]');
+    const depDom=domDep&&domDep.value?domDep.value:null;
+    const recDom=domRec&&domRec.value?domRec.value:null;
+    const depC=depDom||(s&&s.heure_contrat_dep?s.heure_contrat_dep:depDef);
+    const recC=recDom||(s&&s.heure_contrat_rec?s.heure_contrat_rec:recDef);
+    const modified=(depC!==depDef||recC!==recDef)&&!absent;
     const moisStr=String(mo+1).padStart(2,'0');
     const jourStr=String(d).padStart(2,'0');
     const dateStr=JOURS[dow]+' '+jourStr+'/'+moisStr+'/'+y;
