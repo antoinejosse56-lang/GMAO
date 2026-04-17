@@ -16,7 +16,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v105-20260410-124316">
+<meta name="version" content="v105-20260417-045525">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -3264,7 +3264,7 @@ function renderFamille(){
         +'<td style="padding:2px 3px;text-align:center"><input type="time" class="creche-arr-tard" data-day="'+d+'" value="'+(s?.arrivee_tardive||'')+'" style="width:75px;font-size:11px;padding:2px 3px;border:0.5px solid var(--amber);border-radius:3px;background:var(--bg)'+(isWE?';opacity:0.3':'')+'"></td>'
         // Départ anticipé (déduire)
         +'<td style="padding:2px 3px;text-align:center"><input type="time" class="creche-dep-antic" data-day="'+d+'" value="'+(s?.depart_anticipe||'')+'" style="width:75px;font-size:11px;padding:2px 3px;border:0.5px solid var(--amber);border-radius:3px;background:var(--bg)'+(isWE?';opacity:0.3':'')+'"></td>'
-        // Absence autorisée
+        // Absence
         +'<td style="padding:2px 3px;text-align:center"><input type="checkbox" class="creche-absent" data-day="'+d+'" '+(absent?'checked':'')+' style="width:15px;height:15px;accent-color:var(--amber)"></td>'
         +'</tr>';
     }).join('');
@@ -3669,14 +3669,23 @@ function buildCrechePdf(){
       rows.push('<tr><td colspan="3" style="border:none;height:10px;border-top:2px solid #1D9E75;padding:0"></td></tr>');
     }
     const s=saisies.find(x=>x.jour===d);
+    const absent=s?.absence_autorisee||false;
+    // Horaires contrat du jour (modifiés ou défaut)
     const depC=s?.heure_contrat_dep||depDef;
     const recC=s?.heure_contrat_rec||recDef;
     const modified=s&&(s.heure_contrat_dep||s.heure_contrat_rec);
-    rows.push('<tr'+(modified?' style="background:#FFF9E6;font-weight:600"':'')+'>'
-      +'<td style="padding:5px 10px">'+JOURS[dow]+' '+(''+d).padStart(2,'0')+'/'+('+'+(mo+1)).padStart(2,'0')+'/'+y+'</td>'
-      +'<td style="text-align:center;padding:5px 10px">'+depC+'</td>'
-      +'<td style="text-align:center;padding:5px 10px">'+recC+'</td>'
-      +'</tr>');
+    if(absent){
+      rows.push('<tr style="background:#FFF0F0;color:#999">'
+        +'<td style="padding:5px 10px">'+JOURS[dow]+' '+(''+d).padStart(2,'0')+'/'+('+'+(mo+1)).padStart(2,'0')+'/'+y+'</td>'
+        +'<td colspan="2" style="text-align:center;padding:5px 10px;font-style:italic">Absence</td>'
+        +'</tr>');
+    } else {
+      rows.push('<tr'+(modified?' style="background:#FFF9E6;font-weight:600"':'')+'>'
+        +'<td style="padding:5px 10px">'+JOURS[dow]+' '+(''+d).padStart(2,'0')+'/'+('+'+(mo+1)).padStart(2,'0')+'/'+y+'</td>'
+        +'<td style="text-align:center;padding:5px 10px">'+depC+'</td>'
+        +'<td style="text-align:center;padding:5px 10px">'+recC+'</td>'
+        +'</tr>');
+    }
     prevWasFriday=(dow===5);
   }
   const html='<!DOCTYPE html><html><head><meta charset="UTF-8">'
