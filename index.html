@@ -16,7 +16,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v105-20260417-120500">
+<meta name="version" content="v105-20260428-100000">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -3647,8 +3647,7 @@ function printCsoLabel(cso, siteUrl){
 
 
 function buildCrechePdf(){
-  const crecheMembers=S.famille.filter(m=>m.type_membre==='creche');
-  const enf=S.famille.find(x=>x.id===S.familleEnfant)||(crecheMembers[0]||null);
+  const enf=S.famille.find(x=>x.id===(S.familleEnfant||(S.famille[0]?.id)));
   if(!enf){alert('Aucun enfant sélectionné');return;}
   const y=S.familleYear||new Date().getFullYear();
   const mo=(S.familleMonth!=null?S.familleMonth:new Date().getMonth());
@@ -3670,17 +3669,12 @@ function buildCrechePdf(){
       rows.push('<tr><td colspan="3" style="border:none;height:10px;border-top:2px solid #1D9E75;padding:0"></td></tr>');
     }
     const s=saisies.find(x=>x.jour===d);
-    // Absence : lire depuis le DOM en priorité (non sauvegardé possible)
-    const absentDom=document.querySelector('.creche-absent[data-day="'+d+'"]');
-    const absent=absentDom?absentDom.checked:(s&&s.absence_autorisee===true);
-    // Horaires contrat : lire depuis le DOM en priorité (inputs de la grille)
-    const domDep=document.querySelector('.creche-cont[data-day="'+d+'"]');
-    const domRec=document.querySelector('.creche-contr[data-day="'+d+'"]');
-    const depDom=domDep&&domDep.value?domDep.value:null;
-    const recDom=domRec&&domRec.value?domRec.value:null;
-    const depC=depDom||(s&&s.heure_contrat_dep?s.heure_contrat_dep:depDef);
-    const recC=recDom||(s&&s.heure_contrat_rec?s.heure_contrat_rec:recDef);
-    const modified=(depC!==depDef||recC!==recDef)&&!absent;
+    // Absence : true uniquement si explicitement coché
+    const absent=s&&s.absence_autorisee===true;
+    // Horaires contrat modifiés, sinon horaires par défaut
+    const depC=(s&&s.heure_contrat_dep)?s.heure_contrat_dep:depDef;
+    const recC=(s&&s.heure_contrat_rec)?s.heure_contrat_rec:recDef;
+    const modified=s&&(s.heure_contrat_dep||s.heure_contrat_rec)&&!absent;
     const moisStr=String(mo+1).padStart(2,'0');
     const jourStr=String(d).padStart(2,'0');
     const dateStr=JOURS[dow]+' '+jourStr+'/'+moisStr+'/'+y;
@@ -8666,9 +8660,14 @@ function buildQuittanceHtml(tenant,payment,mois,annee,loyer,charges,total,datePa
   const bailTel   = isDubail ? '06.30.37.06.88'             : '';
   const caf=parseFloat(payment.caf||0);
   const locPart=parseFloat(payment.locataire_part||0);
+  const totalPercu=Math.round((locPart+caf)*100)/100;
   const dateLoc=payment.date_loc?new Date(payment.date_loc).toLocaleDateString('fr-FR'):datePaiement;
   const loyerRef=parseFloat(tenant.loyer_ref||0);
   const chargesRef=parseFloat(tenant.charges||0);
+  const loyerAttendu=loyerRef+chargesRef;
+  const soldeRestant=Math.round((loyerAttendu-totalPercu)*100)/100;
+  const isPartial=totalPercu<loyerAttendu-0.01;
+  const docTitle=isPartial?'Reçu de paiement partiel':'Quittance de loyer';
   const css=`
     @media print{.print-bar{display:none!important}body{margin:0;padding:20px}}
     .print-bar{background:#1D9E75;color:#fff;padding:10px 20px;display:flex;align-items:center;justify-content:space-between;font-family:Arial,sans-serif;font-size:13px}
@@ -8696,31 +8695,32 @@ function buildQuittanceHtml(tenant,payment,mois,annee,loyer,charges,total,datePa
     +'<div><strong>LE BAILLEUR</strong><br>'+bailNom+'<br>'+bailAddr+'<br>'+bailCP+'<br>'+bailEmail+(bailTel?'<br>'+bailTel:'')+'</div>'
     +'<div style="text-align:right"><strong>LE LOCATAIRE</strong><br>'+tenant.nom+'<br>'+tenant.logement+'<br>26 Rue Général Dubail<br>56100 LORIENT</div>'
     +'</div>'
-    +'<div class="title">Quittance de loyer</div>'
+    +'<div class="title">'+docTitle+'</div>'
     +'<div class="subtitle">LOYER '+mois.toUpperCase()+' '+annee+'</div>'
     +'<div class="montant-box">'
-    +'<div>REÇU LA SOMME DE</div>'
-    +'<div class="somme">'+fmt(total||loyerRef+chargesRef)+'</div>'
+    +'<div>SOMME PERÇUE</div>'
+    +'<div class="somme">'+fmt(totalPercu)+'</div>'
     +'<div>LE '+dateLoc+'</div>'
     +(caf>0?'<div style="font-size:13px;color:#555;margin-top:8px">dont part CAF : '+fmt(caf)+' — part locataire : '+fmt(locPart)+'</div>':'')
+    +(isPartial?'<div style="font-size:13px;color:#c0392b;margin-top:8px;font-weight:bold">⚠ Paiement partiel — Loyer attendu : '+fmt(loyerAttendu)+' — Solde restant dû : '+fmt(soldeRestant)+'</div>':'')
     +(commentaire?'<div style="font-size:12px;color:#666;margin-top:8px;font-style:italic">'+commentaire+'</div>':'')
     +'</div>'
     +'<div style="font-size:13px;margin:20px 0;line-height:1.7"><strong>POUR LOYER DU LOGEMENT SITUÉ :</strong><br>'
     +tenant.logement+'<br>26 RUE GÉNÉRAL DUBAIL<br>56100 LORIENT</div>'
     +(chargesRef>0?'<table><tr><td>Loyer nu :</td><td>'+fmt(loyerRef)+'</td></tr><tr><td>Charges :</td><td>'+fmt(chargesRef)+'</td></tr>'
     +(payment.note_quittance?'<tr><td>'+payment.note_quittance+' :</td><td>'+fmt(payment.ajustement||0)+'</td></tr>':'')
-    +'<tr><td><strong>Total :</strong></td><td><strong>'+fmt(loyerRef+chargesRef+(payment.ajustement||0))+'</strong></td></tr></table>':
+    +'<tr><td><strong>Total attendu :</strong></td><td><strong>'+fmt(loyerRef+chargesRef+(payment.ajustement||0))+'</strong></td></tr></table>':
     '<table>'
     +'<tr><td>Loyer :</td><td>'+fmt(loyerRef)+'</td></tr>'
     +(payment.note_quittance?'<tr><td>'+payment.note_quittance+' :</td><td>'+fmt(payment.ajustement||0)+'</td></tr>':'')
-    +(payment.note_quittance?'<tr><td><strong>Total :</strong></td><td><strong>'+fmt(loyerRef+(payment.ajustement||0))+'</strong></td></tr>':'')
+    +(payment.note_quittance?'<tr><td><strong>Total attendu :</strong></td><td><strong>'+fmt(loyerRef+(payment.ajustement||0))+'</strong></td></tr>':'')
     +'</table>')
-    +(tenant.dette>0?'<div style="background:#FFF3CD;border:1.5px solid #F0AD4E;border-radius:6px;padding:10px 14px;margin:12px 0;font-size:13px">'+'<strong>&#9888; Votre dette à ce jour s\'elève à : '+fmt(tenant.dette)+'</strong>'+'<br><span style="font-size:11px;color:#555">Ce montant sera inclus dans votre prochain appel de loyer.</span>'+'</div>':'')
+    +(soldeRestant>0.01?'<div style="background:#FFF3CD;border:1.5px solid #F0AD4E;border-radius:6px;padding:10px 14px;margin:12px 0;font-size:13px">'+'<strong>&#9888; Solde restant dû pour ce mois : '+fmt(soldeRestant)+'</strong>'+'<br><span style="font-size:11px;color:#555">Ce montant sera inclus dans votre prochain appel de loyer.</span>'+'</div>':'')
     +'<div class="sig-block">'
     +'<div style="font-size:13px">Fait à Lorient, le '+new Date().toLocaleDateString('fr-FR')+'</div>'
     +'<div class="sig-right"><div>GÉRANT J&A SAVADUR</div><div class="name">JOSSE Antoine</div></div>'
     +'</div>'
-    +'<p class="mention">Cette quittance annule tous reçus antérieurs pour les mêmes objets. Elle ne vaut qu\'après encaissement en cas de paiement par chèque.</p>'
+    +'<p class="mention">Ce document annule tous reçus antérieurs pour les mêmes objets. Il ne vaut qu\'après encaissement en cas de paiement par chèque.</p>'
     +'</body></html>';
 }
 
@@ -8731,9 +8731,15 @@ function buildFactureHtml(tenant,payment,mois,annee,loyer,charges,total,datePaie
   const chargesHT=parseFloat(tenant.charges||0);
   const chargesTVA=chargesHT>0?Math.round(chargesHT*0.2*100)/100:0;
   const chargesTTC=Math.round((chargesHT+chargesTVA)*100)/100;
-  const totalHT=loyerHT+chargesHT;
-  const totalTVA=loyerTVA+chargesTVA;
-  const totalTTC=loyerTTC+chargesTTC;
+  const totalHT=Math.round((loyerHT+chargesHT)*100)/100;
+  const totalTVA=Math.round((loyerTVA+chargesTVA)*100)/100;
+  const totalTTC=Math.round((loyerTTC+chargesTTC)*100)/100;
+  const locPart=parseFloat(payment.locataire_part||0);
+  const caf=parseFloat(payment.caf||0);
+  const totalPercu=Math.round((locPart+caf)*100)/100;
+  const soldeRestant=Math.round((totalTTC-totalPercu)*100)/100;
+  const isPartial=totalPercu<totalTTC-0.01;
+  const docTitle=isPartial?'Reçu de paiement partiel':'Facture de loyer';
   const dateLoc=payment.date_loc?new Date(payment.date_loc).toLocaleDateString('fr-FR'):datePaiement;
   const css=`
     @media print{.print-bar{display:none!important}body{margin:0;padding:20px}}
@@ -8760,17 +8766,25 @@ function buildFactureHtml(tenant,payment,mois,annee,loyer,charges,total,datePaie
     +'<div><strong>J&A SAVADUR</strong><br>26 RUE GÉNÉRAL DUBAIL<br>56100 LORIENT<br>savadur56@gmail.com<br>06.30.37.06.88</div>'
     +'<div style="text-align:right"><strong>'+tenant.nom+'</strong><br>'+tenant.logement+'<br>26 rue général Dubail<br>56100 Lorient</div>'
     +'</div>'
-    +'<div class="title">Facture de loyer</div>'
+    +'<div class="title">'+docTitle+'</div>'
     +'<div class="subtitle">'+mois+' '+annee+' — N° '+invoiceNum+'</div>'
     +'<table><thead><tr><th>Description</th><th>Prix HT</th><th>TVA 20%</th><th>Prix TTC</th></tr></thead><tbody>'
     +'<tr><td>Loyer mensuel</td><td>'+fmt(loyerHT)+'</td><td>'+fmt(loyerTVA)+'</td><td>'+fmt(loyerTTC)+'</td></tr>'
     +(chargesHT>0?'<tr><td>Provisions sur charges</td><td>'+fmt(chargesHT)+'</td><td>'+fmt(chargesTVA)+'</td><td>'+fmt(chargesTTC)+'</td></tr>':'')
-    +'<tr class="total-row"><td colspan="3">TOTAL TTC</td><td>'+fmt(totalTTC)+'</td></tr>'
+    +'<tr class="total-row"><td>Total HT</td><td colspan="3">'+fmt(totalHT)+'</td></tr>'
+    +'<tr class="total-row"><td>TVA 20%</td><td colspan="3">'+fmt(totalTVA)+'</td></tr>'
+    +'<tr class="total-row"><td colspan="3">TOTAL TTC ATTENDU</td><td>'+fmt(totalTTC)+'</td></tr>'
     +'</tbody></table>'
-    +'<p style="font-size:13px">Date de paiement : '+dateLoc+'</p>'
+    +'<div style="border:2px solid '+(isPartial?'#e74c3c':'#222')+';border-radius:6px;padding:14px;text-align:center;margin:16px 0">'
+    +'<div style="font-size:13px">SOMME PERÇUE</div>'
+    +'<div style="font-size:24px;font-weight:bold;margin:6px 0">'+fmt(totalPercu)+'</div>'
+    +'<div style="font-size:13px">LE '+dateLoc+'</div>'
+    +(caf>0?'<div style="font-size:12px;color:#555;margin-top:6px">dont part CAF : '+fmt(caf)+' — part locataire : '+fmt(locPart)+'</div>':'')
+    +(isPartial?'<div style="color:#c0392b;font-weight:bold;margin-top:8px;font-size:13px">⚠ Paiement partiel — Solde restant dû : '+fmt(soldeRestant)+'</div>':'')
+    +'</div>'
     +(commentaire?'<div style="background:#f5f5f5;border-left:3px solid #185FA5;padding:8px 12px;margin:12px 0;font-size:13px;font-style:italic;color:#444">'+commentaire+'</div>':'')
-+(tenant.dette>0?'<div style="background:#FFF3CD;border:1.5px solid #F0AD4E;border-radius:6px;padding:10px 14px;margin:12px 0;font-size:13px">'+'<strong>&#9888; Votre dette à ce jour s\'elève à : '+fmt(tenant.dette)+'</strong>'+'<br><span style="font-size:11px;color:#555">Ce montant sera inclus dans votre prochain appel de loyer.</span>'+'</div>':'')
-        +'<div class="sig-block">SCI J&A SAVADUR<br>savadur56@gmail.com<br><br><strong>JOSSE Antoine — Gérant</strong></div>'
+    +(isPartial?'<div style="background:#FFF3CD;border:1.5px solid #F0AD4E;border-radius:6px;padding:10px 14px;margin:12px 0;font-size:13px"><strong>&#9888; Solde restant dû : '+fmt(soldeRestant)+'</strong><br><span style="font-size:11px;color:#555">Ce montant sera inclus dans votre prochaine facture.</span></div>':'')
+    +'<div class="sig-block">SCI J&A SAVADUR<br>savadur56@gmail.com<br><br><strong>JOSSE Antoine — Gérant</strong></div>'
     +'<p style="font-size:11px;color:#888;margin-top:24px">Facture établie par J&A SAVADUR. TVA 20% appliquée. Conserver ce document pour votre comptabilité.</p>'
     +'</body></html>';
 }
