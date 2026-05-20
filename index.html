@@ -16,7 +16,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v105-20260428-100000">
+<meta name="version" content="v105-20260428-130000">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -5692,6 +5692,55 @@ async function saveModal(){
     if(error){alert('Erreur : '+error.message);mb.events.pop();return;}
   }
 
+  if(m.type==='add-history'){
+    const asset=S.assets.find(a=>a.id===m.assetId);if(!asset)return alert('Équipement introuvable');
+    const desc=(q('m-hdesc')?.value||'').trim();if(!desc)return alert('Description requise');
+    const h={id:'h'+Math.random().toString(36).slice(2,9),type:q('m-ht')?.value||'Entretien',date:q('m-hd')?.value||NOW,desc,cost:parseFloat(q('m-hcost')?.value)||0,by:q('m-hby')?.value||''};
+    asset.history=[...(asset.history||[]),h];
+    const {error}=await sb.from('assets').update({history:asset.history}).eq('id',asset.id);
+    if(error){alert('Erreur : '+error.message);asset.history.pop();return;}
+  }
+
+  if(m.type==='add-doc'){
+    const asset=S.assets.find(a=>a.id===m.assetId);if(!asset)return alert('Équipement introuvable');
+    const name=(q('m-dn')?.value||'').trim();if(!name)return alert('Nom requis');
+    const url=q('m-du')?.value||'';
+    const doc={id:'d'+Math.random().toString(36).slice(2,9),name,type:q('m-dt')?.value||'autre',date:q('m-dd')?.value||NOW,url};
+    asset.docs=[...(asset.docs||[]),doc];
+    const {error}=await sb.from('assets').update({docs:asset.docs}).eq('id',asset.id);
+    if(error){alert('Erreur : '+error.message);asset.docs.pop();return;}
+  }
+
+  if(m.type==='add-prop'){
+    const name=(q('m-pn')?.value||'').trim();if(!name)return alert('Nom requis');
+    if(!S.topology)S.topology={properties:[],trades:[]};
+    if(!S.topology.properties)S.topology.properties=[];
+    S.topology.properties.push({id:uid(),name,zones:[]});
+    await saveTopoToDB();
+  }
+
+  if(m.type==='add-water'||m.type==='edit-water'){
+    const logement=q('m-wlog')?.value||'';
+    const tenantId=q('m-wten')?.value||null;
+    const moisW=q('m-wmois')?.value||'';
+    const anneeW=parseInt(q('m-wannee')?.value)||new Date().getFullYear();
+    const ancIdx=parseFloat(q('m-wanc')?.value)||0;
+    const nouvIdx=parseFloat(q('m-wnouv')?.value)||0;
+    const prix=parseFloat(q('m-wprix')?.value)||0;
+    const montant=parseFloat(q('m-wmnt')?.value)||0;
+    const rec={logement,tenant_id:tenantId||null,mois:moisW,annee:anneeW,ancien_index:ancIdx,nouvel_index:nouvIdx,prix_unitaire:prix,montant};
+    if(m.type==='add-water'){
+      const {data,error}=await sb.from('water_readings').insert(rec).select().single();
+      if(error)return alert('Erreur : '+error.message);
+      if(data)S.waterReadings=[...(S.waterReadings||[]),data];
+    }else{
+      const w=m.water;
+      const {error}=await sb.from('water_readings').update(rec).eq('id',w.id);
+      if(error)return alert('Erreur : '+error.message);
+      Object.assign(w,rec);
+    }
+  }
+
   if(m.type==='add-membre-doc'){
     const mb=S.famille.find(x=>x.id===m.membreId);
     if(!mb)return;
@@ -5766,6 +5815,41 @@ async function saveModal(){
     const location2=locSel2?(locSel2.value==='__autre__'?locCustom2?.value||'':locSel2.value):locCustom2?.value||'';
     const upd={name:q('m-tn').value,category:q('m-tc').value,status:q('m-ts').value,location:location2,description:q('m-tdesc').value,notes:q('m-tnotes').value};
     await sb.from('tools').update(upd).eq('id',t.id);Object.assign(t,upd);}
+
+  if(m.type==='add-zone'){
+    const name=(q('m-zn')?.value||'').trim();if(!name)return alert('Nom requis');
+    const prop=S.topology.properties.find(p=>p.id===m.propId);if(!prop)return alert('Bien introuvable');
+    if(!prop.zones)prop.zones=[];
+    prop.zones.push({id:uid(),name,subZones:[],items:[]});
+    await saveTopoToDB();
+  }
+
+  if(m.type==='add-subzone'){
+    const name=(q('m-szn')?.value||'').trim();if(!name)return alert('Nom requis');
+    for(const p of (S.topology.properties||[])){
+      const zone=p.zones?.find(z=>z.id===m.zoneId);
+      if(zone){if(!zone.subZones)zone.subZones=[];zone.subZones.push({id:uid(),name,items:[]});break;}
+    }
+    await saveTopoToDB();
+  }
+
+  if(m.type==='add-trade'){
+    const name=(q('m-ttn')?.value||'').trim();if(!name)return alert('Nom requis');
+    const icon=q('m-tti')?.value||'🔧';
+    if(!S.topology.trades)S.topology.trades=[];
+    S.topology.trades.push({id:uid(),name,icon,items:[]});
+    await saveTopoToDB();
+  }
+
+  if(m.type==='add-topo-item'){
+    const name=(q('m-tin')?.value||'').trim();if(!name)return alert('Nom requis');
+    const notes=q('m-tinotes')?.value||'';
+    const trade=S.topology.trades?.find(t=>t.id===m.tradeId);
+    if(!trade)return alert('Corps de métier introuvable');
+    if(!trade.items)trade.items=[];
+    trade.items.push({id:uid(),name,notes});
+    await saveTopoToDB();
+  }
 
   if(m.type==='link-asset'){
     const assetId=q('m-link-asset')?.value;
@@ -8551,7 +8635,7 @@ async function autoSendQuittance(tenant,payment,mois,annee,commentaire='',isPart
   fetch('https://api.brevo.com/v3/smtp/email',{
     method:'POST',
     headers:{'api-key':BREVO_API_KEY,'Content-Type':'application/json','Accept':'application/json'},
-    body:JSON.stringify({sender:{name:FROM_NAME,email:FROM_EMAIL},to:isDubailQ?[{email:'savadur56@gmail.com',name:'J&A SAVADUR'},{email:ALERT_EMAIL,name:'Antoine JOSSE'}]:[{email:ALERT_EMAIL,name:'Antoine JOSSE'}],subject:copySubject,htmlContent:emailHtml})
+    body:JSON.stringify({sender:{name:FROM_NAME,email:FROM_EMAIL},to:isDubailQ?[{email:'savadur56@gmail.com',name:'J&A SAVADUR'}]:[{email:ALERT_EMAIL,name:'Antoine JOSSE'}],subject:copySubject,htmlContent:emailHtml})
   }).catch(e=>console.warn('Copie archive failed:',e.message));
   // Open print preview (with print button enabled)
   try{
