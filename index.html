@@ -16,7 +16,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v105-20260428-130000">
+<meta name="version" content="v105-20260428-140000">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -5739,6 +5739,19 @@ async function saveModal(){
       if(error)return alert('Erreur : '+error.message);
       Object.assign(w,rec);
     }
+  }
+
+  if(m.type==='add-wo-doc'){
+    const wo=S.workOrders.find(x=>x.id===m.woId);if(!wo)return alert('BT introuvable');
+    const name=(m._wdn||q('m-wdn')?.value||'').trim();if(!name)return alert('Nom du document requis');
+    const url=m._wdu||q('m-wdu')?.value||'';
+    const type=q('m-wdt')?.value||'autre';
+    const date=m._wdd||q('m-wdd')?.value||'';
+    const doc={id:uid(),name,url,type,date};
+    if(!wo.docs)wo.docs=[];
+    wo.docs.push(doc);
+    const {error}=await sb.from('work_orders').update({docs:wo.docs}).eq('id',wo.id);
+    if(error){alert('Erreur : '+error.message);wo.docs.pop();return;}
   }
 
   if(m.type==='add-membre-doc'){
