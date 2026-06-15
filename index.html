@@ -16,7 +16,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v105-20260601-100000">
+<meta name="version" content="v105-20260601-110000">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -1999,8 +1999,8 @@ function renderLocatif(){
           <tbody>${tList.map(t=>{
             const tPmts=pmtList.filter(p=>p.tenant_id===t.id&&p.annee===year);
             const totalPercu=tPmts.reduce((s,p)=>s+Math.round(((p.locataire_part||0)+(p.caf||0))*100)/100,0);
-            const totalAttendu=tPmts.reduce((s,p)=>s+(p.loyer||0),0);
-            const totalDette=Math.max(0,Math.round((totalAttendu-totalPercu)*100)/100);
+            const lastUnpaid=tPmts.filter(p=>!p.paye&&(p.loyer||0)>0).sort((a,b)=>(b.mois_num||0)-(a.mois_num||0))[0];
+            const totalDette=lastUnpaid?Math.max(0,Math.round(((lastUnpaid.loyer||0)-(lastUnpaid.locataire_part||0)-(lastUnpaid.caf||0))*100)/100):(t.dette||0);
             return '<tr><td style="font-weight:500;font-size:12px">'+t.nom+'</td><td style="font-size:11px;color:var(--text2)">'+t.logement+'</td><td style="font-size:12px">'+fmt(t.loyer_ref||0)+'</td>'+MONTHS.filter((_,i)=>i<new Date().getMonth()+2).map(m=>{const p=tPmts.find(x=>x.mois===m);const percu=p?(p.locataire_part||0)+(p.caf||0):0;const attendu=p?(p.loyer||0):0;const isPartial=p&&!p.paye&&percu>0&&percu<attendu-0.01;return '<td style="font-size:11px;text-align:center">'+(p?p.paye?'<span style="color:var(--green)">✓</span>':isPartial?'<span style="color:var(--amber)" title="Partiel : '+fmt(percu)+' / '+fmt(attendu)+'">~</span>':'<span style="color:var(--red)">✗</span>':'<span style="color:var(--text3)">—</span>')+'</td>';}).join('')+'<td style="font-weight:600;font-size:12px;color:var(--green)">'+fmt(totalPercu)+'</td><td style="font-weight:600;font-size:12px;color:'+(totalDette>0?'var(--red)':'var(--text2)')+'">'+fmt(totalDette)+'</td></tr>';
           }).join('')}</tbody>
         </table></div>`:''}
