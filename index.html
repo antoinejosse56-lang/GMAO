@@ -16,7 +16,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v105-20260601-110000">
+<meta name="version" content="v105-20260601-120000">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -1983,9 +1983,13 @@ function renderLocatif(){
     const persoPmts=filteredPayments.filter(p=>persoIds.has(p.tenant_id));
 
     function statsBlock(label,tList,pmtList,color){
-      const percu=pmtList.filter(p=>p.paye&&p.annee===year).reduce((s,p)=>s+(p.loyer||0),0);
-      const attendu=tList.reduce((s,t)=>s+(t.loyer_ref||0)*12,0);
-      const dettes=pmtList.filter(p=>!p.paye&&p.loyer>0&&p.annee===year).reduce((s,p)=>s+(p.loyer||0),0);
+      const activeList=tList.filter(t=>t.actif!==false&&t.nom!=='Vide');
+      const vacantList=tList.filter(t=>t.actif===false||t.nom==='Vide');
+      const activePmts=pmtList.filter(p=>activeList.some(t=>t.id===p.tenant_id));
+      const percu=activePmts.filter(p=>p.annee===year).reduce((s,p)=>s+Math.round(((p.locataire_part||0)+(p.caf||0))*100)/100,0);
+      const attendu=activeList.reduce((s,t)=>s+(t.loyer_ref||0)*(new Date().getMonth()+1),0);
+      const dettes=activePmts.filter(p=>!p.paye&&(p.loyer||0)>0&&p.annee===year).reduce((s,p)=>s+Math.max(0,Math.round(((p.loyer||0)-(p.locataire_part||0)-(p.caf||0))*100)/100),0);
+      const vacance=vacantList.reduce((s,t)=>s+(t.loyer_ref||0)*(new Date().getMonth()+1),0);
       return `<div class="card" style="margin-bottom:14px">
         <div style="font-size:13px;font-weight:600;color:${color};margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid ${color}">${label} — ${tList.length} locataire(s)</div>
         <div class="g4">
@@ -1994,9 +1998,9 @@ function renderLocatif(){
           <div class="stat"><div class="stat-l">En retard</div><div class="stat-v" style="color:var(--red)">${fmt(dettes)}</div></div>
           <div class="stat"><div class="stat-l">Taux encaissement</div><div class="stat-v" style="color:${attendu>0?'var(--blue)':'var(--text2)'}">${attendu>0?Math.round(percu/attendu*100)+'%':'—'}</div></div>
         </div>
-        ${tList.length>0?`<div style="overflow-x:auto;margin-top:10px"><table>
+        ${activeList.length>0?`<div style="overflow-x:auto;margin-top:10px"><table>
           <thead><tr><th>Locataire</th><th>Logement</th><th>Loyer réf.</th>${MONTHS.filter((_,i)=>i<new Date().getMonth()+2).map(m=>`<th style="font-size:10px">${m.slice(0,3)}</th>`).join('')}<th>Perçu</th><th>Dette</th></tr></thead>
-          <tbody>${tList.map(t=>{
+          <tbody>${activeList.map(t=>{
             const tPmts=pmtList.filter(p=>p.tenant_id===t.id&&p.annee===year);
             const totalPercu=tPmts.reduce((s,p)=>s+Math.round(((p.locataire_part||0)+(p.caf||0))*100)/100,0);
             const lastUnpaid=tPmts.filter(p=>!p.paye&&(p.loyer||0)>0).sort((a,b)=>(b.mois_num||0)-(a.mois_num||0))[0];
