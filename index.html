@@ -16,7 +16,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v105-20260601-150000">
+<meta name="version" content="v105-20260605-090000">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -2049,18 +2049,31 @@ function renderLocatif(){
   }
 
   if(tab==='dettes'){
-    const debts = tenants.map(t=>{
-      // Tous les paiements non soldés
-      const unpaid = S.rentPayments.filter(p=>p.tenant_id===t.id&&!p.paye&&p.loyer>0);
-      // Dette = solde du DERNIER paiement (le plus récent)
-      // trié par annee desc puis mois_num desc
-      const sorted = unpaid.slice().sort(function(a,b){
-        if(b.annee!==a.annee)return b.annee-a.annee;
-        return (b.mois_num||0)-(a.mois_num||0);
-      });
-      const last = sorted[0];
-      const total = last ? Math.max(0,Math.round(((last.loyer||0)-(last.locataire_part||0)-(last.caf||0))*100)/100) : (t.dette||0);
-      return {t, unpaid, total};
+    const MOISN=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+    const moisActuel=new Date().getMonth()+1;
+    const debts = tenants.filter(t=>t.actif!==false&&t.nom!=='Vide').map(t=>{
+      const loyerM=Math.round(((t.loyer_ref||0)+(t.charges||0))*(t.type_bail==='commercial'?1.2:1)*100)/100;
+      // Tous les paiements non soldés de l'année en cours
+      const realUnpaid = S.rentPayments.filter(p=>p.tenant_id===t.id&&!p.paye&&p.loyer>0&&p.annee===new Date().getFullYear());
+      const lastReal = realUnpaid.slice().sort((a,b)=>(b.mois_num||0)-(a.mois_num||0))[0];
+      const lastMoisNum = S.rentPayments.filter(p=>p.tenant_id===t.id&&(p.loyer||0)>0&&p.annee===new Date().getFullYear()).reduce((max,p)=>Math.max(max,p.mois_num||0),0);
+      // Génère les mois manquants entre lastMoisNum+1 et moisActuel (virtuels, non saisis)
+      const virtualUnpaid=[];
+      for(let mn=lastMoisNum+1;mn<=moisActuel;mn++){
+        if(!S.rentPayments.some(p=>p.tenant_id===t.id&&p.mois_num===mn&&p.annee===new Date().getFullYear())){
+          virtualUnpaid.push({mois:MOISN[mn-1],annee:new Date().getFullYear(),mois_num:mn,loyer:loyerM,locataire_part:0,caf:0,_virtual:true});
+        }
+      }
+      const unpaid=[...realUnpaid,...virtualUnpaid].sort((a,b)=>(a.mois_num||0)-(b.mois_num||0));
+      const sorted=unpaid.slice().sort((a,b)=>(b.mois_num||0)-(a.mois_num||0));
+      const last=sorted[0];
+      const total=last?Math.max(0,Math.round(((last.loyer||0)-(last.locataire_part||0)-(last.caf||0))*100)/100)+virtualUnpaid.filter(v=>v.mois_num<(lastReal?lastReal.mois_num:Infinity)).length*0:0;
+      // Recalcul total = somme des soldes (dernier réel + tous les virtuels suivants)
+      let totalDette=0;
+      if(lastReal){totalDette+=Math.max(0,Math.round(((lastReal.loyer||0)-(lastReal.locataire_part||0)-(lastReal.caf||0))*100)/100);}
+      else if(t.dette>0&&unpaid.length===0){totalDette=t.dette;}
+      totalDette+=virtualUnpaid.reduce((s,v)=>s+loyerM,0);
+      return {t, unpaid, total:totalDette};
     }).filter(x=>x.total>0).sort((a,b)=>b.total-a.total);
     return `${tabBar}
     <div class="card">
@@ -2071,7 +2084,7 @@ function renderLocatif(){
           <div class="fg">
             <div class="fgs">${t.nom} <span style="font-size:11px;color:var(--text2)">${t.logement||''}</span></div>
             <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
-              ${unpaid.map(p=>{const s=Math.max(0,(p.loyer||0)-(p.locataire_part||0)-(p.caf||0));return `<span class="badge bred" style="font-size:10px">${p.mois} ${p.annee} : ${fmt(s)} (att.${fmt(p.loyer)}/payé ${fmt((p.locataire_part||0)+(p.caf||0))})</span>`;}).join('')}
+              ${unpaid.map(p=>{const s=Math.max(0,(p.loyer||0)-(p.locataire_part||0)-(p.caf||0));return `<span class="badge bred" style="font-size:10px">${p.mois} ${p.annee} : ${fmt(s)} (att.${fmt(p.loyer)}/payé ${fmt((p.locataire_part||0)+(p.caf||0))})${p._virtual?' ⚠ non saisi':''}</span>`;}).join('')}
             </div>
           </div>
           <div style="text-align:right">
@@ -2085,7 +2098,7 @@ function renderLocatif(){
 
     if(tab==='emises'){
     const dubailTenantIds=isDubail?S.tenants.filter(t=>dubailFilter(t.logement||'')).map(t=>t.id):null;
-    const allRp=S.rentPayments.filter(p=>p.annee===year&&p.paye&&(!dubailTenantIds||dubailTenantIds.includes(p.tenant_id)));
+    const allRp=S.rentPayments.filter(p=>p.annee===year&&(p.loyer||0)>0&&((p.locataire_part||0)+(p.caf||0))>0&&(!dubailTenantIds||dubailTenantIds.includes(p.tenant_id)));
     // Releves linked to tenants (water/charges invoices)
     const allRel=S.releves.filter(r=>{
       const cpt=S.compteurs.find(c=>c.id===r.compteur_id);
