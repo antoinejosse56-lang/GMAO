@@ -16,7 +16,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v105-20260601-120000">
+<meta name="version" content="v105-20260601-130000">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -1987,9 +1987,9 @@ function renderLocatif(){
       const vacantList=tList.filter(t=>t.actif===false||t.nom==='Vide');
       const activePmts=pmtList.filter(p=>activeList.some(t=>t.id===p.tenant_id));
       const percu=activePmts.filter(p=>p.annee===year).reduce((s,p)=>s+Math.round(((p.locataire_part||0)+(p.caf||0))*100)/100,0);
-      const attendu=activeList.reduce((s,t)=>s+(t.loyer_ref||0)*(new Date().getMonth()+1),0);
+      const attendu=activeList.reduce((s,t)=>s+((t.loyer_ref||0)+(t.charges||0))*(new Date().getMonth()+1),0);
       const dettes=activePmts.filter(p=>!p.paye&&(p.loyer||0)>0&&p.annee===year).reduce((s,p)=>s+Math.max(0,Math.round(((p.loyer||0)-(p.locataire_part||0)-(p.caf||0))*100)/100),0);
-      const vacance=vacantList.reduce((s,t)=>s+(t.loyer_ref||0)*(new Date().getMonth()+1),0);
+      const vacance=vacantList.reduce((s,t)=>s+((t.loyer_ref||0)+(t.charges||0))*(new Date().getMonth()+1),0);
       return `<div class="card" style="margin-bottom:14px">
         <div style="font-size:13px;font-weight:600;color:${color};margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid ${color}">${label} — ${tList.length} locataire(s)</div>
         <div class="g4">
@@ -2003,9 +2003,14 @@ function renderLocatif(){
           <tbody>${activeList.map(t=>{
             const tPmts=pmtList.filter(p=>p.tenant_id===t.id&&p.annee===year);
             const totalPercu=tPmts.reduce((s,p)=>s+Math.round(((p.locataire_part||0)+(p.caf||0))*100)/100,0);
-            const lastUnpaid=tPmts.filter(p=>!p.paye&&(p.loyer||0)>0).sort((a,b)=>(b.mois_num||0)-(a.mois_num||0))[0];
-            const totalDette=lastUnpaid?Math.max(0,Math.round(((lastUnpaid.loyer||0)-(lastUnpaid.locataire_part||0)-(lastUnpaid.caf||0))*100)/100):(t.dette||0);
-            return '<tr><td style="font-weight:500;font-size:12px">'+t.nom+'</td><td style="font-size:11px;color:var(--text2)">'+t.logement+'</td><td style="font-size:12px">'+fmt(t.loyer_ref||0)+'</td>'+MONTHS.filter((_,i)=>i<new Date().getMonth()+2).map(m=>{const p=tPmts.find(x=>x.mois===m);const percu=p?(p.locataire_part||0)+(p.caf||0):0;const attendu=p?(p.loyer||0):0;const isPartial=p&&!p.paye&&percu>0&&percu<attendu-0.01;return '<td style="font-size:11px;text-align:center">'+(p?p.paye?'<span style="color:var(--green)">✓</span>':isPartial?'<span style="color:var(--amber)" title="Partiel : '+fmt(percu)+' / '+fmt(attendu)+'">~</span>':'<span style="color:var(--red)">✗</span>':'<span style="color:var(--text3)">—</span>')+'</td>';}).join('')+'<td style="font-weight:600;font-size:12px;color:var(--green)">'+fmt(totalPercu)+'</td><td style="font-weight:600;font-size:12px;color:'+(totalDette>0?'var(--red)':'var(--text2)')+'">'+fmt(totalDette)+'</td></tr>';
+            const loyerMensuel=Math.round(((t.loyer_ref||0)+(t.charges||0))*100)/100;
+            const moisEcoules=MONTHS.slice(0,new Date().getMonth()+1);
+            const lastSaisie=tPmts.filter(p=>(p.loyer||0)>0).sort((a,b)=>(b.mois_num||0)-(a.mois_num||0))[0];
+            const lastMoisNum=lastSaisie?lastSaisie.mois_num:0;
+            const soldeLastSaisie=lastSaisie?Math.max(0,Math.round(((lastSaisie.loyer||0)-(lastSaisie.locataire_part||0)-(lastSaisie.caf||0))*100)/100):(t.dette||0);
+            const moisSansSaisie=moisEcoules.filter((m,i)=>(i+1)>lastMoisNum).length;
+            const totalDette=Math.max(0,Math.round((soldeLastSaisie+moisSansSaisie*loyerMensuel)*100)/100);
+            return '<tr><td style="font-weight:500;font-size:12px">'+t.nom+'</td><td style="font-size:11px;color:var(--text2)">'+t.logement+'</td><td style="font-size:12px">'+fmt(loyerMensuel)+'</td>'+MONTHS.filter((_,i)=>i<new Date().getMonth()+2).map(m=>{const p=tPmts.find(x=>x.mois===m);const percu=p?(p.locataire_part||0)+(p.caf||0):0;const attendu=p?(p.loyer||0):0;const isPartial=p&&!p.paye&&percu>0&&percu<attendu-0.01;return '<td style="font-size:11px;text-align:center">'+(p?p.paye?'<span style="color:var(--green)">✓</span>':isPartial?'<span style="color:var(--amber)" title="Partiel : '+fmt(percu)+' / '+fmt(attendu)+'">~</span>':'<span style="color:var(--red)">✗</span>':'<span style="color:var(--text3)">—</span>')+'</td>';}).join('')+'<td style="font-weight:600;font-size:12px;color:var(--green)">'+fmt(totalPercu)+'</td><td style="font-weight:600;font-size:12px;color:'+(totalDette>0?'var(--red)':'var(--text2)')+'">'+fmt(totalDette)+'</td></tr>';
           }).join('')}</tbody>
         </table></div>`:''}
       </div>`;
@@ -6972,15 +6977,16 @@ function bindAll(){
   document.querySelectorAll('[data-pay-loyer]').forEach(el=>el.onclick=async()=>{
     const tId=el.dataset.payLoyer, mois=el.dataset.payMois, annee=parseInt(el.dataset.payYear);
     const tenant=S.tenants.find(t=>t.id===tId);if(!tenant)return;
+    const montantDu=Math.round(((tenant.loyer_ref||0)+(tenant.charges||0))*100)/100;
     const today=new Date().toISOString().split('T')[0];
     const existing=S.rentPayments.find(p=>p.tenant_id===tId&&p.mois===mois&&p.annee===annee);
     let payment=existing;
     if(existing){
-      await sb.from('rent_payments').update({paye:true,date_loc:today,loyer:tenant.loyer_ref,locataire_part:tenant.loyer_ref}).eq('id',existing.id);
-      existing.paye=true;existing.date_loc=today;existing.loyer=tenant.loyer_ref;existing.locataire_part=tenant.loyer_ref;
+      await sb.from('rent_payments').update({paye:true,date_loc:today,loyer:montantDu,locataire_part:montantDu}).eq('id',existing.id);
+      existing.paye=true;existing.date_loc=today;existing.loyer=montantDu;existing.locataire_part=montantDu;
     }else{
       const moisNum=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'].indexOf(mois)+1;
-      const {data}=await sb.from('rent_payments').insert({tenant_id:tId,annee,mois,mois_num:moisNum,loyer:tenant.loyer_ref,paye:true,date_loc:today,quittance_envoyee:false}).select().single();
+      const {data}=await sb.from('rent_payments').insert({tenant_id:tId,annee,mois,mois_num:moisNum,loyer:montantDu,paye:true,date_loc:today,quittance_envoyee:false}).select().single();
       if(data){S.rentPayments.push(data);payment=data;}
     }
     if(tenant.email&&payment){
@@ -7087,14 +7093,15 @@ function bindAll(){
     const today=new Date().toISOString().split('T')[0];
     const existing=S.rentPayments.find(p=>p.tenant_id===tenantId&&p.mois===mois&&p.annee===annee);
     const tenant=S.tenants.find(t=>t.id===tenantId);
+    const montantDu2=Math.round(((tenant?.loyer_ref||0)+(tenant?.charges||0))*100)/100;
     let payment=existing;
     if(existing){
-      await sb.from('rent_payments').update({paye:true,date_loc:today}).eq('id',existing.id);
-      existing.paye=true;existing.date_loc=today;
+      await sb.from('rent_payments').update({paye:true,date_loc:today,loyer:montantDu2,locataire_part:montantDu2}).eq('id',existing.id);
+      existing.paye=true;existing.date_loc=today;existing.loyer=montantDu2;existing.locataire_part=montantDu2;
     }else{
       const {data}=await sb.from('rent_payments').insert({
         tenant_id:tenantId,annee,mois,mois_num:['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'].indexOf(mois)+1,
-        loyer:tenant?.loyer_ref||0,paye:true,date_loc:today,quittance_envoyee:false
+        loyer:montantDu2,paye:true,date_loc:today,quittance_envoyee:false
       }).select().single();
       if(data){S.rentPayments.push(data);payment=data;}
     }
