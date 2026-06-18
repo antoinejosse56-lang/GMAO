@@ -16,7 +16,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v105-20260601-130000">
+<meta name="version" content="v105-20260601-150000">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -1987,9 +1987,10 @@ function renderLocatif(){
       const vacantList=tList.filter(t=>t.actif===false||t.nom==='Vide');
       const activePmts=pmtList.filter(p=>activeList.some(t=>t.id===p.tenant_id));
       const percu=activePmts.filter(p=>p.annee===year).reduce((s,p)=>s+Math.round(((p.locataire_part||0)+(p.caf||0))*100)/100,0);
-      const attendu=activeList.reduce((s,t)=>s+((t.loyer_ref||0)+(t.charges||0))*(new Date().getMonth()+1),0);
+      const loyerTTC=(t)=>{const base=(t.loyer_ref||0)+(t.charges||0);return t.type_bail==='commercial'?Math.round(base*1.2*100)/100:Math.round(base*100)/100;};
+      const attendu=activeList.reduce((s,t)=>s+loyerTTC(t)*(new Date().getMonth()+1),0);
       const dettes=activePmts.filter(p=>!p.paye&&(p.loyer||0)>0&&p.annee===year).reduce((s,p)=>s+Math.max(0,Math.round(((p.loyer||0)-(p.locataire_part||0)-(p.caf||0))*100)/100),0);
-      const vacance=vacantList.reduce((s,t)=>s+((t.loyer_ref||0)+(t.charges||0))*(new Date().getMonth()+1),0);
+      const vacance=vacantList.reduce((s,t)=>s+loyerTTC(t)*(new Date().getMonth()+1),0);
       return `<div class="card" style="margin-bottom:14px">
         <div style="font-size:13px;font-weight:600;color:${color};margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid ${color}">${label} — ${tList.length} locataire(s)</div>
         <div class="g4">
@@ -2003,7 +2004,7 @@ function renderLocatif(){
           <tbody>${activeList.map(t=>{
             const tPmts=pmtList.filter(p=>p.tenant_id===t.id&&p.annee===year);
             const totalPercu=tPmts.reduce((s,p)=>s+Math.round(((p.locataire_part||0)+(p.caf||0))*100)/100,0);
-            const loyerMensuel=Math.round(((t.loyer_ref||0)+(t.charges||0))*100)/100;
+            const loyerMensuel=loyerTTC(t);
             const moisEcoules=MONTHS.slice(0,new Date().getMonth()+1);
             const lastSaisie=tPmts.filter(p=>(p.loyer||0)>0).sort((a,b)=>(b.mois_num||0)-(a.mois_num||0))[0];
             const lastMoisNum=lastSaisie?lastSaisie.mois_num:0;
@@ -2076,6 +2077,7 @@ function renderLocatif(){
           <div style="text-align:right">
             <div style="font-size:16px;font-weight:500;color:var(--red)">${fmt(total)}</div>
             <div style="font-size:11px;color:var(--text2)">${unpaid.length} mois impayé(s)</div>
+            ${isAdmin()?`<button class="btn btn-sm btn-p" style="margin-top:6px;font-size:11px" data-remb-dette="${t.id}">💰 Rembourser</button>`:''}
           </div>
         </div>`).join('')}
     </div>`;
@@ -5252,6 +5254,24 @@ function renderModal(){
     ${mf}`;
   }
 
+  if(m.type==='remb-dette'){
+    const t=m.tenant||{};
+    const sorted=S.rentPayments.filter(p=>p.tenant_id===t.id&&!p.paye&&p.loyer>0).sort((a,b)=>{if(b.annee!==a.annee)return b.annee-a.annee;return (b.mois_num||0)-(a.mois_num||0);});
+    const last=sorted[0];
+    const detteActuelle=last?Math.max(0,Math.round(((last.loyer||0)-(last.locataire_part||0)-(last.caf||0))*100)/100):(t.dette||0);
+    html=`${mhd('Remboursement de dette — '+t.nom)}
+    <div style="background:var(--bg2);padding:10px;border-radius:var(--radius);margin-bottom:14px;font-size:13px">
+      <b>${t.logement||''}</b><br>Dette actuelle : <b style="color:var(--red)">${fmt(detteActuelle)}</b>
+    </div>
+    <div class="g2c">
+      <div class="form-group"><label>Montant remboursé (€)</label><input id="m-rd-montant" type="number" step="0.01" placeholder="0.00"></div>
+      <div class="form-group"><label>Date</label><input id="m-rd-date" type="date" value="${NOW}"></div>
+    </div>
+    <div class="form-group"><label>Commentaire / mode de paiement</label><input id="m-rd-notes" placeholder="Ex: Virement exceptionnel, chèque..."></div>
+    ${(t.remboursements&&t.remboursements.length>0)?`<div style="margin-top:10px"><div class="sec" style="margin-bottom:6px">Historique des remboursements</div>${t.remboursements.slice().reverse().map(r=>`<div style="font-size:12px;color:var(--text2);padding:4px 0;border-bottom:0.5px solid var(--border)">${r.date} — ${fmt(r.montant)} ${r.notes?'— '+r.notes:''}</div>`).join('')}</div>`:''}
+    ${mf}`;
+  }
+
   if(m.type==='saisie-loyer'){
     const t=m.tenant||{};
     const p=m.existing||{};
@@ -5765,6 +5785,35 @@ async function saveModal(){
     wo.docs.push(doc);
     const {error}=await sb.from('work_orders').update({docs:wo.docs}).eq('id',wo.id);
     if(error){alert('Erreur : '+error.message);wo.docs.pop();return;}
+  }
+
+  if(m.type==='remb-dette'){
+    const t=S.tenants.find(x=>x.id===m.tenantId);if(!t)return alert('Locataire introuvable');
+    const montant=parseFloat(q('m-rd-montant')?.value)||0;if(montant<=0)return alert('Montant invalide');
+    const date=q('m-rd-date')?.value||NOW;
+    const notes=q('m-rd-notes')?.value||'';
+    const remb={id:uid(),montant,date,notes};
+    if(!t.remboursements)t.remboursements=[];
+    t.remboursements.push(remb);
+    // Réduit la dette : on diminue le solde du dernier paiement non soldé en priorité, sinon t.dette
+    const sorted=S.rentPayments.filter(p=>p.tenant_id===t.id&&!p.paye&&p.loyer>0).sort((a,b)=>{if(b.annee!==a.annee)return b.annee-a.annee;return (b.mois_num||0)-(a.mois_num||0);});
+    let resteARepartir=montant;
+    for(const p of sorted){
+      const soldeP=Math.max(0,Math.round(((p.loyer||0)-(p.locataire_part||0)-(p.caf||0))*100)/100);
+      if(soldeP<=0)continue;
+      const applique=Math.min(resteARepartir,soldeP);
+      const newLocPart=Math.round(((p.locataire_part||0)+applique)*100)/100;
+      await sb.from('rent_payments').update({locataire_part:newLocPart,paye:newLocPart+( p.caf||0)>=p.loyer-0.01}).eq('id',p.id);
+      p.locataire_part=newLocPart;
+      if(newLocPart+(p.caf||0)>=p.loyer-0.01)p.paye=true;
+      resteARepartir=Math.round((resteARepartir-applique)*100)/100;
+      if(resteARepartir<=0)break;
+    }
+    const newDette=Math.max(0,Math.round(((t.dette||0)-resteARepartir)*100)/100);
+    const {error}=await sb.from('tenants').update({dette:newDette,remboursements:t.remboursements}).eq('id',t.id);
+    if(error){alert('Erreur : '+error.message);t.remboursements.pop();return;}
+    t.dette=newDette;
+    alert('✓ Remboursement de '+fmt(montant)+' enregistré.');
   }
 
   if(m.type==='add-membre-doc'){
@@ -6977,7 +7026,7 @@ function bindAll(){
   document.querySelectorAll('[data-pay-loyer]').forEach(el=>el.onclick=async()=>{
     const tId=el.dataset.payLoyer, mois=el.dataset.payMois, annee=parseInt(el.dataset.payYear);
     const tenant=S.tenants.find(t=>t.id===tId);if(!tenant)return;
-    const montantDu=Math.round(((tenant.loyer_ref||0)+(tenant.charges||0))*100)/100;
+    const montantDu=tenant.type_bail==='commercial'?Math.round(((tenant.loyer_ref||0)+(tenant.charges||0))*1.2*100)/100:Math.round(((tenant.loyer_ref||0)+(tenant.charges||0))*100)/100;
     const today=new Date().toISOString().split('T')[0];
     const existing=S.rentPayments.find(p=>p.tenant_id===tId&&p.mois===mois&&p.annee===annee);
     let payment=existing;
@@ -7009,6 +7058,11 @@ function bindAll(){
     const tenant=S.tenants.find(t=>t.id===tId);
     const existing=S.rentPayments.find(p=>p.tenant_id===tId&&p.mois===mois&&p.annee===annee);
     S.modal={type:'saisie-loyer',tenantId:tId,mois,annee,existing,tenant};render();
+  });
+  document.querySelectorAll('[data-remb-dette]').forEach(el=>el.onclick=()=>{
+    const tId=el.dataset.rembDette;
+    const tenant=S.tenants.find(t=>t.id===tId);
+    if(tenant)S.modal={type:'remb-dette',tenantId:tId,tenant};render();
   });
   document.querySelectorAll('[data-loc-annee]').forEach(el=>el.onclick=()=>{S.locAnnee=parseInt(el.dataset.locAnnee);render();});
 
@@ -7093,7 +7147,7 @@ function bindAll(){
     const today=new Date().toISOString().split('T')[0];
     const existing=S.rentPayments.find(p=>p.tenant_id===tenantId&&p.mois===mois&&p.annee===annee);
     const tenant=S.tenants.find(t=>t.id===tenantId);
-    const montantDu2=Math.round(((tenant?.loyer_ref||0)+(tenant?.charges||0))*100)/100;
+    const montantDu2=tenant?.type_bail==='commercial'?Math.round(((tenant?.loyer_ref||0)+(tenant?.charges||0))*1.2*100)/100:Math.round(((tenant?.loyer_ref||0)+(tenant?.charges||0))*100)/100;
     let payment=existing;
     if(existing){
       await sb.from('rent_payments').update({paye:true,date_loc:today,loyer:montantDu2,locataire_part:montantDu2}).eq('id',existing.id);
