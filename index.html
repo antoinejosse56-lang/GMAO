@@ -1095,7 +1095,7 @@ function renderTasks(){
 
 function renderWorkOrders(){
   const assets = accessAssets(S.currentUser);
-  if(!S.woSearch) S.woSearch={prop:'',zone:'',sub:'',asset:'',status:'all'};
+  if(!S.woSearch) S.woSearch={prop:'',zone:'',sub:'',asset:'',status:localStorage.getItem('gmao_wo_status_filter')||'open'};
   const sf = S.woSearch;
 
   const wos = getFilteredWOs().filter(w=>isAdmin()||!w.asset_id||assets.map(a=>a.id).includes(w.asset_id)||isDubailProfile());
@@ -1168,7 +1168,7 @@ function renderWorkOrders(){
     return `<div class="wo-card">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:6px">
         <div>
-          <div style="font-size:14px;font-weight:600;color:var(--text)">${w.title}${w.source==='gamme'?` <span class="badge bteal" style="font-size:10px" title="BT généré automatiquement depuis une gamme d'entretien">⚙ Gamme</span>`:''}</div>
+          <div style="font-size:14px;font-weight:600;color:var(--text)">${w.title}${w.source==='gamme'?` <span class="badge bteal" style="font-size:10px" title="BT généré automatiquement depuis une gamme d'entretien">⚙ Gamme</span>${(()=>{const mt=S.maintenanceTemplates.find(x=>x.id===w.gamme_id);const d=mt?.type==='periodic'?mt?.next_due:mt?.due_date;if(!d)return '';const days=Math.ceil((new Date(d)-new Date())/86400000);if(days>=0)return '';return ` <span class="badge bred" style="font-size:10px">⚠ ${-days}j retard</span>`;})()}`:''}</div>
           ${locationLabel?`<div style="font-size:11px;color:var(--blue);margin-top:1px">📍 ${locationLabel}</div>`:''}
           <div style="font-size:11px;color:var(--text2)">${asset?`🔧 ${asset.name} · `:''}${dateLabel(w.date)}</div>
         </div>
@@ -7363,12 +7363,12 @@ function bindAll(){
   const wfa=document.getElementById('wo-filter-asset');
   const wfst=document.getElementById('wo-filter-status');
   const wfr=document.getElementById('wo-reset-filters');
-  if(!S.woSearch)S.woSearch={prop:'',zone:'',sub:'',asset:'',status:'all'};
+  if(!S.woSearch)S.woSearch={prop:'',zone:'',sub:'',asset:'',status:localStorage.getItem('gmao_wo_status_filter')||'open'};
   if(wfp)wfp.onchange=()=>{S.woSearch.prop=wfp.value;S.woSearch.zone='';S.woSearch.sub='';render();};
   if(wfz)wfz.onchange=()=>{S.woSearch.zone=wfz.value;S.woSearch.sub='';render();};
   if(wfs)wfs.onchange=()=>{S.woSearch.sub=wfs.value;render();};
   if(wfa)wfa.onchange=()=>{S.woSearch.asset=wfa.value;render();};
-  if(wfst)wfst.onchange=()=>{S.woSearch.status=wfst.value;render();};
+  if(wfst)wfst.onchange=()=>{S.woSearch.status=wfst.value;localStorage.setItem('gmao_wo_status_filter',wfst.value);render()};
   if(wfr)wfr.onclick=()=>{S.woSearch={prop:'',zone:'',sub:'',asset:'',status:'all'};S.filter.cat='all';render();};
 
   // Checklist toggle
