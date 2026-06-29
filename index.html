@@ -8256,7 +8256,7 @@ async function checkAutoGenerateBTs(){
     if(!echeance)continue;
     const daysLeft=Math.ceil((new Date(echeance)-today)/86400000);
     // Déclencher si on est dans la fenêtre (entre 0 et bt_jours_avant jours avant)
-    if(daysLeft>mt.bt_jours_avant||daysLeft<-7)continue; // -7 = grace period
+    if(daysLeft>mt.bt_jours_avant||daysLeft<-(mt.bt_jours_avant||30))continue; // grace period = périodicité
     // Vérifier qu'il n'y a pas déjà un BT ouvert issu de cette gamme
     const existingOpenBT=S.workOrders.find(w=>
       w.status==='open'&&w.source==='gamme'&&w.gamme_id===mt.id
