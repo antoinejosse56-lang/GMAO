@@ -16,7 +16,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v105-20260605-090000">
+<meta name="version" content="v105-20260629-050018">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -1168,7 +1168,7 @@ function renderWorkOrders(){
     return `<div class="wo-card">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:6px">
         <div>
-          <div style="font-size:14px;font-weight:600;color:var(--text)">${w.title}</div>
+          <div style="font-size:14px;font-weight:600;color:var(--text)">${w.title}${w.source==='gamme'?` <span class="badge bteal" style="font-size:10px" title="BT généré automatiquement depuis une gamme d'entretien">⚙ Gamme</span>`:''}</div>
           ${locationLabel?`<div style="font-size:11px;color:var(--blue);margin-top:1px">📍 ${locationLabel}</div>`:''}
           <div style="font-size:11px;color:var(--text2)">${asset?`🔧 ${asset.name} · `:''}${dateLabel(w.date)}</div>
         </div>
@@ -1983,14 +1983,9 @@ function renderLocatif(){
     const persoPmts=filteredPayments.filter(p=>persoIds.has(p.tenant_id));
 
     function statsBlock(label,tList,pmtList,color){
-      const activeList=tList.filter(t=>t.actif!==false&&t.nom!=='Vide');
-      const vacantList=tList.filter(t=>t.actif===false||t.nom==='Vide');
-      const activePmts=pmtList.filter(p=>activeList.some(t=>t.id===p.tenant_id));
-      const percu=activePmts.filter(p=>p.annee===year).reduce((s,p)=>s+Math.round(((p.locataire_part||0)+(p.caf||0))*100)/100,0);
-      const loyerTTC=(t)=>{const base=(t.loyer_ref||0)+(t.charges||0);return t.type_bail==='commercial'?Math.round(base*1.2*100)/100:Math.round(base*100)/100;};
-      const attendu=activeList.reduce((s,t)=>s+loyerTTC(t)*(new Date().getMonth()+1),0);
-      const dettes=activePmts.filter(p=>!p.paye&&(p.loyer||0)>0&&p.annee===year).reduce((s,p)=>s+Math.max(0,Math.round(((p.loyer||0)-(p.locataire_part||0)-(p.caf||0))*100)/100),0);
-      const vacance=vacantList.reduce((s,t)=>s+loyerTTC(t)*(new Date().getMonth()+1),0);
+      const percu=pmtList.filter(p=>p.paye&&p.annee===year).reduce((s,p)=>s+(p.loyer||0),0);
+      const attendu=tList.reduce((s,t)=>s+(t.loyer_ref||0)*12,0);
+      const dettes=pmtList.filter(p=>!p.paye&&p.loyer>0&&p.annee===year).reduce((s,p)=>s+(p.loyer||0),0);
       return `<div class="card" style="margin-bottom:14px">
         <div style="font-size:13px;font-weight:600;color:${color};margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid ${color}">${label} — ${tList.length} locataire(s)</div>
         <div class="g4">
@@ -1999,19 +1994,12 @@ function renderLocatif(){
           <div class="stat"><div class="stat-l">En retard</div><div class="stat-v" style="color:var(--red)">${fmt(dettes)}</div></div>
           <div class="stat"><div class="stat-l">Taux encaissement</div><div class="stat-v" style="color:${attendu>0?'var(--blue)':'var(--text2)'}">${attendu>0?Math.round(percu/attendu*100)+'%':'—'}</div></div>
         </div>
-        ${activeList.length>0?`<div style="overflow-x:auto;margin-top:10px"><table>
-          <thead><tr><th>Locataire</th><th>Logement</th><th>Loyer réf.</th>${MONTHS.filter((_,i)=>i<new Date().getMonth()+2).map(m=>`<th style="font-size:10px">${m.slice(0,3)}</th>`).join('')}<th>Perçu</th><th>Dette</th></tr></thead>
-          <tbody>${activeList.map(t=>{
+        ${tList.length>0?`<div style="overflow-x:auto;margin-top:10px"><table>
+          <thead><tr><th>Locataire</th><th>Logement</th><th>Loyer réf.</th>${MONTHS.filter((_,i)=>i<new Date().getMonth()+2).map(m=>`<th style="font-size:10px">${m.slice(0,3)}</th>`).join('')}<th>Total</th></tr></thead>
+          <tbody>${tList.map(t=>{
             const tPmts=pmtList.filter(p=>p.tenant_id===t.id&&p.annee===year);
-            const totalPercu=tPmts.reduce((s,p)=>s+Math.round(((p.locataire_part||0)+(p.caf||0))*100)/100,0);
-            const loyerMensuel=loyerTTC(t);
-            const moisEcoules=MONTHS.slice(0,new Date().getMonth()+1);
-            const lastSaisie=tPmts.filter(p=>(p.loyer||0)>0).sort((a,b)=>(b.mois_num||0)-(a.mois_num||0))[0];
-            const lastMoisNum=lastSaisie?lastSaisie.mois_num:0;
-            const soldeLastSaisie=lastSaisie?Math.max(0,Math.round(((lastSaisie.loyer||0)-(lastSaisie.locataire_part||0)-(lastSaisie.caf||0))*100)/100):(t.dette||0);
-            const moisSansSaisie=moisEcoules.filter((m,i)=>(i+1)>lastMoisNum).length;
-            const totalDette=Math.max(0,Math.round((soldeLastSaisie+moisSansSaisie*loyerMensuel)*100)/100);
-            return '<tr><td style="font-weight:500;font-size:12px">'+t.nom+'</td><td style="font-size:11px;color:var(--text2)">'+t.logement+'</td><td style="font-size:12px">'+fmt(loyerMensuel)+'</td>'+MONTHS.filter((_,i)=>i<new Date().getMonth()+2).map(m=>{const p=tPmts.find(x=>x.mois===m);const percu=p?(p.locataire_part||0)+(p.caf||0):0;const attendu=p?(p.loyer||0):0;const isPartial=p&&!p.paye&&percu>0&&percu<attendu-0.01;return '<td style="font-size:11px;text-align:center">'+(p?p.paye?'<span style="color:var(--green)">✓</span>':isPartial?'<span style="color:var(--amber)" title="Partiel : '+fmt(percu)+' / '+fmt(attendu)+'">~</span>':'<span style="color:var(--red)">✗</span>':'<span style="color:var(--text3)">—</span>')+'</td>';}).join('')+'<td style="font-weight:600;font-size:12px;color:var(--green)">'+fmt(totalPercu)+'</td><td style="font-weight:600;font-size:12px;color:'+(totalDette>0?'var(--red)':'var(--text2)')+'">'+fmt(totalDette)+'</td></tr>';
+            const total=tPmts.filter(p=>p.paye).reduce((s,p)=>s+(p.loyer||0),0);
+            return '<tr><td style="font-weight:500;font-size:12px">'+t.nom+'</td><td style="font-size:11px;color:var(--text2)">'+t.logement+'</td><td style="font-size:12px">'+fmt(t.loyer_ref||0)+'</td>'+MONTHS.filter((_,i)=>i<new Date().getMonth()+2).map(m=>{const p=tPmts.find(x=>x.mois===m);return '<td style="font-size:11px;text-align:center">'+(p?p.paye?'<span style="color:var(--green)">✓</span>':'<span style="color:var(--amber)">…</span>':'<span style="color:var(--text3)">—</span>')+'</td>';}).join('')+'<td style="font-weight:600;font-size:12px">'+fmt(total)+'</td></tr>';
           }).join('')}</tbody>
         </table></div>`:''}
       </div>`;
@@ -2049,31 +2037,18 @@ function renderLocatif(){
   }
 
   if(tab==='dettes'){
-    const MOISN=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
-    const moisActuel=new Date().getMonth()+1;
-    const debts = tenants.filter(t=>t.actif!==false&&t.nom!=='Vide').map(t=>{
-      const loyerM=Math.round(((t.loyer_ref||0)+(t.charges||0))*(t.type_bail==='commercial'?1.2:1)*100)/100;
-      // Tous les paiements non soldés de l'année en cours
-      const realUnpaid = S.rentPayments.filter(p=>p.tenant_id===t.id&&!p.paye&&p.loyer>0&&p.annee===new Date().getFullYear());
-      const lastReal = realUnpaid.slice().sort((a,b)=>(b.mois_num||0)-(a.mois_num||0))[0];
-      const lastMoisNum = S.rentPayments.filter(p=>p.tenant_id===t.id&&(p.loyer||0)>0&&p.annee===new Date().getFullYear()).reduce((max,p)=>Math.max(max,p.mois_num||0),0);
-      // Génère les mois manquants entre lastMoisNum+1 et moisActuel (virtuels, non saisis)
-      const virtualUnpaid=[];
-      for(let mn=lastMoisNum+1;mn<=moisActuel;mn++){
-        if(!S.rentPayments.some(p=>p.tenant_id===t.id&&p.mois_num===mn&&p.annee===new Date().getFullYear())){
-          virtualUnpaid.push({mois:MOISN[mn-1],annee:new Date().getFullYear(),mois_num:mn,loyer:loyerM,locataire_part:0,caf:0,_virtual:true});
-        }
-      }
-      const unpaid=[...realUnpaid,...virtualUnpaid].sort((a,b)=>(a.mois_num||0)-(b.mois_num||0));
-      const sorted=unpaid.slice().sort((a,b)=>(b.mois_num||0)-(a.mois_num||0));
-      const last=sorted[0];
-      const total=last?Math.max(0,Math.round(((last.loyer||0)-(last.locataire_part||0)-(last.caf||0))*100)/100)+virtualUnpaid.filter(v=>v.mois_num<(lastReal?lastReal.mois_num:Infinity)).length*0:0;
-      // Recalcul total = somme des soldes (dernier réel + tous les virtuels suivants)
-      let totalDette=0;
-      if(lastReal){totalDette+=Math.max(0,Math.round(((lastReal.loyer||0)-(lastReal.locataire_part||0)-(lastReal.caf||0))*100)/100);}
-      else if(t.dette>0&&unpaid.length===0){totalDette=t.dette;}
-      totalDette+=virtualUnpaid.reduce((s,v)=>s+loyerM,0);
-      return {t, unpaid, total:totalDette};
+    const debts = tenants.map(t=>{
+      // Tous les paiements non soldés
+      const unpaid = S.rentPayments.filter(p=>p.tenant_id===t.id&&!p.paye&&p.loyer>0);
+      // Dette = solde du DERNIER paiement (le plus récent)
+      // trié par annee desc puis mois_num desc
+      const sorted = unpaid.slice().sort(function(a,b){
+        if(b.annee!==a.annee)return b.annee-a.annee;
+        return (b.mois_num||0)-(a.mois_num||0);
+      });
+      const last = sorted[0];
+      const total = last ? Math.max(0,Math.round(((last.loyer||0)-(last.locataire_part||0)-(last.caf||0))*100)/100) : (t.dette||0);
+      return {t, unpaid, total};
     }).filter(x=>x.total>0).sort((a,b)=>b.total-a.total);
     return `${tabBar}
     <div class="card">
@@ -2084,13 +2059,12 @@ function renderLocatif(){
           <div class="fg">
             <div class="fgs">${t.nom} <span style="font-size:11px;color:var(--text2)">${t.logement||''}</span></div>
             <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
-              ${unpaid.map(p=>{const s=Math.max(0,(p.loyer||0)-(p.locataire_part||0)-(p.caf||0));return `<span class="badge bred" style="font-size:10px">${p.mois} ${p.annee} : ${fmt(s)} (att.${fmt(p.loyer)}/payé ${fmt((p.locataire_part||0)+(p.caf||0))})${p._virtual?' ⚠ non saisi':''}</span>`;}).join('')}
+              ${unpaid.map(p=>{const s=Math.max(0,(p.loyer||0)-(p.locataire_part||0)-(p.caf||0));return `<span class="badge bred" style="font-size:10px">${p.mois} ${p.annee} : ${fmt(s)} (att.${fmt(p.loyer)}/payé ${fmt((p.locataire_part||0)+(p.caf||0))})</span>`;}).join('')}
             </div>
           </div>
           <div style="text-align:right">
             <div style="font-size:16px;font-weight:500;color:var(--red)">${fmt(total)}</div>
             <div style="font-size:11px;color:var(--text2)">${unpaid.length} mois impayé(s)</div>
-            ${isAdmin()?`<button class="btn btn-sm btn-p" style="margin-top:6px;font-size:11px" data-remb-dette="${t.id}">💰 Rembourser</button>`:''}
           </div>
         </div>`).join('')}
     </div>`;
@@ -2098,7 +2072,7 @@ function renderLocatif(){
 
     if(tab==='emises'){
     const dubailTenantIds=isDubail?S.tenants.filter(t=>dubailFilter(t.logement||'')).map(t=>t.id):null;
-    const allRp=S.rentPayments.filter(p=>p.annee===year&&(p.loyer||0)>0&&((p.locataire_part||0)+(p.caf||0))>0&&(!dubailTenantIds||dubailTenantIds.includes(p.tenant_id)));
+    const allRp=S.rentPayments.filter(p=>p.annee===year&&p.paye&&(!dubailTenantIds||dubailTenantIds.includes(p.tenant_id)));
     // Releves linked to tenants (water/charges invoices)
     const allRel=S.releves.filter(r=>{
       const cpt=S.compteurs.find(c=>c.id===r.compteur_id);
@@ -2178,8 +2152,7 @@ function renderLocatif(){
               +'<td style="text-align:center">'+st+'</td>'
               +'<td style="text-align:center;white-space:nowrap">'
                 +'<button class="btn btn-sm" data-print-releve="'+r.id+'" style="font-size:10px;padding:2px 5px" title="Imprimer">&#128438;</button>'
-                +(!r.facture_envoyee?'<button class="btn btn-sm" style="font-size:10px;padding:2px 5px;margin-left:3px;background:var(--green);color:#fff" data-send-facture-eau="'+r.id+'" title="Envoyer facture">&#128233; Facturer</button>':'')
-                +(r.facture_envoyee&&!r.paye?'<button class="btn btn-sm" style="font-size:10px;padding:2px 5px;margin-left:3px;background:var(--amber);color:#fff" data-relance-releve="'+r.id+'" title="Envoyer relance">&#128233; Relance</button>':'')
+                +'<button class="btn btn-sm" style="font-size:10px;padding:2px 5px;margin-left:3px;background:var(--amber);color:#fff" data-relance-releve="'+r.id+'" title="Envoyer relance">&#128233;</button>'
                 +(isAdmin()?'<button class="btn btn-d btn-sm" data-del-releve="'+r.id+'" style="font-size:10px;padding:2px 5px;margin-left:3px">&#10005;</button>':'')
               +'</td></tr>';
           }).join('');
@@ -3291,7 +3264,7 @@ function renderFamille(){
         +'<td style="padding:2px 3px;text-align:center"><input type="time" class="creche-arr-tard" data-day="'+d+'" value="'+(s?.arrivee_tardive||'')+'" style="width:75px;font-size:11px;padding:2px 3px;border:0.5px solid var(--amber);border-radius:3px;background:var(--bg)'+(isWE?';opacity:0.3':'')+'"></td>'
         // Départ anticipé (déduire)
         +'<td style="padding:2px 3px;text-align:center"><input type="time" class="creche-dep-antic" data-day="'+d+'" value="'+(s?.depart_anticipe||'')+'" style="width:75px;font-size:11px;padding:2px 3px;border:0.5px solid var(--amber);border-radius:3px;background:var(--bg)'+(isWE?';opacity:0.3':'')+'"></td>'
-        // Absence
+        // Absence autorisée
         +'<td style="padding:2px 3px;text-align:center"><input type="checkbox" class="creche-absent" data-day="'+d+'" '+(absent?'checked':'')+' style="width:15px;height:15px;accent-color:var(--amber)"></td>'
         +'</tr>';
     }).join('');
@@ -3674,18 +3647,16 @@ function printCsoLabel(cso, siteUrl){
 
 
 function buildCrechePdf(){
-  const crecheMembers=S.famille.filter(m=>m.type_membre==='creche');
-  const enf=S.famille.find(x=>x.id===S.familleEnfant)||(crecheMembers[0]||null);
-  if(!enf){alert('Aucun enfant sélectionné');return;}
+  const enf=S.famille.find(x=>x.id===(S.familleEnfant||(S.famille[0]?.id)));
+  if(!enf){alert('Aucun enfant s\u00e9lectionn\u00e9');return;}
   const y=S.familleYear||new Date().getFullYear();
   const mo=(S.familleMonth!=null?S.familleMonth:new Date().getMonth());
-  const MOIS=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+  const MOIS=['Janvier','F\u00e9vrier','Mars','Avril','Mai','Juin','Juillet','Ao\u00fbt','Septembre','Octobre','Novembre','D\u00e9cembre'];
   const JOURS=['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'];
   const c=enf.contrat_creche||{};
   const depDef=c.heure_dep_defaut||'09:00';
   const recDef=c.heure_rec_defaut||'16:30';
-  // mois en DB = 1-based (mo est 0-based donc mo+1)
-  const saisies=S.crecheSaisies.filter(s=>s.enfant_id===enf.id&&s.annee===y&&s.mois===(mo+1));
+  const saisies=S.crecheSaisies.filter(s=>s.enfant_id===enf.id&&s.annee===y&&s.mois===mo+1);
   const daysInM=new Date(y,mo+1,0).getDate();
   const rows=[];
   let prevWasFriday=false;
@@ -3693,31 +3664,19 @@ function buildCrechePdf(){
     const date=new Date(y,mo,d);
     const dow=date.getDay();
     if(dow===0||dow===6)continue;
+    // Separator between friday and following monday
     if(prevWasFriday&&dow===1){
       rows.push('<tr><td colspan="3" style="border:none;height:10px;border-top:2px solid #1D9E75;padding:0"></td></tr>');
     }
     const s=saisies.find(x=>x.jour===d);
-    // Absence : true uniquement si explicitement coché
-    const absent=s&&s.absence_autorisee===true;
-    // Horaires contrat modifiés, sinon horaires par défaut
-    const depC=(s&&s.heure_contrat_dep)?s.heure_contrat_dep:depDef;
-    const recC=(s&&s.heure_contrat_rec)?s.heure_contrat_rec:recDef;
-    const modified=s&&(s.heure_contrat_dep||s.heure_contrat_rec)&&!absent;
-    const moisStr=String(mo+1).padStart(2,'0');
-    const jourStr=String(d).padStart(2,'0');
-    const dateStr=JOURS[dow]+' '+jourStr+'/'+moisStr+'/'+y;
-    if(absent){
-      rows.push('<tr style="background:#FFF0F0;color:#999">'
-        +'<td style="padding:5px 10px">'+dateStr+'</td>'
-        +'<td colspan="2" style="text-align:center;padding:5px 10px;font-style:italic">Absence</td>'
-        +'</tr>');
-    } else {
-      rows.push('<tr'+(modified?' style="background:#FFF9E6;font-weight:600"':'')+'>'
-        +'<td style="padding:5px 10px">'+dateStr+'</td>'
-        +'<td style="text-align:center;padding:5px 10px">'+depC+'</td>'
-        +'<td style="text-align:center;padding:5px 10px">'+recC+'</td>'
-        +'</tr>');
-    }
+    const depC=s?.heure_contrat_dep||depDef;
+    const recC=s?.heure_contrat_rec||recDef;
+    const modified=s&&(s.heure_contrat_dep||s.heure_contrat_rec);
+    rows.push('<tr'+(modified?' style="background:#FFF9E6;font-weight:600"':'')+'>'
+      +'<td style="padding:5px 10px">'+JOURS[dow]+' '+(''+d).padStart(2,'0')+'/'+('+'+(mo+1)).padStart(2,'0')+'/'+y+'</td>'
+      +'<td style="text-align:center;padding:5px 10px">'+depC+'</td>'
+      +'<td style="text-align:center;padding:5px 10px">'+recC+'</td>'
+      +'</tr>');
     prevWasFriday=(dow===5);
   }
   const html='<!DOCTYPE html><html><head><meta charset="UTF-8">'
@@ -3734,17 +3693,17 @@ function buildCrechePdf(){
     +'@media print{.printbtn{display:none}body{padding:15px}}'
     +'</style></head><body>'
     +'<button class="printbtn" onclick="window.print()">&#128424; Imprimer / PDF</button>'
-    +'<h1>&#128118; Planning crèche — '+MOIS[mo]+' '+y+'</h1>'
+    +'<h1>&#128118; Planning cr\u00e8che \u2014 '+MOIS[mo]+' '+y+'</h1>'
     +'<h2>'+enf.prenom+' '+(enf.nom||'')+'</h2>'
     +'<table>'
       +'<thead><tr>'
         +'<th>Jour</th>'
-        +'<th style="text-align:center">Heure dépose</th>'
-        +'<th style="text-align:center">Heure récupération</th>'
+        +'<th style="text-align:center">Heure d\u00e9pose</th>'
+        +'<th style="text-align:center">Heure r\u00e9cup\u00e9ration</th>'
       +'</tr></thead>'
       +'<tbody>'+rows.join('')+'</tbody>'
     +'</table>'
-    +'<p class="legend">Lignes fond jaune = horaires modifiés par rapport au contrat standard ('+depDef+' → '+recDef+')</p>'
+    +'<p class="legend">Lignes fond jaune = horaires modifi\u00e9s par rapport au contrat standard ('+depDef+' \u2192 '+recDef+')</p>'
     +'</body></html>';
   const blob=new Blob([html],{type:'text/html'});
   const url=URL.createObjectURL(blob);
@@ -3752,7 +3711,6 @@ function buildCrechePdf(){
   document.body.appendChild(a);a.click();document.body.removeChild(a);
   setTimeout(()=>URL.revokeObjectURL(url),60000);
 }
-
 
 
 function buildEcolePdf(type){
@@ -4034,6 +3992,8 @@ function renderMaintenance(){
       const d = mt.type==='periodic' ? mt.next_due : mt.due_date;
       const days = daysUntil(d);
       const user = S.users.find(u=>u.id===mt.assigned_to);
+      // BT auto lié ouvert
+      const linkedBT=S.workOrders.find(w=>w.status==='open'&&w.source==='gamme'&&w.gamme_id===mt.id);
       return `<div class="card">
         <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px">
           <div>
@@ -4051,7 +4011,8 @@ function renderMaintenance(){
         ${mt.type==='periodic'?`<div style="font-size:11px;color:var(--text3);margin-top:3px">Dernière : ${dateLabel(mt.last_done)}</div>`:''}
         ${user?`<div style="font-size:11px;color:var(--text3)">Assigné : ${user.name}</div>`:''}
         <div style="display:flex;gap:6px;margin-top:8px;align-items:center;flex-wrap:wrap">
-          ${mt.auto_bt?`<span class="badge bteal" title="Génère un BT automatiquement">⚙ Auto-BT</span>`:''}
+          ${mt.auto_bt?`<span class="badge bteal" title="BT auto ${mt.bt_jours_avant||'?'}j avant">⚙ Auto-BT</span>`:''}
+          ${linkedBT?`<span class="badge bamber" title="BT ouvert lié à cette gamme">📋 BT en cours</span>`:''}
           ${canEdit()?`<button class="btn btn-sm btn-p" data-done-mt="${mt.id}">✓ Réalisé</button>`:''}
           ${canEdit()?`<button class="btn btn-sm" data-edit-mt="${mt.id}">✎</button> `:''}${isAdmin()?`<button class="btn btn-d btn-sm" data-del-mt="${mt.id}">✕</button>`:''}
           <a class="btn btn-sm" href="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent('https://antoinejosse56-lang.github.io/GMAO/?action=done&mt='+mt.id)}" target="_blank" title="Télécharger QR Code" style="text-decoration:none">⬡ QR</a>
@@ -4773,6 +4734,31 @@ function renderModal(){
       <div class="form-group"><label>Dernière réalisation</label><input id="m-mlast" type="date" value="${mt.last_done||''}"></div>
     </div>`:''}
     <div class="form-group"><label>Prochaine échéance</label><input id="m-mnext" type="date" value="${mt.next_due||mt.due_date||''}"></div>
+    <div style="border:0.5px solid var(--border2);border-radius:var(--radius);padding:12px;margin-bottom:12px;background:var(--bg2)">
+      <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:10px">⚙ Génération automatique de BT</div>
+      <div class="form-group" style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <input type="checkbox" id="m-mautobt" ${mt.auto_bt?'checked':''} style="width:16px;height:16px;cursor:pointer" onchange="document.getElementById('m-mautobt-opts').style.display=this.checked?'block':'none'">
+        <label for="m-mautobt" style="font-weight:500;cursor:pointer;font-size:13px">Générer un BT automatiquement X jours avant l'échéance</label>
+      </div>
+      <div id="m-mautobt-opts" style="display:${mt.auto_bt?'block':'none'}">
+        <div class="g2c">
+          <div class="form-group"><label>Jours avant l'échéance</label>
+            <input id="m-mbt-jours" type="number" min="1" max="365" value="${mt.bt_jours_avant||30}" placeholder="Ex: 30">
+          </div>
+          <div class="form-group"><label>Catégorie du BT généré</label>
+            <select id="m-mbtcat">
+              ${['Entretien','Réparation','Amélioration','Urgence'].map(c=>`<option value="${c}" ${(mt.bt_category||'Entretien')===c?'selected':''}>${c}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+        <div class="form-group"><label>Recalcul de l'échéance après validation</label>
+          <select id="m-mbt-recalcul">
+            <option value="validation" ${(mt.bt_recalcul||'validation')==='validation'?'selected':''}>Depuis la date de validation (ex: vidange → repart de la date d'intervention)</option>
+            <option value="echeance" ${mt.bt_recalcul==='echeance'?'selected':''}>Depuis l'échéance prévue (ex: contrôle extincteur → date fixe)</option>
+          </select>
+        </div>
+      </div>
+    </div>
     <div class="form-group"><label>🔔 M'alerter par email</label>
       <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
         <input type="checkbox" id="m-mtalert-on" ${mt.alert_days?'checked':''} onchange="document.getElementById('m-mtalert-wrap').style.display=this.checked?'flex':'none'">
@@ -4848,15 +4834,27 @@ function renderModal(){
     </div>
     <div id="mt-auto-bt-wrap">
       <div class="form-group" style="display:flex;align-items:center;gap:10px;background:var(--bg2);padding:10px;border-radius:var(--radius)">
-        <input type="checkbox" id="m-mautobt" style="width:16px;height:16px;cursor:pointer">
+        <input type="checkbox" id="m-mautobt" style="width:16px;height:16px;cursor:pointer" onchange="document.getElementById('m-mbt-cat-wrap').style.display=this.checked?'':'none'">
         <div>
-          <label for="m-mautobt" style="font-weight:500;cursor:pointer">Générer un bon de travaux automatiquement</label>
-          <div style="font-size:11px;color:var(--text2);margin-top:2px">Un nouveau BT sera créé automatiquement à chaque fois que vous marquez cette gamme comme réalisée</div>
+          <label for="m-mautobt" style="font-weight:500;cursor:pointer">Générer un BT automatiquement X jours avant l'échéance</label>
+          <div style="font-size:11px;color:var(--text2);margin-top:2px">Un BT sera créé au chargement de l'app quand l'échéance approche</div>
         </div>
       </div>
       <div class="form-group" id="m-mbt-cat-wrap" style="display:none">
-        <label>Catégorie du bon généré</label>
-        <select id="m-mbtcat"><option value="Entretien">Entretien</option><option value="Réparation">Réparation</option><option value="Amélioration">Amélioration</option><option value="Urgence">Urgence</option></select>
+        <div class="g2c">
+          <div class="form-group"><label>Jours avant l'échéance</label>
+            <input id="m-mbt-jours" type="number" min="1" max="365" value="30" placeholder="Ex: 30">
+          </div>
+          <div class="form-group"><label>Catégorie du BT</label>
+            <select id="m-mbtcat"><option value="Entretien">Entretien</option><option value="Réparation">Réparation</option><option value="Amélioration">Amélioration</option><option value="Urgence">Urgence</option></select>
+          </div>
+        </div>
+        <div class="form-group"><label>Recalcul de l'échéance après validation</label>
+          <select id="m-mbt-recalcul">
+            <option value="validation">Depuis la date de validation (ex: vidange)</option>
+            <option value="echeance">Depuis l'échéance prévue (ex: contrôle extincteur à date fixe)</option>
+          </select>
+        </div>
       </div>
     </div>
     <div class="form-group"><label>🔔 M'alerter par email</label>
@@ -5267,24 +5265,6 @@ function renderModal(){
     ${mf}`;
   }
 
-  if(m.type==='remb-dette'){
-    const t=m.tenant||{};
-    const sorted=S.rentPayments.filter(p=>p.tenant_id===t.id&&!p.paye&&p.loyer>0).sort((a,b)=>{if(b.annee!==a.annee)return b.annee-a.annee;return (b.mois_num||0)-(a.mois_num||0);});
-    const last=sorted[0];
-    const detteActuelle=last?Math.max(0,Math.round(((last.loyer||0)-(last.locataire_part||0)-(last.caf||0))*100)/100):(t.dette||0);
-    html=`${mhd('Remboursement de dette — '+t.nom)}
-    <div style="background:var(--bg2);padding:10px;border-radius:var(--radius);margin-bottom:14px;font-size:13px">
-      <b>${t.logement||''}</b><br>Dette actuelle : <b style="color:var(--red)">${fmt(detteActuelle)}</b>
-    </div>
-    <div class="g2c">
-      <div class="form-group"><label>Montant remboursé (€)</label><input id="m-rd-montant" type="number" step="0.01" placeholder="0.00"></div>
-      <div class="form-group"><label>Date</label><input id="m-rd-date" type="date" value="${NOW}"></div>
-    </div>
-    <div class="form-group"><label>Commentaire / mode de paiement</label><input id="m-rd-notes" placeholder="Ex: Virement exceptionnel, chèque..."></div>
-    ${(t.remboursements&&t.remboursements.length>0)?`<div style="margin-top:10px"><div class="sec" style="margin-bottom:6px">Historique des remboursements</div>${t.remboursements.slice().reverse().map(r=>`<div style="font-size:12px;color:var(--text2);padding:4px 0;border-bottom:0.5px solid var(--border)">${r.date} — ${fmt(r.montant)} ${r.notes?'— '+r.notes:''}</div>`).join('')}</div>`:''}
-    ${mf}`;
-  }
-
   if(m.type==='saisie-loyer'){
     const t=m.tenant||{};
     const p=m.existing||{};
@@ -5465,6 +5445,52 @@ function renderModal(){
     ${mf}`;
   }
 
+  if(m.type==='done-mt'){
+    const mt=m.mt||{};
+    const isDate=mt.type==='date';
+    const recalcul=mt.bt_recalcul||'validation';
+    // Calcul de la date proposée selon le mode de recalcul
+    let proposedDate='';
+    if(!isDate&&mt.period_days){
+      if(recalcul==='validation'){
+        // Depuis aujourd'hui
+        const nd=new Date();nd.setDate(nd.getDate()+mt.period_days);
+        proposedDate=nd.toISOString().slice(0,10);
+      } else {
+        // Depuis l'échéance prévue
+        const base=new Date(mt.next_due||NOW);
+        base.setDate(base.getDate()+mt.period_days);
+        proposedDate=base.toISOString().slice(0,10);
+      }
+    }
+    const asset=S.assets.find(a=>a.id===mt.asset_id);
+    html=`${mhd('✓ Gamme réalisée — '+mt.name)}
+    <div style="background:var(--bg2);border-radius:var(--radius);padding:10px 12px;margin-bottom:14px;font-size:13px">
+      <div style="font-weight:500">${mt.name}</div>
+      ${asset?`<div style="font-size:11px;color:var(--text2)">🔧 ${asset.name}</div>`:''}
+      ${mt.description?`<div style="font-size:12px;color:var(--text2);margin-top:4px">${mt.description}</div>`:''}
+    </div>
+    <div class="form-group">
+      <label>Date de réalisation</label>
+      <input id="m-done-date" type="date" value="${NOW}">
+    </div>
+    ${!isDate?`<div class="form-group">
+      <label>Nouvelle date d'échéance *</label>
+      <input id="m-done-next" type="date" value="${proposedDate}">
+      <div style="font-size:11px;color:var(--text2);margin-top:4px">
+        Mode recalcul : <b>${recalcul==='validation'?'depuis la date de réalisation (ci-dessus)':'depuis l\'échéance prévue'}</b>
+        ${mt.period_days?` — soit ${mt.period_days} jours de périodicité`:''}
+      </div>
+    </div>`:`<div class="form-group">
+      <label>Nouvelle date d'échéance (optionnel)</label>
+      <input id="m-done-next" type="date" value="">
+      <div style="font-size:11px;color:var(--text2);margin-top:4px">Laissez vide si la date est déjà correcte dans la fiche gamme</div>
+    </div>`}
+    <div class="form-group"><label>Note / observation</label>
+      <input id="m-done-note" placeholder="Ex: RAS, pièce remplacée...">
+    </div>
+    ${mf}`;
+  }
   if(m.type==='add-zone'){html=`${mhd('Nouvelle zone')}
     <div class="form-group"><label>Nom *</label><input id="m-zn" placeholder="Ex: Appart 1er gauche, RDC, Cave..."></div>${mf}`;}
   if(m.type==='add-subzone'){html=`${mhd('Nouvelle sous-zone')}
@@ -5738,97 +5764,6 @@ async function saveModal(){
     if(error){alert('Erreur : '+error.message);mb.events.pop();return;}
   }
 
-  if(m.type==='add-history'){
-    const asset=S.assets.find(a=>a.id===m.assetId);if(!asset)return alert('Équipement introuvable');
-    const desc=(q('m-hdesc')?.value||'').trim();if(!desc)return alert('Description requise');
-    const h={id:'h'+Math.random().toString(36).slice(2,9),type:q('m-ht')?.value||'Entretien',date:q('m-hd')?.value||NOW,desc,cost:parseFloat(q('m-hcost')?.value)||0,by:q('m-hby')?.value||''};
-    asset.history=[...(asset.history||[]),h];
-    const {error}=await sb.from('assets').update({history:asset.history}).eq('id',asset.id);
-    if(error){alert('Erreur : '+error.message);asset.history.pop();return;}
-  }
-
-  if(m.type==='add-doc'){
-    const asset=S.assets.find(a=>a.id===m.assetId);if(!asset)return alert('Équipement introuvable');
-    const name=(q('m-dn')?.value||'').trim();if(!name)return alert('Nom requis');
-    const url=q('m-du')?.value||'';
-    const doc={id:'d'+Math.random().toString(36).slice(2,9),name,type:q('m-dt')?.value||'autre',date:q('m-dd')?.value||NOW,url};
-    asset.docs=[...(asset.docs||[]),doc];
-    const {error}=await sb.from('assets').update({docs:asset.docs}).eq('id',asset.id);
-    if(error){alert('Erreur : '+error.message);asset.docs.pop();return;}
-  }
-
-  if(m.type==='add-prop'){
-    const name=(q('m-pn')?.value||'').trim();if(!name)return alert('Nom requis');
-    if(!S.topology)S.topology={properties:[],trades:[]};
-    if(!S.topology.properties)S.topology.properties=[];
-    S.topology.properties.push({id:uid(),name,zones:[]});
-    await saveTopoToDB();
-  }
-
-  if(m.type==='add-water'||m.type==='edit-water'){
-    const logement=q('m-wlog')?.value||'';
-    const tenantId=q('m-wten')?.value||null;
-    const moisW=q('m-wmois')?.value||'';
-    const anneeW=parseInt(q('m-wannee')?.value)||new Date().getFullYear();
-    const ancIdx=parseFloat(q('m-wanc')?.value)||0;
-    const nouvIdx=parseFloat(q('m-wnouv')?.value)||0;
-    const prix=parseFloat(q('m-wprix')?.value)||0;
-    const montant=parseFloat(q('m-wmnt')?.value)||0;
-    const rec={logement,tenant_id:tenantId||null,mois:moisW,annee:anneeW,ancien_index:ancIdx,nouvel_index:nouvIdx,prix_unitaire:prix,montant};
-    if(m.type==='add-water'){
-      const {data,error}=await sb.from('water_readings').insert(rec).select().single();
-      if(error)return alert('Erreur : '+error.message);
-      if(data)S.waterReadings=[...(S.waterReadings||[]),data];
-    }else{
-      const w=m.water;
-      const {error}=await sb.from('water_readings').update(rec).eq('id',w.id);
-      if(error)return alert('Erreur : '+error.message);
-      Object.assign(w,rec);
-    }
-  }
-
-  if(m.type==='add-wo-doc'){
-    const wo=S.workOrders.find(x=>x.id===m.woId);if(!wo)return alert('BT introuvable');
-    const name=(m._wdn||q('m-wdn')?.value||'').trim();if(!name)return alert('Nom du document requis');
-    const url=m._wdu||q('m-wdu')?.value||'';
-    const type=q('m-wdt')?.value||'autre';
-    const date=m._wdd||q('m-wdd')?.value||'';
-    const doc={id:uid(),name,url,type,date};
-    if(!wo.docs)wo.docs=[];
-    wo.docs.push(doc);
-    const {error}=await sb.from('work_orders').update({docs:wo.docs}).eq('id',wo.id);
-    if(error){alert('Erreur : '+error.message);wo.docs.pop();return;}
-  }
-
-  if(m.type==='remb-dette'){
-    const t=S.tenants.find(x=>x.id===m.tenantId);if(!t)return alert('Locataire introuvable');
-    const montant=parseFloat(q('m-rd-montant')?.value)||0;if(montant<=0)return alert('Montant invalide');
-    const date=q('m-rd-date')?.value||NOW;
-    const notes=q('m-rd-notes')?.value||'';
-    const remb={id:uid(),montant,date,notes};
-    if(!t.remboursements)t.remboursements=[];
-    t.remboursements.push(remb);
-    // Réduit la dette : on diminue le solde du dernier paiement non soldé en priorité, sinon t.dette
-    const sorted=S.rentPayments.filter(p=>p.tenant_id===t.id&&!p.paye&&p.loyer>0).sort((a,b)=>{if(b.annee!==a.annee)return b.annee-a.annee;return (b.mois_num||0)-(a.mois_num||0);});
-    let resteARepartir=montant;
-    for(const p of sorted){
-      const soldeP=Math.max(0,Math.round(((p.loyer||0)-(p.locataire_part||0)-(p.caf||0))*100)/100);
-      if(soldeP<=0)continue;
-      const applique=Math.min(resteARepartir,soldeP);
-      const newLocPart=Math.round(((p.locataire_part||0)+applique)*100)/100;
-      await sb.from('rent_payments').update({locataire_part:newLocPart,paye:newLocPart+( p.caf||0)>=p.loyer-0.01}).eq('id',p.id);
-      p.locataire_part=newLocPart;
-      if(newLocPart+(p.caf||0)>=p.loyer-0.01)p.paye=true;
-      resteARepartir=Math.round((resteARepartir-applique)*100)/100;
-      if(resteARepartir<=0)break;
-    }
-    const newDette=Math.max(0,Math.round(((t.dette||0)-resteARepartir)*100)/100);
-    const {error}=await sb.from('tenants').update({dette:newDette,remboursements:t.remboursements}).eq('id',t.id);
-    if(error){alert('Erreur : '+error.message);t.remboursements.pop();return;}
-    t.dette=newDette;
-    alert('✓ Remboursement de '+fmt(montant)+' enregistré.');
-  }
-
   if(m.type==='add-membre-doc'){
     const mb=S.famille.find(x=>x.id===m.membreId);
     if(!mb)return;
@@ -5851,6 +5786,7 @@ async function saveModal(){
   if(m.type==='edit-mt'){
     const mt=m.mt;if(!mt)return;
     const nom=q('m-mn')?.value.trim();if(!nom)return alert('Nom requis');
+    const autoBt=q('m-mautobt')?.checked||false;
     const rec={
       name:nom,description:q('m-md')?.value||null,
       priority:q('m-mprio')?.value||'medium',
@@ -5859,7 +5795,10 @@ async function saveModal(){
       last_done:q('m-mlast')?.value||mt.last_done,
       next_due:q('m-mnext')?.value||mt.next_due,
       alert_days:q('m-mtalert-on')?.checked?(parseInt(q('m-mtalert-days')?.value)||30):null,
-      auto_bt:q('m-mautobt')?.checked||false,
+      auto_bt:autoBt,
+      bt_jours_avant:autoBt?(parseInt(q('m-mbt-jours')?.value)||30):null,
+      bt_category:autoBt?(q('m-mbtcat')?.value||'Entretien'):null,
+      bt_recalcul:autoBt?(q('m-mbt-recalcul')?.value||'validation'):null,
     };
     const {error}=await sb.from('maintenance_templates').update(rec).eq('id',mt.id);
     if(error){alert('Erreur : '+error.message);return;}
@@ -5881,6 +5820,8 @@ async function saveModal(){
       last_done:lastDone,next_due:nextDue,due_date:type==='date'?nextDue:null,
       priority:q('m-mprio')?.value||'medium',assigned_to:q('m-muser')?.value||null,
       auto_bt:q('m-mautobt')?.checked||false,bt_category:q('m-mbtcat')?.value||null,
+      bt_jours_avant:q('m-mautobt')?.checked?(parseInt(q('m-mbt-jours')?.value)||30):null,
+      bt_recalcul:q('m-mautobt')?.checked?(q('m-mbt-recalcul')?.value||'validation'):null,
       alert_days:q('m-mtalert-on')?.checked?(parseInt(q('m-mtalert-days')?.value)||30):null,
     };
     const {data,error}=await sb.from('maintenance_templates').insert(rec).select().single();
@@ -5903,41 +5844,6 @@ async function saveModal(){
     const location2=locSel2?(locSel2.value==='__autre__'?locCustom2?.value||'':locSel2.value):locCustom2?.value||'';
     const upd={name:q('m-tn').value,category:q('m-tc').value,status:q('m-ts').value,location:location2,description:q('m-tdesc').value,notes:q('m-tnotes').value};
     await sb.from('tools').update(upd).eq('id',t.id);Object.assign(t,upd);}
-
-  if(m.type==='add-zone'){
-    const name=(q('m-zn')?.value||'').trim();if(!name)return alert('Nom requis');
-    const prop=S.topology.properties.find(p=>p.id===m.propId);if(!prop)return alert('Bien introuvable');
-    if(!prop.zones)prop.zones=[];
-    prop.zones.push({id:uid(),name,subZones:[],items:[]});
-    await saveTopoToDB();
-  }
-
-  if(m.type==='add-subzone'){
-    const name=(q('m-szn')?.value||'').trim();if(!name)return alert('Nom requis');
-    for(const p of (S.topology.properties||[])){
-      const zone=p.zones?.find(z=>z.id===m.zoneId);
-      if(zone){if(!zone.subZones)zone.subZones=[];zone.subZones.push({id:uid(),name,items:[]});break;}
-    }
-    await saveTopoToDB();
-  }
-
-  if(m.type==='add-trade'){
-    const name=(q('m-ttn')?.value||'').trim();if(!name)return alert('Nom requis');
-    const icon=q('m-tti')?.value||'🔧';
-    if(!S.topology.trades)S.topology.trades=[];
-    S.topology.trades.push({id:uid(),name,icon,items:[]});
-    await saveTopoToDB();
-  }
-
-  if(m.type==='add-topo-item'){
-    const name=(q('m-tin')?.value||'').trim();if(!name)return alert('Nom requis');
-    const notes=q('m-tinotes')?.value||'';
-    const trade=S.topology.trades?.find(t=>t.id===m.tradeId);
-    if(!trade)return alert('Corps de métier introuvable');
-    if(!trade.items)trade.items=[];
-    trade.items.push({id:uid(),name,notes});
-    await saveTopoToDB();
-  }
 
   if(m.type==='link-asset'){
     const assetId=q('m-link-asset')?.value;
@@ -6476,6 +6382,52 @@ async function saveModal(){
       mb.contrat_ecole=upd;
     }
     S.familleEnfant=membId;
+  }
+
+  if(m.type==='done-mt'){
+    const mt=m.mt;if(!mt)return;
+    const dateRealise=q('m-done-date')?.value||NOW;
+    const nextDueSaisi=q('m-done-next')?.value||null;
+    const note=q('m-done-note')?.value?.trim()||'';
+    // Calculer la nouvelle échéance
+    let nextDue=nextDueSaisi;
+    if(!nextDue&&mt.type==='periodic'&&mt.period_days){
+      const nd=new Date(dateRealise);nd.setDate(nd.getDate()+mt.period_days);
+      nextDue=nd.toISOString().slice(0,10);
+    }
+    const upd={last_done:dateRealise};
+    if(nextDue){
+      if(mt.type==='periodic')upd.next_due=nextDue;
+      else upd.due_date=nextDue;
+    }
+    const {error:mtErr}=await sb.from('maintenance_templates').update(upd).eq('id',mt.id);
+    if(mtErr){alert('Erreur : '+mtErr.message);return;}
+    Object.assign(mt,upd);
+    // Ajouter à l'historique de l'équipement
+    if(mt.asset_id){
+      const asset=S.assets.find(a=>a.id===mt.asset_id);
+      if(asset){
+        const h={id:'x'+Math.random().toString(36).slice(2,9),type:'Entretien',date:dateRealise,
+          desc:mt.name+(note?' — '+note:'')+(mt.description?' — '+mt.description:''),cost:0,by:S.currentUser?.name||'—'};
+        asset.history=[...(asset.history||[]),h];
+        await sb.from('assets').update({history:asset.history}).eq('id',asset.id);
+      }
+    }
+    // Clore le BT ouvert lié à cette gamme
+    const linkedBT=S.workOrders.find(w=>w.status==='open'&&w.source==='gamme'&&w.gamme_id===mt.id);
+    if(linkedBT){
+      const jouEntry={id:uid(),date:new Date(dateRealise).toLocaleDateString('fr-FR'),by:S.currentUser?.name||'—',
+        note:'✓ Gamme réalisée'+(note?' — '+note:'')+(nextDue?' | Prochaine échéance : '+new Date(nextDue).toLocaleDateString('fr-FR'):'')};
+      linkedBT.journal=[...(linkedBT.journal||[]),jouEntry];
+      await sb.from('work_orders').update({status:'done',journal:linkedBT.journal}).eq('id',linkedBT.id);
+      linkedBT.status='done';
+    }
+    let alertMsg='✓ Gamme réalisée !';
+    if(nextDue)alertMsg+='\n📅 Prochaine échéance : '+new Date(nextDue).toLocaleDateString('fr-FR');
+    if(linkedBT)alertMsg+='\n📋 Bon de travaux lié clôturé.';
+    alert(alertMsg);
+    closeModal();render();
+    return;
   }
 
   closeModal();
@@ -7039,16 +6991,15 @@ function bindAll(){
   document.querySelectorAll('[data-pay-loyer]').forEach(el=>el.onclick=async()=>{
     const tId=el.dataset.payLoyer, mois=el.dataset.payMois, annee=parseInt(el.dataset.payYear);
     const tenant=S.tenants.find(t=>t.id===tId);if(!tenant)return;
-    const montantDu=tenant.type_bail==='commercial'?Math.round(((tenant.loyer_ref||0)+(tenant.charges||0))*1.2*100)/100:Math.round(((tenant.loyer_ref||0)+(tenant.charges||0))*100)/100;
     const today=new Date().toISOString().split('T')[0];
     const existing=S.rentPayments.find(p=>p.tenant_id===tId&&p.mois===mois&&p.annee===annee);
     let payment=existing;
     if(existing){
-      await sb.from('rent_payments').update({paye:true,date_loc:today,loyer:montantDu,locataire_part:montantDu}).eq('id',existing.id);
-      existing.paye=true;existing.date_loc=today;existing.loyer=montantDu;existing.locataire_part=montantDu;
+      await sb.from('rent_payments').update({paye:true,date_loc:today,loyer:tenant.loyer_ref,locataire_part:tenant.loyer_ref}).eq('id',existing.id);
+      existing.paye=true;existing.date_loc=today;existing.loyer=tenant.loyer_ref;existing.locataire_part=tenant.loyer_ref;
     }else{
       const moisNum=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'].indexOf(mois)+1;
-      const {data}=await sb.from('rent_payments').insert({tenant_id:tId,annee,mois,mois_num:moisNum,loyer:montantDu,paye:true,date_loc:today,quittance_envoyee:false}).select().single();
+      const {data}=await sb.from('rent_payments').insert({tenant_id:tId,annee,mois,mois_num:moisNum,loyer:tenant.loyer_ref,paye:true,date_loc:today,quittance_envoyee:false}).select().single();
       if(data){S.rentPayments.push(data);payment=data;}
     }
     if(tenant.email&&payment){
@@ -7071,11 +7022,6 @@ function bindAll(){
     const tenant=S.tenants.find(t=>t.id===tId);
     const existing=S.rentPayments.find(p=>p.tenant_id===tId&&p.mois===mois&&p.annee===annee);
     S.modal={type:'saisie-loyer',tenantId:tId,mois,annee,existing,tenant};render();
-  });
-  document.querySelectorAll('[data-remb-dette]').forEach(el=>el.onclick=()=>{
-    const tId=el.dataset.rembDette;
-    const tenant=S.tenants.find(t=>t.id===tId);
-    if(tenant)S.modal={type:'remb-dette',tenantId:tId,tenant};render();
   });
   document.querySelectorAll('[data-loc-annee]').forEach(el=>el.onclick=()=>{S.locAnnee=parseInt(el.dataset.locAnnee);render();});
 
@@ -7160,15 +7106,14 @@ function bindAll(){
     const today=new Date().toISOString().split('T')[0];
     const existing=S.rentPayments.find(p=>p.tenant_id===tenantId&&p.mois===mois&&p.annee===annee);
     const tenant=S.tenants.find(t=>t.id===tenantId);
-    const montantDu2=tenant?.type_bail==='commercial'?Math.round(((tenant?.loyer_ref||0)+(tenant?.charges||0))*1.2*100)/100:Math.round(((tenant?.loyer_ref||0)+(tenant?.charges||0))*100)/100;
     let payment=existing;
     if(existing){
-      await sb.from('rent_payments').update({paye:true,date_loc:today,loyer:montantDu2,locataire_part:montantDu2}).eq('id',existing.id);
-      existing.paye=true;existing.date_loc=today;existing.loyer=montantDu2;existing.locataire_part=montantDu2;
+      await sb.from('rent_payments').update({paye:true,date_loc:today}).eq('id',existing.id);
+      existing.paye=true;existing.date_loc=today;
     }else{
       const {data}=await sb.from('rent_payments').insert({
         tenant_id:tenantId,annee,mois,mois_num:['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'].indexOf(mois)+1,
-        loyer:montantDu2,paye:true,date_loc:today,quittance_envoyee:false
+        loyer:tenant?.loyer_ref||0,paye:true,date_loc:today,quittance_envoyee:false
       }).select().single();
       if(data){S.rentPayments.push(data);payment=data;}
     }
@@ -7499,46 +7444,7 @@ function bindAll(){
     S.tools=S.tools.filter(t=>t.id!==el.dataset.delTool);render();});
   document.querySelectorAll('[data-done-mt]').forEach(el=>el.onclick=async()=>{
     const mt=S.maintenanceTemplates.find(x=>x.id===el.dataset.doneMt);if(!mt)return;
-    const today=new Date();
-    const upd={last_done:NOW};
-    let nextDue=null;
-    if(mt.type==='periodic'){
-      const nd=new Date();nd.setDate(nd.getDate()+mt.period_days);
-      nextDue=nd.toISOString().split('T')[0];
-      upd.next_due=nextDue;
-    }
-    await sb.from('maintenance_templates').update(upd).eq('id',mt.id);
-    Object.assign(mt,upd);
-
-    // Add to asset history
-    if(mt.asset_id){
-      const asset=S.assets.find(a=>a.id===mt.asset_id);
-      if(asset){
-        const h={id:'x'+Math.random().toString(36).slice(2,9),type:'Entretien',date:NOW,desc:mt.name+(mt.description?' — '+mt.description:''),cost:0,by:S.currentUser?.name||'—'};
-        asset.history=[...(asset.history||[]),h];
-        await sb.from('assets').update({history:asset.history}).eq('id',asset.id);
-      }
-    }
-
-    // Auto-create work order if enabled
-    if(mt.auto_bt && mt.asset_id && nextDue){
-      const asset=S.assets.find(a=>a.id===mt.asset_id);
-      const woTitle=mt.name+' (auto)';
-      const woDesc=(mt.description?mt.description+' — ':'')+'Généré auto. Prochaine échéance : '+nextDue;
-      const {data:woData}=await sb.from('work_orders').insert({
-        title:woTitle,description:woDesc,asset_id:mt.asset_id,
-        category:mt.bt_category||'Entretien',date:nextDue,
-        status:'open',cost:0,by_user:''
-      }).select().single();
-      if(woData){
-        S.workOrders.push(woData);
-        alert('✓ Gamme réalisée ! Un bon de travaux a été créé pour le '+new Date(nextDue).toLocaleDateString('fr-FR'));
-      }
-    } else {
-      const msg=mt.type==='periodic'?'Gamme réalisée. Prochaine échéance : '+new Date(nextDue||mt.next_due).toLocaleDateString('fr-FR'):'Gamme marquée comme réalisée.';
-      alert('✓ '+msg);
-    }
-    render();
+    S.modal={type:'done-mt',mt};render();
   });
   document.querySelectorAll('[data-del-mt]').forEach(el=>el.onclick=async()=>{
     if(!confirm('Supprimer ?'))return;await sb.from('maintenance_templates').delete().eq('id',el.dataset.delMt);
@@ -7818,19 +7724,8 @@ function bindAll(){
   });
   document.querySelectorAll('[data-done-mt]').forEach(el=>el.onclick=async()=>{
     const mt=S.maintenanceTemplates.find(x=>x.id===el.dataset.doneMt);if(!mt)return;
-    const now=new Date().toISOString().slice(0,10);
-    mt.last_done=now;
-    if(mt.type==='periodic'&&mt.period_days){
-      const nd=new Date();nd.setDate(nd.getDate()+mt.period_days);
-      mt.next_due=nd.toISOString().slice(0,10);
-    }
-    await sb.from('maintenance_templates').update({last_done:mt.last_done,next_due:mt.next_due}).eq('id',mt.id);
-    if(mt.auto_bt){
-      const {data}=await sb.from('work_orders').insert({title:mt.name,description:mt.description,asset_id:mt.asset_id,category:mt.bt_category||'Entretien',date:now,status:'open',cost:0,by_user:'',docs:[],journal:[],checklist:[]}).select().single();
-      if(data)S.workOrders.push(data);
-      alert('✓ Gamme réalisée — BT créé automatiquement !');
-    } else {alert('✓ Gamme marquée réalisée !');}
-    render();
+    // Ouvrir le modal de validation
+    S.modal={type:'done-mt',mt};render();
   });
 
   // ============================================================
@@ -8349,8 +8244,51 @@ function bindAll(){
 }
 
 // ============================================================
-// ALERTE EMAIL BON DE TRAVAUX
+// GÉNÉRATION AUTOMATIQUE DE BT DEPUIS LES GAMMES
 // ============================================================
+async function checkAutoGenerateBTs(){
+  if(!isAdmin())return;
+  const today=new Date();
+  const generated=[];
+  for(const mt of S.maintenanceTemplates){
+    if(!mt.auto_bt||!mt.bt_jours_avant)continue;
+    const echeance=mt.type==='periodic'?mt.next_due:mt.due_date;
+    if(!echeance)continue;
+    const daysLeft=Math.ceil((new Date(echeance)-today)/86400000);
+    // Déclencher si on est dans la fenêtre (entre 0 et bt_jours_avant jours avant)
+    if(daysLeft>mt.bt_jours_avant||daysLeft<-7)continue; // -7 = grace period
+    // Vérifier qu'il n'y a pas déjà un BT ouvert issu de cette gamme
+    const existingOpenBT=S.workOrders.find(w=>
+      w.status==='open'&&w.source==='gamme'&&w.gamme_id===mt.id
+    );
+    if(existingOpenBT)continue;
+    // Créer le BT
+    const asset=S.assets.find(a=>a.id===mt.asset_id);
+    const topoRef=mt.bien?{propName:mt.bien,zoneName:mt.zone_nom||'',subName:mt.sub_nom||''}:null;
+    const rec={
+      title:mt.name,
+      description:(mt.description||'')+(mt.description?' — ':'')+
+        'BT auto-généré — Échéance : '+new Date(echeance).toLocaleDateString('fr-FR'),
+      asset_id:mt.asset_id||null,
+      topo_ref:topoRef,
+      category:mt.bt_category||'Entretien',
+      date:today.toISOString().split('T')[0],
+      status:'open',cost:0,by_user:'',docs:[],journal:[],checklist:[],
+      source:'gamme',gamme_id:mt.id
+    };
+    const {data,error}=await sb.from('work_orders').insert(rec).select().single();
+    if(!error&&data){
+      S.workOrders.push(data);
+      generated.push(mt.name);
+    }
+  }
+  if(generated.length>0){
+    console.log('Auto-BT générés :',generated);
+    // Re-render si on est sur la vue maintenance ou workorders
+    if(S.view==='maintenance'||S.view==='workorders'||S.view==='dashboard')render();
+  }
+}
+
 async function sendWOAlert(wo, byUser, byEmail){
   if(!byEmail) return;
   const asset = S.assets.find(a=>a.id===wo.asset_id);
@@ -8730,7 +8668,7 @@ async function autoSendQuittance(tenant,payment,mois,annee,commentaire='',isPart
   fetch('https://api.brevo.com/v3/smtp/email',{
     method:'POST',
     headers:{'api-key':BREVO_API_KEY,'Content-Type':'application/json','Accept':'application/json'},
-    body:JSON.stringify({sender:{name:FROM_NAME,email:FROM_EMAIL},to:isDubailQ?[{email:'savadur56@gmail.com',name:'J&A SAVADUR'}]:[{email:ALERT_EMAIL,name:'Antoine JOSSE'}],subject:copySubject,htmlContent:emailHtml})
+    body:JSON.stringify({sender:{name:FROM_NAME,email:FROM_EMAIL},to:isDubailQ?[{email:'savadur56@gmail.com',name:'J&A SAVADUR'},{email:ALERT_EMAIL,name:'Antoine JOSSE'}]:[{email:ALERT_EMAIL,name:'Antoine JOSSE'}],subject:copySubject,htmlContent:emailHtml})
   }).catch(e=>console.warn('Copie archive failed:',e.message));
   // Open print preview (with print button enabled)
   try{
@@ -8839,14 +8777,9 @@ function buildQuittanceHtml(tenant,payment,mois,annee,loyer,charges,total,datePa
   const bailTel   = isDubail ? '06.30.37.06.88'             : '';
   const caf=parseFloat(payment.caf||0);
   const locPart=parseFloat(payment.locataire_part||0);
-  const totalPercu=Math.round((locPart+caf)*100)/100;
   const dateLoc=payment.date_loc?new Date(payment.date_loc).toLocaleDateString('fr-FR'):datePaiement;
   const loyerRef=parseFloat(tenant.loyer_ref||0);
   const chargesRef=parseFloat(tenant.charges||0);
-  const loyerAttendu=loyerRef+chargesRef;
-  const soldeRestant=Math.round((loyerAttendu-totalPercu)*100)/100;
-  const isPartial=totalPercu<loyerAttendu-0.01;
-  const docTitle=isPartial?'Reçu de paiement partiel':'Quittance de loyer';
   const css=`
     @media print{.print-bar{display:none!important}body{margin:0;padding:20px}}
     .print-bar{background:#1D9E75;color:#fff;padding:10px 20px;display:flex;align-items:center;justify-content:space-between;font-family:Arial,sans-serif;font-size:13px}
@@ -8874,32 +8807,31 @@ function buildQuittanceHtml(tenant,payment,mois,annee,loyer,charges,total,datePa
     +'<div><strong>LE BAILLEUR</strong><br>'+bailNom+'<br>'+bailAddr+'<br>'+bailCP+'<br>'+bailEmail+(bailTel?'<br>'+bailTel:'')+'</div>'
     +'<div style="text-align:right"><strong>LE LOCATAIRE</strong><br>'+tenant.nom+'<br>'+tenant.logement+'<br>26 Rue Général Dubail<br>56100 LORIENT</div>'
     +'</div>'
-    +'<div class="title">'+docTitle+'</div>'
+    +'<div class="title">Quittance de loyer</div>'
     +'<div class="subtitle">LOYER '+mois.toUpperCase()+' '+annee+'</div>'
     +'<div class="montant-box">'
-    +'<div>SOMME PERÇUE</div>'
-    +'<div class="somme">'+fmt(totalPercu)+'</div>'
+    +'<div>REÇU LA SOMME DE</div>'
+    +'<div class="somme">'+fmt(total||loyerRef+chargesRef)+'</div>'
     +'<div>LE '+dateLoc+'</div>'
     +(caf>0?'<div style="font-size:13px;color:#555;margin-top:8px">dont part CAF : '+fmt(caf)+' — part locataire : '+fmt(locPart)+'</div>':'')
-    +(isPartial?'<div style="font-size:13px;color:#c0392b;margin-top:8px;font-weight:bold">⚠ Paiement partiel — Loyer attendu : '+fmt(loyerAttendu)+' — Solde restant dû : '+fmt(soldeRestant)+'</div>':'')
     +(commentaire?'<div style="font-size:12px;color:#666;margin-top:8px;font-style:italic">'+commentaire+'</div>':'')
     +'</div>'
     +'<div style="font-size:13px;margin:20px 0;line-height:1.7"><strong>POUR LOYER DU LOGEMENT SITUÉ :</strong><br>'
     +tenant.logement+'<br>26 RUE GÉNÉRAL DUBAIL<br>56100 LORIENT</div>'
     +(chargesRef>0?'<table><tr><td>Loyer nu :</td><td>'+fmt(loyerRef)+'</td></tr><tr><td>Charges :</td><td>'+fmt(chargesRef)+'</td></tr>'
     +(payment.note_quittance?'<tr><td>'+payment.note_quittance+' :</td><td>'+fmt(payment.ajustement||0)+'</td></tr>':'')
-    +'<tr><td><strong>Total attendu :</strong></td><td><strong>'+fmt(loyerRef+chargesRef+(payment.ajustement||0))+'</strong></td></tr></table>':
+    +'<tr><td><strong>Total :</strong></td><td><strong>'+fmt(loyerRef+chargesRef+(payment.ajustement||0))+'</strong></td></tr></table>':
     '<table>'
     +'<tr><td>Loyer :</td><td>'+fmt(loyerRef)+'</td></tr>'
     +(payment.note_quittance?'<tr><td>'+payment.note_quittance+' :</td><td>'+fmt(payment.ajustement||0)+'</td></tr>':'')
-    +(payment.note_quittance?'<tr><td><strong>Total attendu :</strong></td><td><strong>'+fmt(loyerRef+(payment.ajustement||0))+'</strong></td></tr>':'')
+    +(payment.note_quittance?'<tr><td><strong>Total :</strong></td><td><strong>'+fmt(loyerRef+(payment.ajustement||0))+'</strong></td></tr>':'')
     +'</table>')
-    +(soldeRestant>0.01?'<div style="background:#FFF3CD;border:1.5px solid #F0AD4E;border-radius:6px;padding:10px 14px;margin:12px 0;font-size:13px">'+'<strong>&#9888; Solde restant dû pour ce mois : '+fmt(soldeRestant)+'</strong>'+'<br><span style="font-size:11px;color:#555">Ce montant sera inclus dans votre prochain appel de loyer.</span>'+'</div>':'')
+    +(tenant.dette>0?'<div style="background:#FFF3CD;border:1.5px solid #F0AD4E;border-radius:6px;padding:10px 14px;margin:12px 0;font-size:13px">'+'<strong>&#9888; Votre dette à ce jour s\'elève à : '+fmt(tenant.dette)+'</strong>'+'<br><span style="font-size:11px;color:#555">Ce montant sera inclus dans votre prochain appel de loyer.</span>'+'</div>':'')
     +'<div class="sig-block">'
     +'<div style="font-size:13px">Fait à Lorient, le '+new Date().toLocaleDateString('fr-FR')+'</div>'
     +'<div class="sig-right"><div>GÉRANT J&A SAVADUR</div><div class="name">JOSSE Antoine</div></div>'
     +'</div>'
-    +'<p class="mention">Ce document annule tous reçus antérieurs pour les mêmes objets. Il ne vaut qu\'après encaissement en cas de paiement par chèque.</p>'
+    +'<p class="mention">Cette quittance annule tous reçus antérieurs pour les mêmes objets. Elle ne vaut qu\'après encaissement en cas de paiement par chèque.</p>'
     +'</body></html>';
 }
 
@@ -8910,15 +8842,9 @@ function buildFactureHtml(tenant,payment,mois,annee,loyer,charges,total,datePaie
   const chargesHT=parseFloat(tenant.charges||0);
   const chargesTVA=chargesHT>0?Math.round(chargesHT*0.2*100)/100:0;
   const chargesTTC=Math.round((chargesHT+chargesTVA)*100)/100;
-  const totalHT=Math.round((loyerHT+chargesHT)*100)/100;
-  const totalTVA=Math.round((loyerTVA+chargesTVA)*100)/100;
-  const totalTTC=Math.round((loyerTTC+chargesTTC)*100)/100;
-  const locPart=parseFloat(payment.locataire_part||0);
-  const caf=parseFloat(payment.caf||0);
-  const totalPercu=Math.round((locPart+caf)*100)/100;
-  const soldeRestant=Math.round((totalTTC-totalPercu)*100)/100;
-  const isPartial=totalPercu<totalTTC-0.01;
-  const docTitle=isPartial?'Reçu de paiement partiel':'Facture de loyer';
+  const totalHT=loyerHT+chargesHT;
+  const totalTVA=loyerTVA+chargesTVA;
+  const totalTTC=loyerTTC+chargesTTC;
   const dateLoc=payment.date_loc?new Date(payment.date_loc).toLocaleDateString('fr-FR'):datePaiement;
   const css=`
     @media print{.print-bar{display:none!important}body{margin:0;padding:20px}}
@@ -8945,25 +8871,17 @@ function buildFactureHtml(tenant,payment,mois,annee,loyer,charges,total,datePaie
     +'<div><strong>J&A SAVADUR</strong><br>26 RUE GÉNÉRAL DUBAIL<br>56100 LORIENT<br>savadur56@gmail.com<br>06.30.37.06.88</div>'
     +'<div style="text-align:right"><strong>'+tenant.nom+'</strong><br>'+tenant.logement+'<br>26 rue général Dubail<br>56100 Lorient</div>'
     +'</div>'
-    +'<div class="title">'+docTitle+'</div>'
+    +'<div class="title">Facture de loyer</div>'
     +'<div class="subtitle">'+mois+' '+annee+' — N° '+invoiceNum+'</div>'
     +'<table><thead><tr><th>Description</th><th>Prix HT</th><th>TVA 20%</th><th>Prix TTC</th></tr></thead><tbody>'
     +'<tr><td>Loyer mensuel</td><td>'+fmt(loyerHT)+'</td><td>'+fmt(loyerTVA)+'</td><td>'+fmt(loyerTTC)+'</td></tr>'
     +(chargesHT>0?'<tr><td>Provisions sur charges</td><td>'+fmt(chargesHT)+'</td><td>'+fmt(chargesTVA)+'</td><td>'+fmt(chargesTTC)+'</td></tr>':'')
-    +'<tr class="total-row"><td>Total HT</td><td colspan="3">'+fmt(totalHT)+'</td></tr>'
-    +'<tr class="total-row"><td>TVA 20%</td><td colspan="3">'+fmt(totalTVA)+'</td></tr>'
-    +'<tr class="total-row"><td colspan="3">TOTAL TTC ATTENDU</td><td>'+fmt(totalTTC)+'</td></tr>'
+    +'<tr class="total-row"><td colspan="3">TOTAL TTC</td><td>'+fmt(totalTTC)+'</td></tr>'
     +'</tbody></table>'
-    +'<div style="border:2px solid '+(isPartial?'#e74c3c':'#222')+';border-radius:6px;padding:14px;text-align:center;margin:16px 0">'
-    +'<div style="font-size:13px">SOMME PERÇUE</div>'
-    +'<div style="font-size:24px;font-weight:bold;margin:6px 0">'+fmt(totalPercu)+'</div>'
-    +'<div style="font-size:13px">LE '+dateLoc+'</div>'
-    +(caf>0?'<div style="font-size:12px;color:#555;margin-top:6px">dont part CAF : '+fmt(caf)+' — part locataire : '+fmt(locPart)+'</div>':'')
-    +(isPartial?'<div style="color:#c0392b;font-weight:bold;margin-top:8px;font-size:13px">⚠ Paiement partiel — Solde restant dû : '+fmt(soldeRestant)+'</div>':'')
-    +'</div>'
+    +'<p style="font-size:13px">Date de paiement : '+dateLoc+'</p>'
     +(commentaire?'<div style="background:#f5f5f5;border-left:3px solid #185FA5;padding:8px 12px;margin:12px 0;font-size:13px;font-style:italic;color:#444">'+commentaire+'</div>':'')
-    +(isPartial?'<div style="background:#FFF3CD;border:1.5px solid #F0AD4E;border-radius:6px;padding:10px 14px;margin:12px 0;font-size:13px"><strong>&#9888; Solde restant dû : '+fmt(soldeRestant)+'</strong><br><span style="font-size:11px;color:#555">Ce montant sera inclus dans votre prochaine facture.</span></div>':'')
-    +'<div class="sig-block">SCI J&A SAVADUR<br>savadur56@gmail.com<br><br><strong>JOSSE Antoine — Gérant</strong></div>'
++(tenant.dette>0?'<div style="background:#FFF3CD;border:1.5px solid #F0AD4E;border-radius:6px;padding:10px 14px;margin:12px 0;font-size:13px">'+'<strong>&#9888; Votre dette à ce jour s\'elève à : '+fmt(tenant.dette)+'</strong>'+'<br><span style="font-size:11px;color:#555">Ce montant sera inclus dans votre prochain appel de loyer.</span>'+'</div>':'')
+        +'<div class="sig-block">SCI J&A SAVADUR<br>savadur56@gmail.com<br><br><strong>JOSSE Antoine — Gérant</strong></div>'
     +'<p style="font-size:11px;color:#888;margin-top:24px">Facture établie par J&A SAVADUR. TVA 20% appliquée. Conserver ce document pour votre comptabilité.</p>'
     +'</body></html>';
 }
@@ -9437,6 +9355,7 @@ loadAll().then(async()=>{
   });
   render();
   setTimeout(()=>checkAndSendAlerts(),3000);
+  setTimeout(()=>checkAutoGenerateBTs(),4000);
 });
 
 // PWA Service Worker — only on GitHub Pages
