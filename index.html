@@ -4665,6 +4665,28 @@ function renderModal(){
 
 
 
+  if(m.type==='close-wo'){
+    const w=m.wo;
+    const mt=w.gamme_id?S.maintenanceTemplates.find(x=>x.id===w.gamme_id):null;
+    html=`${mhd('✓ Terminer — '+w.title)}
+    <div style="background:var(--bg2);border-radius:var(--radius);padding:10px 12px;margin-bottom:14px;font-size:13px">
+      <div style="font-weight:500">${w.title}</div>
+      ${mt?`<div style="font-size:11px;color:var(--text2);margin-top:2px">⚙ Issu de la gamme : ${mt.name}</div>`:''}
+    </div>
+    <div class="form-group">
+      <label>Date de réalisation *</label>
+      <input id="m-close-date" type="date" value="${NOW}">
+    </div>
+    <div class="form-group">
+      <label>Commentaire (optionnel)</label>
+      <textarea id="m-close-comment" rows="3" placeholder="Ex: RAS, pièce remplacée, intervention effectuée..."></textarea>
+    </div>
+    ${mt&&mt.type==='periodic'?`<div style="font-size:11px;color:var(--text2);margin-bottom:10px">
+      📅 La prochaine échéance de la gamme sera recalculée automatiquement (+${mt.period_days||30}j depuis la date ci-dessus).
+    </div>`:''}
+    ${mf}`;
+  }
+
   if(m.type==='checklist-wo'){
     const w=m.wo;
     const items=w.checklist||[];
@@ -6384,6 +6406,58 @@ async function saveModal(){
     S.familleEnfant=membId;
   }
 
+  if(m.type==='close-wo'){
+    const w=m.wo;if(!w)return;
+    const dateRealise=q('m-close-date')?.value||NOW;
+    const comment=q('m-close-comment')?.value?.trim()||'';
+    const journal=[...(w.journal||[])];
+    journal.push({id:uid(),date:new Date(dateRealise).toLocaleDateString('fr-FR'),by:S.currentUser?.name||'—',
+      note:'✓ Terminé'+(comment?' — '+comment:'')});
+    const csoItems=(w.checklist||[]).filter(i=>i.type==='cso'&&!i.done);
+    if(csoItems.length>0){
+      const deduct=confirm('Déduire les consommables utilisés du stock ?\n'+csoItems.map(i=>`- ${i.nom} × ${i.quantite}`).join('\n'));
+      if(deduct){
+        for(const item of csoItems){
+          const cso=S.consommables.find(c=>c.id===item.id);
+          if(cso){const ns=Math.max(0,(cso.stock||0)-item.quantite);await sb.from('consommables').update({stock:ns}).eq('id',cso.id);cso.stock=ns;}
+        }
+      }
+    }
+    const {error}=await sb.from('work_orders').update({status:'done',date:dateRealise,journal}).eq('id',w.id);
+    if(error){alert('Erreur : '+error.message);return;}
+    w.status='done';w.date=dateRealise;w.journal=journal;
+
+    // Si ce BT vient d'une gamme, mettre à jour l'échéance de la gamme pour éviter qu'un nouveau BT ne soit recréé
+    let nextDueMsg='';
+    if(w.source==='gamme'&&w.gamme_id){
+      const mt=S.maintenanceTemplates.find(x=>x.id===w.gamme_id);
+      if(mt){
+        let nextDue=null;
+        if(mt.type==='periodic'&&mt.period_days){
+          const nd=new Date(dateRealise);nd.setDate(nd.getDate()+mt.period_days);
+          nextDue=nd.toISOString().slice(0,10);
+        }
+        const updMt={last_done:dateRealise};
+        if(nextDue){if(mt.type==='periodic')updMt.next_due=nextDue;else updMt.due_date=nextDue;}
+        const {error:mtErr}=await sb.from('maintenance_templates').update(updMt).eq('id',mt.id);
+        if(!mtErr){Object.assign(mt,updMt);if(nextDue)nextDueMsg='\n📅 Prochaine échéance gamme : '+new Date(nextDue).toLocaleDateString('fr-FR');}
+        // Historique équipement
+        if(mt.asset_id){
+          const asset=S.assets.find(a=>a.id===mt.asset_id);
+          if(asset){
+            const h={id:'x'+Math.random().toString(36).slice(2,9),type:'Entretien',date:dateRealise,
+              desc:mt.name+(comment?' — '+comment:''),cost:0,by:S.currentUser?.name||'—'};
+            asset.history=[...(asset.history||[]),h];
+            await sb.from('assets').update({history:asset.history}).eq('id',asset.id);
+          }
+        }
+      }
+    }
+    closeModal();render();
+    if(nextDueMsg)alert('✓ Bon de travaux terminé !'+nextDueMsg);
+    return;
+  }
+
   if(m.type==='done-mt'){
     const mt=m.mt;if(!mt)return;
     const dateRealise=q('m-done-date')?.value||NOW;
@@ -7541,20 +7615,9 @@ function bindAll(){
   // ============================================================
   // WORK ORDERS
   // ============================================================
-  document.querySelectorAll('[data-close-wo]').forEach(el=>el.onclick=async()=>{
+  document.querySelectorAll('[data-close-wo]').forEach(el=>el.onclick=()=>{
     const w=S.workOrders.find(x=>x.id===el.dataset.closeWo);if(!w)return;
-    const csoItems=(w.checklist||[]).filter(i=>i.type==='cso'&&!i.done);
-    if(csoItems.length>0){
-      const deduct=confirm('Déduire les consommables utilisés du stock ?\n'+csoItems.map(i=>`- ${i.nom} × ${i.quantite}`).join('\n'));
-      if(deduct){
-        for(const item of csoItems){
-          const cso=S.consommables.find(c=>c.id===item.id);
-          if(cso){const ns=Math.max(0,(cso.stock||0)-item.quantite);await sb.from('consommables').update({stock:ns}).eq('id',cso.id);cso.stock=ns;}
-        }
-      }
-    }
-    await sb.from('work_orders').update({status:'done'}).eq('id',w.id);
-    w.status='done';render();
+    S.modal={type:'close-wo',wo:w};render();
   });
   document.querySelectorAll('[data-edit-wo]').forEach(el=>el.onclick=()=>{
     const w=S.workOrders.find(x=>x.id===el.dataset.editWo);
