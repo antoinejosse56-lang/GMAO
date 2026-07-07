@@ -8942,25 +8942,30 @@ function buildQuittanceHtml(tenant,payment,mois,annee,loyer,charges,total,datePa
     .sig-right{text-align:right;font-size:13px}
     .sig-right .name{font-weight:bold;margin-top:50px;border-top:1px solid #222;padding-top:6px}`;
   const printBar='<div style=\'position:sticky;top:0;z-index:999;background:#1D9E75;color:#fff;display:flex;align-items:center;justify-content:space-between;padding:10px 20px;margin-bottom:16px;font-family:Arial,sans-serif\'>'
-    +'<div><strong style=\'color:#fff;font-size:14px\'>📄 Quittance de loyer</strong><div style=\'font-size:11px;opacity:.8\'>Pour imprimer : utilisez Ctrl+P ou cliquez le bouton</div></div>'
-    +'<button onclick=\'window.print()\' style=\'background:#fff;color:#1D9E75;border:none;padding:8px 20px;border-radius:6px;font-weight:700;font-size:13px;cursor:pointer\'>🖨 Imprimer</button>'
-    +'</div>'
-    +'<script>try{setTimeout(function(){window.print();},800);}catch(e){}<\/script>';
+    +'<div><strong style=\'color:#fff;font-size:14px\'>&#128196; Quittance de loyer</strong><div style=\'font-size:11px;opacity:.8\'>Pour imprimer / sauvegarder en PDF : Ctrl+P ou bouton</div></div>'
+    +'<button onclick=\'window.print()\' style=\'background:#fff;color:#1D9E75;border:none;padding:8px 20px;border-radius:6px;font-weight:700;font-size:13px;cursor:pointer\'>&#128424; Imprimer</button>'
+    +'</div>';
   // Calcul du détail de la dette mois par mois depuis S.rentPayments
   const detteDetail=(()=>{
-    if(typeof S==='undefined')return[];
-    const allPmts=(S.rentPayments||[]).filter(p=>p.tenant_id===tenant.id&&!p.paye&&((p.locataire_part||0)+(p.caf||0))<(p.loyer||0));
-    // Exclure le mois en cours (déjà affiché dans le tableau principal)
-    const MOIS_LIST=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
-    return allPmts
-      .filter(p=>!(p.mois===mois&&p.annee===annee))
-      .sort((a,b)=>a.annee!==b.annee?a.annee-b.annee:(a.mois_num||MOIS_LIST.indexOf(a.mois)+1)-(b.mois_num||MOIS_LIST.indexOf(b.mois)+1))
-      .map(p=>{
-        const recu=(p.locataire_part||0)+(p.caf||0);
-        const manque=Math.round(((p.loyer||0)-recu)*100)/100;
-        return {mois:p.mois,annee:p.annee,attendu:p.loyer||0,recu,manque};
-      })
-      .filter(p=>p.manque>0);
+    try{
+      if(typeof S==='undefined'||!S.rentPayments)return[];
+      const MOIS_LIST=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+      return (S.rentPayments||[])
+        .filter(p=>
+          p.tenant_id===tenant.id &&
+          !p.paye &&
+          (p.loyer||0)>0 &&
+          // Exclure le mois en cours (déjà affiché dans le tableau principal)
+          !(p.mois===mois&&String(p.annee)===String(annee))
+        )
+        .map(p=>{
+          const recu=Math.round(((p.locataire_part||0)+(p.caf||0))*100)/100;
+          const manque=Math.round(((p.loyer||0)-recu)*100)/100;
+          return {mois:p.mois||'?',annee:p.annee||'',attendu:p.loyer||0,recu,manque,mois_num:p.mois_num||MOIS_LIST.indexOf(p.mois)+1};
+        })
+        .filter(p=>p.manque>0.01)
+        .sort((a,b)=>a.annee!==b.annee?a.annee-b.annee:a.mois_num-b.mois_num);
+    }catch(e){return[];}
   })();
 
   // Solde du mois en cours
@@ -8969,9 +8974,10 @@ function buildQuittanceHtml(tenant,payment,mois,annee,loyer,charges,total,datePa
   const detteMoisPrec=detteDetail.reduce((s,d)=>s+d.manque,0);
   const detteTotal=Math.round((soldeMois+detteMoisPrec)*100)/100;
 
-  const detteBlock=detteTotal>0?(
-    '<div style="border:2px solid #E24B4A;border-radius:6px;padding:14px 16px;margin:16px 0;background:#FFF5F5">'
-    +'<div style="font-size:14px;font-weight:700;color:#E24B4A;margin-bottom:10px">⚠ Situation locative — Soldes impayés</div>'
+  const detteBlock=(()=>{try{
+    if(detteTotal<=0.01)return'';
+    return '<div style="border:2px solid #E24B4A;border-radius:6px;padding:14px 16px;margin:16px 0;background:#FFF5F5">'
+    +'<div style="font-size:14px;font-weight:700;color:#E24B4A;margin-bottom:10px">&#9888; Situation locative — Soldes impayés</div>'
     +'<table style="width:100%;border-collapse:collapse;font-size:12px;margin:0">'
     +'<thead><tr style="background:#FCEBEB">'
       +'<th style="padding:6px 8px;text-align:left;border:1px solid #F7C1C1">Mois</th>'
@@ -8979,29 +8985,26 @@ function buildQuittanceHtml(tenant,payment,mois,annee,loyer,charges,total,datePa
       +'<th style="padding:6px 8px;text-align:right;border:1px solid #F7C1C1">Reçu</th>'
       +'<th style="padding:6px 8px;text-align:right;border:1px solid #F7C1C1;color:#E24B4A">Manquant</th>'
     +'</tr></thead><tbody>'
-    // Lignes mois précédents
-    +detteDetail.map(d=>'<tr>'
+    +detteDetail.map(function(d){return '<tr>'
       +'<td style="padding:5px 8px;border:1px solid #F7C1C1">'+d.mois+' '+d.annee+'</td>'
       +'<td style="padding:5px 8px;text-align:right;border:1px solid #F7C1C1">'+fmt(d.attendu)+'</td>'
       +'<td style="padding:5px 8px;text-align:right;border:1px solid #F7C1C1;color:#1D9E75">'+fmt(d.recu)+'</td>'
       +'<td style="padding:5px 8px;text-align:right;border:1px solid #F7C1C1;color:#E24B4A;font-weight:600">'+fmt(d.manque)+'</td>'
-    +'</tr>').join('')
-    // Ligne mois en cours si solde > 0
-    +(soldeMois>0?'<tr style="background:#FFF0F0">'
+    +'</tr>';}).join('')
+    +(soldeMois>0.01?'<tr style="background:#FFF0F0">'
       +'<td style="padding:5px 8px;border:1px solid #F7C1C1;font-weight:500">'+mois+' '+annee+' <span style="font-size:10px;color:#888">(en cours)</span></td>'
       +'<td style="padding:5px 8px;text-align:right;border:1px solid #F7C1C1">'+fmt(loyerRef+chargesRef)+'</td>'
       +'<td style="padding:5px 8px;text-align:right;border:1px solid #F7C1C1;color:#1D9E75">'+fmt(total)+'</td>'
       +'<td style="padding:5px 8px;text-align:right;border:1px solid #F7C1C1;color:#E24B4A;font-weight:600">'+fmt(soldeMois)+'</td>'
     +'</tr>':'')
-    // Ligne total
     +'<tr style="background:#FCEBEB;font-weight:700">'
       +'<td style="padding:6px 8px;border:1px solid #F7C1C1" colspan="3">DETTE TOTALE CUMULÉE</td>'
       +'<td style="padding:6px 8px;text-align:right;border:1px solid #F7C1C1;color:#E24B4A;font-size:14px">'+fmt(detteTotal)+'</td>'
     +'</tr>'
     +'</tbody></table>'
-    +'<div style="font-size:11px;color:#888;margin-top:8px">Nous vous remercions de régulariser cette situation dans les meilleurs délais. En cas de difficulté, contactez-nous.</div>'
-    +'</div>'
-  ):'';
+    +'<div style="font-size:11px;color:#888;margin-top:8px">Nous vous remercions de régulariser cette situation dans les meilleurs délais. En cas de difficul&#233;, contactez-nous.</div>'
+    +'</div>';
+  }catch(e){return'';}})();
 
   return '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>'+css+'</style></head><body>'+(showPrintBar?printBar:'')
     +'<div class="header">'
@@ -9070,10 +9073,9 @@ function buildFactureHtml(tenant,payment,mois,annee,loyer,charges,total,datePaie
     .total-row td{font-weight:bold;font-size:15px;background:#f0f0f0;border-top:2px solid #222}
     .sig-block{margin-top:40px;text-align:right;font-size:13px}`;
   const printBar='<div style=\'position:sticky;top:0;z-index:999;background:#1D9E75;color:#fff;display:flex;align-items:center;justify-content:space-between;padding:10px 20px;margin-bottom:16px;font-family:Arial,sans-serif\'>'
-    +'<div><strong style=\'color:#fff;font-size:14px\'>📄 Facture de loyer</strong><div style=\'font-size:11px;opacity:.8\'>Pour imprimer : utilisez Ctrl+P ou cliquez le bouton</div></div>'
-    +'<button onclick=\'window.print()\' style=\'background:#fff;color:#1D9E75;border:none;padding:8px 20px;border-radius:6px;font-weight:700;font-size:13px;cursor:pointer\'>🖨 Imprimer</button>'
-    +'</div>'
-    +'<script>try{setTimeout(function(){window.print();},800);}catch(e){}<\/script>';
+    +'<div><strong style=\'color:#fff;font-size:14px\'>&#128196; Facture de loyer</strong><div style=\'font-size:11px;opacity:.8\'>Pour imprimer / sauvegarder en PDF : Ctrl+P ou bouton</div></div>'
+    +'<button onclick=\'window.print()\' style=\'background:#fff;color:#1D9E75;border:none;padding:8px 20px;border-radius:6px;font-weight:700;font-size:13px;cursor:pointer\'>&#128424; Imprimer</button>'
+    +'</div>';
   return '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>'+css+'</style></head><body>'+(showPrintBar?printBar:'')
     +'<div class="header">'
     +'<div><strong>J&A SAVADUR</strong><br>26 RUE GÉNÉRAL DUBAIL<br>56100 LORIENT<br>savadur56@gmail.com<br>06.30.37.06.88</div>'
