@@ -6122,8 +6122,25 @@ async function saveModal(){
         +']'+(commentaire?' '+commentaire:'')):commentaire;
       try{
         await autoSendQuittance(t,payment,m.mois,m.annee,partialComment,!paye);
-        alert('✓ Enregistré ! Document ouvert.');
-      }catch(e){alert('✓ Enregistré : '+e.message);}
+        // Le message de confirmation est affiché dans autoSendQuittance
+      }catch(e){alert('✓ Enregistré\n⚠ Email non envoyé : '+e.message);}
+    } else if(!t.email&&payment){
+      const fmtM=new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'});
+      // Pas d'email : ouvrir quand même le document
+      const isComm=t.type_bail==='commercial';
+      const loyerRef=parseFloat(t.loyer_ref||0);const chargesRef=parseFloat(t.charges||0);
+      const totalRecu=parseFloat((payment.locataire_part||0)+(payment.caf||0));
+      const datePaie=payment.date_loc?new Date(payment.date_loc).toLocaleDateString('fr-FR'):new Date().toLocaleDateString('fr-FR');
+      const moisNumDoc=String(['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'].indexOf(m.mois)+1).padStart(2,'0');
+      const invNum=m.annee+'-'+moisNumDoc+'-'+(t.logement||'').replace(/[^A-Z0-9]/gi,'').toUpperCase().slice(0,6);
+      const fmtDoc=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR',minimumFractionDigits:2}).format(n||0);
+      const docHtml=isComm
+        ?buildFactureHtml(t,payment,m.mois,m.annee,loyerRef,chargesRef,totalRecu||loyerRef,datePaie,invNum,fmtDoc,partialComment,false)
+        :buildQuittanceHtml(t,payment,m.mois,m.annee,loyerRef,chargesRef,totalRecu||loyerRef,datePaie,fmtDoc,partialComment,false);
+      const blob=new Blob([docHtml],{type:'text/html;charset=utf-8'});
+      const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.target='_blank';a.rel='noopener';
+      document.body.appendChild(a);a.click();document.body.removeChild(a);
+      alert('✓ Enregistré !'+(solde>0?'\nSolde restant : '+fmtM.format(solde):'')+'\n⚠ Aucun email renseigné pour ce locataire — document ouvert pour impression.');
     } else {
       const fmtM=new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'});
       alert(solde>0?'✓ Enregistré - Solde restant : '+fmtM.format(solde):'✓ Enregistré !');
@@ -7097,11 +7114,11 @@ function bindAll(){
     }
     if(tenant.email&&payment){
       try{
-        const r = await autoSendQuittance(tenant,payment,mois,annee,payment.commentaire||'');
-        alert('✓ Loyer validé !\n\n📄 Document ouvert pour impression/PDF.\n📧 Copie envoyée sur '+ALERT_EMAIL+' (à transférer à '+tenant.email+')');
+        await autoSendQuittance(tenant,payment,mois,annee,payment.commentaire||'');
+        // Le message de confirmation est affiché dans autoSendQuittance
       }catch(e){
         console.error('Email err:',e);
-        alert('✓ Loyer validé\n\n📄 '+e.message);
+        alert('✓ Loyer validé\n⚠ Email non envoyé : '+e.message);
       }
     }else{
       alert('✓ Loyer validé'+(tenant.email?'':' — aucun email renseigné pour ce locataire.'));
@@ -8714,65 +8731,83 @@ function _openPicker(callback){
 // QUITTANCES & FACTURES
 // ============================================================
 async function autoSendQuittance(tenant,payment,mois,annee,commentaire='',isPartial=false){
-  // Sender depends on property type
   const isDubailQ = dubailFilter(tenant.logement||'');
-  const SEND_FROM_EMAIL = isDubailQ ? 'savadur56@gmail.com'   : 'antoinejosse56@gmail.com';
-  const SEND_FROM_NAME  = isDubailQ ? 'J&A SAVADUR'           : 'Antoine JOSSE';
+  const SEND_FROM_EMAIL = isDubailQ ? 'savadur56@gmail.com' : 'antoinejosse56@gmail.com';
+  const SEND_FROM_NAME  = isDubailQ ? 'J&A SAVADUR'        : 'Antoine JOSSE';
+  // Copies : toujours antoinejosse56, + savadur56 si bien Dubail
+  const COPY_TO = isDubailQ
+    ? [{email:'savadur56@gmail.com',name:'J&A SAVADUR'},{email:'antoinejosse56@gmail.com',name:'Antoine JOSSE'}]
+    : [{email:'antoinejosse56@gmail.com',name:'Antoine JOSSE'}];
+
   if(!tenant.email)return;
   const fmt=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR',minimumFractionDigits:2}).format(n||0);
   const isCommercial=tenant.type_bail==='commercial';
-  const charges=parseFloat(tenant.charges||0);
-  // Quittance shows: loyer ref + charges (expected base), total RECU = locataire_part + caf
   const loyerRef=parseFloat(tenant.loyer_ref||0);
   const chargesRef=parseFloat(tenant.charges||0);
   const totalRecu=parseFloat((payment.locataire_part||0)+(payment.caf||0));
-  const total=totalRecu||loyerRef; // show what was received, fallback to ref
+  const total=totalRecu||loyerRef;
   const datePaiement=payment.date_loc?new Date(payment.date_loc).toLocaleDateString('fr-FR'):new Date().toLocaleDateString('fr-FR');
   const moisNum=String(['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'].indexOf(mois)+1).padStart(2,'0');
   const invoiceNum=annee+'-'+moisNum+'-'+tenant.logement.replace(/[^A-Z0-9]/gi,'').toUpperCase().slice(0,6);
   const emailHtml=isCommercial
-    ?buildFactureHtml(tenant,payment,mois,annee,loyerRef,chargesRef,totalRecu,datePaiement,invoiceNum,fmt,commentaire,true)
-    :buildQuittanceHtml(tenant,payment,mois,annee,loyerRef,chargesRef,totalRecu,datePaiement,fmt,commentaire,true);
+    ?buildFactureHtml(tenant,payment,mois,annee,loyerRef,chargesRef,total,datePaiement,invoiceNum,fmt,commentaire,true)
+    :buildQuittanceHtml(tenant,payment,mois,annee,loyerRef,chargesRef,total,datePaiement,fmt,commentaire,true);
   const docLabel=isPartial?'Règlement partiel':'Quittance de loyer';
   const subject=isCommercial
     ?docLabel+' — '+mois+' '+annee+' — '+tenant.logement+' — N°'+invoiceNum
     :docLabel+' — '+mois+' '+annee+' — '+tenant.logement;
-  // Copie savadur56 uniquement pour biens Dubail
-  const isDubailTenant = dubailFilter(tenant.logement||'');
-  const copyBcc = isDubailTenant ? [{email:'savadur56@gmail.com'}] : [];
-  // Envoi Brevo
   if(!BREVO_API_KEY)BREVO_API_KEY=ensureBrevoKey();
   if(!BREVO_API_KEY)throw new Error('Clé Brevo manquante');
-  // Envoi au locataire
+
+  // 1. Envoi au locataire
   const resp=await fetch('https://api.brevo.com/v3/smtp/email',{
     method:'POST',
     headers:{'api-key':BREVO_API_KEY,'Content-Type':'application/json','Accept':'application/json'},
     body:JSON.stringify({sender:{name:SEND_FROM_NAME,email:SEND_FROM_EMAIL},to:[{email:tenant.email,name:tenant.nom}],subject,htmlContent:emailHtml})
   });
-  if(!resp.ok){const t=await resp.text();const w=window.open('','_blank');if(w){w.document.write(emailHtml);w.document.close();}throw new Error(t);}
-  // Copie séparée à savadur56 et admin
-  const copySubject='[COPIE] '+subject+' — '+tenant.nom;
-  fetch('https://api.brevo.com/v3/smtp/email',{
-    method:'POST',
-    headers:{'api-key':BREVO_API_KEY,'Content-Type':'application/json','Accept':'application/json'},
-    body:JSON.stringify({sender:{name:FROM_NAME,email:FROM_EMAIL},to:isDubailQ?[{email:'savadur56@gmail.com',name:'J&A SAVADUR'},{email:ALERT_EMAIL,name:'Antoine JOSSE'}]:[{email:ALERT_EMAIL,name:'Antoine JOSSE'}],subject:copySubject,htmlContent:emailHtml})
-  }).catch(e=>console.warn('Copie archive failed:',e.message));
-  // Open print preview (with print button enabled)
-  try{
-    const previewHtml=isCommercial
-      ?buildFactureHtml(tenant,payment,mois,annee,loyerRef,chargesRef,totalRecu,datePaiement,invoiceNum,fmt,commentaire,false)
-      :buildQuittanceHtml(tenant,payment,mois,annee,loyerRef,chargesRef,totalRecu,datePaiement,fmt,commentaire,false);
-    const blob=new Blob([previewHtml],{type:'text/html;charset=utf-8'});
-    const blobUrl=URL.createObjectURL(blob);
-    // Use <a> click instead of window.open to bypass popup blocker
-    const a=document.createElement('a');
-    a.href=blobUrl;a.target='_blank';a.rel='noopener';
+  if(!resp.ok){
+    const t=await resp.text();
+    // Ouvrir quand même le document même si l'email a échoué
+    const blob=new Blob([emailHtml],{type:'text/html;charset=utf-8'});
+    const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.target='_blank';a.rel='noopener';
     document.body.appendChild(a);a.click();document.body.removeChild(a);
-    setTimeout(()=>URL.revokeObjectURL(blobUrl),30000);
+    throw new Error('Email locataire échoué : '+t);
+  }
+
+  // 2. Copie aux gérants (même expéditeur dynamique)
+  let copyOk=false;
+  try{
+    const copyResp=await fetch('https://api.brevo.com/v3/smtp/email',{
+      method:'POST',
+      headers:{'api-key':BREVO_API_KEY,'Content-Type':'application/json','Accept':'application/json'},
+      body:JSON.stringify({sender:{name:SEND_FROM_NAME,email:SEND_FROM_EMAIL},to:COPY_TO,subject:'[COPIE] '+subject+' — '+tenant.nom,htmlContent:emailHtml})
+    });
+    copyOk=copyResp.ok;
+    if(!copyResp.ok)console.warn('Copie failed:',await copyResp.text());
+  }catch(e){console.warn('Copie failed:',e.message);}
+
+  // 3. Ouvrir le document en popup
+  const previewHtml=isCommercial
+    ?buildFactureHtml(tenant,payment,mois,annee,loyerRef,chargesRef,total,datePaiement,invoiceNum,fmt,commentaire,false)
+    :buildQuittanceHtml(tenant,payment,mois,annee,loyerRef,chargesRef,total,datePaiement,fmt,commentaire,false);
+  try{
+    const blob=new Blob([previewHtml],{type:'text/html;charset=utf-8'});
+    const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.target='_blank';a.rel='noopener';
+    document.body.appendChild(a);a.click();document.body.removeChild(a);
+    setTimeout(()=>URL.revokeObjectURL(a.href),30000);
   }catch(e){
-    const url='data:text/html;charset=utf-8,'+encodeURIComponent(emailHtml);
+    const url='data:text/html;charset=utf-8,'+encodeURIComponent(previewHtml);
     const a=document.createElement('a');a.href=url;a.target='_blank';a.click();
   }
+
+  // 4. Message de confirmation clair
+  const copyDests=COPY_TO.map(x=>x.email).join(', ');
+  alert('✅ Email envoyé avec succès !\n\n'
+    +'📧 Destinataire : '+tenant.email+'\n'
+    +'📤 Expéditeur : '+SEND_FROM_EMAIL+'\n'
+    +'📋 Objet : '+subject+'\n'
+    +(copyOk?'📎 Copie envoyée à : '+copyDests:'⚠ Copie non envoyée (vérifier les logs)')
+  );
   return true;
 }
 
