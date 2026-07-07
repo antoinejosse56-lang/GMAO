@@ -8946,14 +8946,62 @@ function buildQuittanceHtml(tenant,payment,mois,annee,loyer,charges,total,datePa
     +'<button onclick=\'window.print()\' style=\'background:#fff;color:#1D9E75;border:none;padding:8px 20px;border-radius:6px;font-weight:700;font-size:13px;cursor:pointer\'>🖨 Imprimer</button>'
     +'</div>'
     +'<script>try{setTimeout(function(){window.print();},800);}catch(e){}<\/script>';
-  // Signature dynamique selon bailleur
-  const sigNom = isDubail ? 'JOSSE Antoine' : 'Antoine JOSSE';
-  const sigQualite = isDubail ? 'GÉRANT J&A SAVADUR' : 'Bailleur';
-  // Adresse locataire : extraire l'adresse physique depuis la topologie si possible
-  const propName = (tenant.logement||'').split(' — ')[0].split(' - ')[0].trim();
-  const topoP = S.topology?.properties?.find(p=>p.name===propName);
-  // Adresse du logement pour la quittance
-  const adresseLogement = isDubail ? '26 RUE GÉNÉRAL DUBAIL, 56100 LORIENT' : (topoP?.adresse||bailAddr+', '+bailCP);
+  // Calcul du détail de la dette mois par mois depuis S.rentPayments
+  const detteDetail=(()=>{
+    if(typeof S==='undefined')return[];
+    const allPmts=(S.rentPayments||[]).filter(p=>p.tenant_id===tenant.id&&!p.paye&&((p.locataire_part||0)+(p.caf||0))<(p.loyer||0));
+    // Exclure le mois en cours (déjà affiché dans le tableau principal)
+    const MOIS_LIST=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+    return allPmts
+      .filter(p=>!(p.mois===mois&&p.annee===annee))
+      .sort((a,b)=>a.annee!==b.annee?a.annee-b.annee:(a.mois_num||MOIS_LIST.indexOf(a.mois)+1)-(b.mois_num||MOIS_LIST.indexOf(b.mois)+1))
+      .map(p=>{
+        const recu=(p.locataire_part||0)+(p.caf||0);
+        const manque=Math.round(((p.loyer||0)-recu)*100)/100;
+        return {mois:p.mois,annee:p.annee,attendu:p.loyer||0,recu,manque};
+      })
+      .filter(p=>p.manque>0);
+  })();
+
+  // Solde du mois en cours
+  const soldeMois=Math.max(0,Math.round(((loyerRef+chargesRef)-total)*100)/100);
+  // Dette totale = solde mois + manque des mois précédents
+  const detteMoisPrec=detteDetail.reduce((s,d)=>s+d.manque,0);
+  const detteTotal=Math.round((soldeMois+detteMoisPrec)*100)/100;
+
+  const detteBlock=detteTotal>0?(
+    '<div style="border:2px solid #E24B4A;border-radius:6px;padding:14px 16px;margin:16px 0;background:#FFF5F5">'
+    +'<div style="font-size:14px;font-weight:700;color:#E24B4A;margin-bottom:10px">⚠ Situation locative — Soldes impayés</div>'
+    +'<table style="width:100%;border-collapse:collapse;font-size:12px;margin:0">'
+    +'<thead><tr style="background:#FCEBEB">'
+      +'<th style="padding:6px 8px;text-align:left;border:1px solid #F7C1C1">Mois</th>'
+      +'<th style="padding:6px 8px;text-align:right;border:1px solid #F7C1C1">Loyer attendu</th>'
+      +'<th style="padding:6px 8px;text-align:right;border:1px solid #F7C1C1">Reçu</th>'
+      +'<th style="padding:6px 8px;text-align:right;border:1px solid #F7C1C1;color:#E24B4A">Manquant</th>'
+    +'</tr></thead><tbody>'
+    // Lignes mois précédents
+    +detteDetail.map(d=>'<tr>'
+      +'<td style="padding:5px 8px;border:1px solid #F7C1C1">'+d.mois+' '+d.annee+'</td>'
+      +'<td style="padding:5px 8px;text-align:right;border:1px solid #F7C1C1">'+fmt(d.attendu)+'</td>'
+      +'<td style="padding:5px 8px;text-align:right;border:1px solid #F7C1C1;color:#1D9E75">'+fmt(d.recu)+'</td>'
+      +'<td style="padding:5px 8px;text-align:right;border:1px solid #F7C1C1;color:#E24B4A;font-weight:600">'+fmt(d.manque)+'</td>'
+    +'</tr>').join('')
+    // Ligne mois en cours si solde > 0
+    +(soldeMois>0?'<tr style="background:#FFF0F0">'
+      +'<td style="padding:5px 8px;border:1px solid #F7C1C1;font-weight:500">'+mois+' '+annee+' <span style="font-size:10px;color:#888">(en cours)</span></td>'
+      +'<td style="padding:5px 8px;text-align:right;border:1px solid #F7C1C1">'+fmt(loyerRef+chargesRef)+'</td>'
+      +'<td style="padding:5px 8px;text-align:right;border:1px solid #F7C1C1;color:#1D9E75">'+fmt(total)+'</td>'
+      +'<td style="padding:5px 8px;text-align:right;border:1px solid #F7C1C1;color:#E24B4A;font-weight:600">'+fmt(soldeMois)+'</td>'
+    +'</tr>':'')
+    // Ligne total
+    +'<tr style="background:#FCEBEB;font-weight:700">'
+      +'<td style="padding:6px 8px;border:1px solid #F7C1C1" colspan="3">DETTE TOTALE CUMULÉE</td>'
+      +'<td style="padding:6px 8px;text-align:right;border:1px solid #F7C1C1;color:#E24B4A;font-size:14px">'+fmt(detteTotal)+'</td>'
+    +'</tr>'
+    +'</tbody></table>'
+    +'<div style="font-size:11px;color:#888;margin-top:8px">Nous vous remercions de régulariser cette situation dans les meilleurs délais. En cas de difficulté, contactez-nous.</div>'
+    +'</div>'
+  ):'';
 
   return '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>'+css+'</style></head><body>'+(showPrintBar?printBar:'')
     +'<div class="header">'
@@ -8975,14 +9023,14 @@ function buildQuittanceHtml(tenant,payment,mois,annee,loyer,charges,total,datePa
     +(payment.note_quittance?'<tr><td>'+payment.note_quittance+' :</td><td>'+fmt(payment.ajustement||0)+'</td></tr>':'')
     +'<tr><td><strong>Total appelé :</strong></td><td><strong>'+fmt(loyerRef+chargesRef+(payment.ajustement||0))+'</strong></td></tr>'
     +'<tr><td><strong>Montant reçu :</strong></td><td><strong style="color:'+(total<loyerRef+chargesRef?'#E24B4A':'#1D9E75')+'">'+fmt(total)+'</strong></td></tr>'
-    +(total<loyerRef+chargesRef?'<tr><td><strong>Solde restant dû :</strong></td><td><strong style="color:#E24B4A">'+fmt(loyerRef+chargesRef-total)+'</strong></td></tr>':'')
+    +(soldeMois>0?'<tr><td><strong>Solde ce mois :</strong></td><td><strong style="color:#E24B4A">'+fmt(soldeMois)+'</strong></td></tr>':'')
     +'</table>':
     '<table>'
     +'<tr><td>Loyer :</td><td>'+fmt(loyerRef)+'</td></tr>'
     +'<tr><td><strong>Montant reçu :</strong></td><td><strong style="color:'+(total<loyerRef?'#E24B4A':'#1D9E75')+'">'+fmt(total)+'</strong></td></tr>'
-    +(total<loyerRef?'<tr><td><strong>Solde restant dû :</strong></td><td><strong style="color:#E24B4A">'+fmt(loyerRef-total)+'</strong></td></tr>':'')
+    +(soldeMois>0?'<tr><td><strong>Solde ce mois :</strong></td><td><strong style="color:#E24B4A">'+fmt(soldeMois)+'</strong></td></tr>':'')
     +'</table>')
-    +(tenant.dette>0?'<div style="background:#FFF3CD;border:1.5px solid #F0AD4E;border-radius:6px;padding:10px 14px;margin:12px 0;font-size:13px"><strong>&#9888; Dette cumulée à ce jour : '+fmt(tenant.dette)+'</strong><br><span style="font-size:11px;color:#555">Ce montant sera inclus dans votre prochain appel de loyer.</span></div>':'')
+    +detteBlock
     +'<div class="sig-block">'
     +'<div style="font-size:13px">Fait à Lorient, le '+new Date().toLocaleDateString('fr-FR')+'</div>'
     +'<div class="sig-right">'
