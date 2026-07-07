@@ -2073,7 +2073,7 @@ function renderLocatif(){
 
     if(tab==='emises'){
     const dubailTenantIds=isDubail?S.tenants.filter(t=>dubailFilter(t.logement||'')).map(t=>t.id):null;
-    const allRp=S.rentPayments.filter(p=>p.annee===year&&p.paye&&(!dubailTenantIds||dubailTenantIds.includes(p.tenant_id)));
+    const allRp=S.rentPayments.filter(p=>p.annee===year&&(p.paye||(p.locataire_part>0||p.caf>0))&&(!dubailTenantIds||dubailTenantIds.includes(p.tenant_id)));
     // Releves linked to tenants (water/charges invoices)
     const allRel=S.releves.filter(r=>{
       const cpt=S.compteurs.find(c=>c.id===r.compteur_id);
@@ -2110,13 +2110,18 @@ function renderLocatif(){
           const zT=items.reduce((s,f)=>s+(f.locataire_part||0)+(f.caf||0),0);
           const rows=items.map(function(f){
             const recu=(f.locataire_part||0)+(f.caf||0);const sol=Math.round(((f.loyer||0)-recu)*100)/100;
-            return '<tr><td style="font-size:11px">'+(f.mois||'')+' '+(f.annee||'')+'</td>'
+            const isPartial=!f.paye&&recu>0;
+            return '<tr style="'+(isPartial?'background:#FFF9E6':'')+'">'
+              +'<td style="font-size:11px">'+(f.mois||'')+' '+(f.annee||'')
+                +(isPartial?' <span class="badge bamber" style="font-size:9px">Partiel</span>':'')
+              +'</td>'
               +'<td>'+(f._t?.nom||'')+'</td>'
               +'<td style="text-align:right">'+fmt(f.loyer||0)+'</td>'
               +'<td style="text-align:right;color:var(--green)">'+fmt(recu)+'</td>'
-              +'<td style="text-align:right;color:'+(sol>0?'var(--red)':'var(--green)')+';">'+fmt(sol)+'</td>'
+              +'<td style="text-align:right;font-weight:600;color:'+(sol>0?'var(--red)':'var(--green)')+';">'+fmt(sol)+'</td>'
               +'<td style="text-align:center;white-space:nowrap">'
-                +'<button class="btn btn-sm" data-print-qtt="'+f.id+'" style="font-size:10px;padding:2px 5px">&#128438;</button>'
+                +'<button class="btn btn-sm" data-print-qtt="'+f.id+'" style="font-size:10px;padding:2px 5px" title="Ouvrir document">&#128438;</button>'
+                +(f._t?.email?'<button class="btn btn-sm" data-resend-qtt="'+f.id+'" style="font-size:10px;padding:2px 5px;margin-left:3px" title="Renvoyer par email">&#128233;</button>':'')
                 +(isAdmin()?'<button class="btn btn-d btn-sm" data-del-rp="'+f.id+'" style="font-size:10px;padding:2px 5px;margin-left:3px">&#10005;</button>':'')
               +'</td></tr>';
           }).join('');
@@ -7452,6 +7457,23 @@ function bindAll(){
     const tenant=S.tenants.find(t=>t.id===rp.tenant_id);
     if(!tenant)return;
     genQuittancePDF(tenant,rp,rp.mois,rp.annee);
+  });
+  document.querySelectorAll('[data-resend-qtt]').forEach(el=>el.onclick=async()=>{
+    const rp=S.rentPayments.find(r=>r.id===el.dataset.resendQtt);
+    if(!rp)return;
+    const tenant=S.tenants.find(t=>t.id===rp.tenant_id);
+    if(!tenant||!tenant.email)return alert('Pas d\'email pour ce locataire');
+    const isPartial=!rp.paye&&((rp.locataire_part||0)+(rp.caf||0))>0;
+    const recu=(rp.locataire_part||0)+(rp.caf||0);
+    const solde=Math.round(((rp.loyer||0)-recu)*100)/100;
+    const fmt=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(n||0);
+    const partialComment=isPartial
+      ?('[Règlement partiel — Reçu : '+fmt(recu)+' — Solde restant : '+fmt(solde)+']'+(rp.commentaire?' '+rp.commentaire:''))
+      :(rp.commentaire||'');
+    if(!confirm('Renvoyer le document par email à '+tenant.email+' ?'))return;
+    try{
+      await autoSendQuittance(tenant,rp,rp.mois,rp.annee,partialComment,isPartial);
+    }catch(e){alert('Erreur envoi : '+e.message);}
   });
   document.querySelectorAll('[data-del-rp]').forEach(el=>el.onclick=async()=>{
     if(!confirm('Supprimer ce paiement ?'))return;
