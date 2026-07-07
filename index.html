@@ -1953,6 +1953,7 @@ function renderLocatif(){
                 <td style="white-space:nowrap">
                   ${canEdit()&&!isPaid?`<button class="btn btn-sm btn-p" data-pay-loyer="${t.id}" data-pay-mois="${mois}" data-pay-year="${year}">✓ Valider</button> `:''}
                   ${canEdit()?`<button class="btn btn-sm" data-saisie-loyer="${t.id}" data-saisie-mois="${mois}" data-saisie-year="${year}">✎ Saisir</button>`:''}
+                  ${canEdit()&&(t.dette>0)?`<button class="btn btn-sm" style="background:var(--blue-bg);color:var(--blue);border-color:var(--blue)" data-remb-dette="${t.id}" data-remb-mois="${mois}" data-remb-year="${year}" title="Enregistrer un remboursement de dette">↩ Remb.</button>`:''}
                   ${p&&canEdit()?`<button class="btn btn-sm btn-d" data-del-rp="${p.id}" title="Supprimer ce paiement">✕</button>`:''}
                 </td>
               </tr>`;
@@ -5287,6 +5288,29 @@ function renderModal(){
     ${mf}`;
   }
 
+  if(m.type==='remb-dette'){
+    const t=m.tenant||{};
+    const fmt2=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(n||0);
+    html=`${mhd('↩ Remboursement dette — '+t.nom)}
+    <div style="background:var(--blue-bg);border-radius:var(--radius);padding:10px 12px;margin-bottom:14px;font-size:13px">
+      <b>${t.logement||''}</b><br>
+      Dette actuelle : <strong style="color:var(--red)">${fmt2(t.dette||0)}</strong>
+    </div>
+    <div class="form-group">
+      <label>Montant remboursé (€) *</label>
+      <input id="m-remb-montant" type="number" step="0.01" value="${t.dette||0}" placeholder="0.00" autofocus>
+    </div>
+    <div class="form-group">
+      <label>Date de réception</label>
+      <input id="m-remb-date" type="date" value="${NOW}">
+    </div>
+    <div class="form-group">
+      <label>Commentaire (optionnel)</label>
+      <input id="m-remb-comment" placeholder="Ex: Virement reçu, chèque encaissé...">
+    </div>
+    ${mf}`;
+  }
+
   if(m.type==='saisie-loyer'){
     const t=m.tenant||{};
     const p=m.existing||{};
@@ -6002,6 +6026,54 @@ async function saveModal(){
 
 
 
+  if(m.type==='remb-dette'){
+    const t=m.tenant;if(!t)return;
+    const montant=parseFloat(q('m-remb-montant')?.value)||0;
+    if(!montant)return alert('Montant requis');
+    const dateRemb=q('m-remb-date')?.value||NOW;
+    const comment=q('m-remb-comment')?.value?.trim()||'';
+    const nouvDette=Math.max(0,Math.round(((t.dette||0)-montant)*100)/100);
+    const {error}=await sb.from('tenants').update({dette:nouvDette}).eq('id',t.id);
+    if(error){alert('Erreur : '+error.message);return;}
+    t.dette=nouvDette;
+    const fmt2=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(n||0);
+    const isDubailR=dubailFilter(t.logement||'');
+    const sigNomR=isDubailR?'JOSSE Antoine':'Antoine JOSSE';
+    const sigQualR=isDubailR?'Gérant J&A SAVADUR':'Bailleur';
+    const fromNameR=isDubailR?'J&A SAVADUR':'Antoine JOSSE';
+    const fromEmailR=isDubailR?'savadur56@gmail.com':'antoinejosse56@gmail.com';
+    const recu='<!DOCTYPE html><html><head><meta charset="UTF-8"><style>body{font-family:Arial,sans-serif;max-width:640px;margin:40px auto;padding:30px;color:#222;font-size:14px}.box{border:2px solid #185FA5;padding:20px;text-align:center;margin:24px 0;border-radius:6px}.somme{font-size:26px;font-weight:bold;color:#185FA5;margin:8px 0}.mention{font-size:11px;color:#888;margin-top:24px;border-top:1px solid #ddd;padding-top:12px}.printbtn{background:#185FA5;color:#fff;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-weight:700;position:fixed;top:16px;right:16px}@media print{.printbtn{display:none}}</style></head><body>'
+      +'<button class="printbtn" onclick="window.print()">🖨 Imprimer</button>'
+      +'<div style="display:flex;justify-content:space-between;margin-bottom:24px">'
+        +'<div><strong>'+fromNameR+'</strong><br>Lorient</div>'
+        +'<div style="text-align:right"><strong>'+t.nom+'</strong><br>'+t.logement+'<br>Fait le : '+new Date(dateRemb).toLocaleDateString('fr-FR')+'</div>'
+      +'</div>'
+      +'<div style="text-align:center;font-size:18px;font-weight:bold;text-decoration:underline;margin:20px 0">REÇU DE REMBOURSEMENT DE DETTE</div>'
+      +'<div class="box"><div>Montant remboursé</div><div class="somme">'+fmt2(montant)+'</div><div>Le '+new Date(dateRemb).toLocaleDateString('fr-FR')+'</div>'
+        +(comment?'<div style="font-size:13px;color:#666;margin-top:8px;font-style:italic">'+comment+'</div>':'')
+      +'</div>'
+      +'<p>Nous accusons réception du remboursement de <strong>'+fmt2(montant)+'</strong> sur la dette locative de <strong>'+t.logement+'</strong>.</p>'
+      +(nouvDette>0?'<p style="color:#E24B4A"><strong>Solde restant dû : '+fmt2(nouvDette)+'</strong></p>':'<p style="color:#1D9E75"><strong>✓ Dette soldée intégralement.</strong></p>')
+      +'<div style="margin-top:50px;text-align:right"><div>'+sigQualR+'</div><div style="font-size:11px;color:#888;margin-top:4px">Signature électronique automatique</div><div style="font-weight:bold;margin-top:40px;border-top:1px solid #222;padding-top:6px;display:inline-block;min-width:180px">'+sigNomR+'</div></div>'
+      +'<p class="mention">Ce document atteste du remboursement partiel ou total de la dette locative.</p>'
+      +'</body></html>';
+    if(t.email&&BREVO_API_KEY){
+      try{
+        await fetch('https://api.brevo.com/v3/smtp/email',{method:'POST',
+          headers:{'api-key':BREVO_API_KEY,'Content-Type':'application/json'},
+          body:JSON.stringify({sender:{name:fromNameR,email:fromEmailR},to:[{email:t.email,name:t.nom}],
+            subject:'Reçu remboursement dette — '+t.logement+' — '+new Date(dateRemb).toLocaleDateString('fr-FR'),
+            htmlContent:recu})});
+      }catch(e){console.warn('Email remb failed:',e);}
+    }
+    const blob=new Blob([recu],{type:'text/html;charset=utf-8'});
+    const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.target='_blank';
+    document.body.appendChild(a);a.click();document.body.removeChild(a);
+    closeModal();render();
+    alert('✓ Remboursement enregistré !\nDette restante : '+fmt2(nouvDette));
+    return;
+  }
+
   if(m.type==='saisie-loyer'){
     const t=m.tenant||{};
     const MOIS=['Janvier','F\xe9vrier','Mars','Avril','Mai','Juin','Juillet','Ao\xfbt','Septembre','Octobre','Novembre','D\xe9cembre'];
@@ -6545,74 +6617,21 @@ function updateTenantZones(existingZoneName){
 
 
 function genQuittancePDF(tenant, payment, mois, annee){
-  const recu=(payment.locataire_part||0)+(payment.caf||0);
-  const loyer=payment.loyer||tenant.loyer_ref||0;
-  const charges=tenant.charges||0;
-  const solde=Math.round((loyer-recu)*100)/100;
-  const fmt=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(n||0);
-  const today=new Date().toLocaleDateString('fr-FR');
-  const isDubailT=dubailFilter(tenant.logement||'');
-  const bailleurName=isDubailT?'J\u0026A SAVADUR':'Antoine JOSSE';
-  const bailleurAddr=isDubailT?'26 RUE G\u00c9N\u00c9RAL DUBAIL':'5 RUE DE CALVIN';
-  const html=`<!DOCTYPE html><html><head><meta charset="utf-8">
-  <title>Quittance ${mois} ${annee}</title>
-  <style>
-    body{font-family:Arial,sans-serif;margin:0;padding:30px;color:#222;font-size:13px}
-    .header{display:flex;justify-content:space-between;margin-bottom:30px}
-    .bailleur{font-size:12px;line-height:1.6}
-    .title{text-align:center;font-size:20px;font-weight:700;text-transform:uppercase;letter-spacing:2px;margin:20px 0;padding:12px;border-top:2px solid #222;border-bottom:2px solid #222}
-    .section{margin-bottom:16px}
-    .label{font-weight:600;color:#555;font-size:11px;text-transform:uppercase;letter-spacing:0.5px}
-    table{width:100%;border-collapse:collapse;margin:12px 0}
-    td,th{padding:8px 12px;border:1px solid #ddd;font-size:12px}
-    th{background:#f5f5f5;font-weight:600;text-align:left}
-    .total{font-weight:700;font-size:14px;background:#f0f0f0}
-    .footer{margin-top:40px;font-size:11px;color:#888;border-top:1px solid #ddd;padding-top:12px}
-    .signature{margin-top:50px;display:flex;justify-content:space-between}
-    .solde-ok{color:#1D9E75;font-weight:700}
-    .solde-bad{color:#E74C3C;font-weight:700}
-    @media print{body{padding:15px}}
-  </style></head><body>
-  <div class="header">
-    <div class="bailleur">
-      <strong>${bailleurName}</strong><br>
-      ${bailleurAddr}<br>
-      56100 LORIENT<br>
-    </div>
-    <div style="text-align:right;font-size:12px">
-      <strong>${tenant.nom||''}</strong><br>
-      ${tenant.logement||''}<br>
-      Date d'émission : ${today}
-    </div>
-  </div>
-  <div class="title">Quittance de loyer — ${mois} ${annee}</div>
-  <div class="section">
-    <div class="label">Logement</div>
-    <div>${tenant.logement||''}</div>
-  </div>
-  <table>
-    <tr><th>Désignation</th><th style="text-align:right">Montant</th></tr>
-    <tr><td>Loyer nu</td><td style="text-align:right">${fmt(loyer-charges)}</td></tr>
-    ${charges?`<tr><td>Charges</td><td style="text-align:right">${fmt(charges)}</td></tr>`:''}
-    <tr class="total"><td><strong>Total appelé</strong></td><td style="text-align:right"><strong>${fmt(loyer)}</strong></td></tr>
-    ${payment.caf?`<tr><td style="color:#888">dont CAF (${fmt(payment.caf)})</td><td style="text-align:right;color:#888">${fmt(payment.locataire_part||0)} locataire</td></tr>`:''}
-    <tr class="total"><td><strong>Total reçu</strong></td><td style="text-align:right" class="${solde<=0?'solde-ok':'solde-bad'}"><strong>${fmt(recu)}</strong></td></tr>
-    ${solde>0?`<tr><td style="color:#E74C3C">Solde restant dû</td><td style="text-align:right;color:#E74C3C">${fmt(solde)}</td></tr>`:''}
-  </table>
-  ${payment.commentaire?`<div style="margin:12px 0;padding:10px;background:#FFF9E6;border-left:3px solid #F39C12;font-size:12px">${payment.commentaire}</div>`:''}
-  <div class="footer">
-    Quittance générée le ${today} — Je soussigné, bailleur, déclare avoir reçu la somme de ${fmt(recu)} 
-    au titre du loyer et des charges du logement désigné ci-dessus pour la période de ${mois} ${annee}.
-  </div>
-  <div class="signature">
-    <div style="font-size:12px">Le locataire<br><br><br>Signature :</div>
-    <div style="font-size:12px;text-align:right">Le bailleur<br><br><br>Signature :</div>
-  </div>
-  </body></html>`;
-  const w=window.open('','_blank','width=800,height=900');
-  w.document.write(html);
-  w.document.close();
-  setTimeout(()=>w.print(),500);
+  const fmt=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR',minimumFractionDigits:2}).format(n||0);
+  const loyerRef=parseFloat(tenant.loyer_ref||0);
+  const chargesRef=parseFloat(tenant.charges||0);
+  const totalRecu=parseFloat((payment.locataire_part||0)+(payment.caf||0));
+  const datePaiement=payment.date_loc?new Date(payment.date_loc).toLocaleDateString('fr-FR'):new Date().toLocaleDateString('fr-FR');
+  const moisNum=String(['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'].indexOf(mois)+1).padStart(2,'0');
+  const invoiceNum=annee+'-'+moisNum+'-'+(tenant.logement||'').replace(/[^A-Z0-9]/gi,'').toUpperCase().slice(0,6);
+  const isComm=tenant.type_bail==='commercial';
+  const html=isComm
+    ?buildFactureHtml(tenant,payment,mois,annee,loyerRef,chargesRef,totalRecu||loyerRef,datePaiement,invoiceNum,fmt,payment.commentaire||'',true)
+    :buildQuittanceHtml(tenant,payment,mois,annee,loyerRef,chargesRef,totalRecu||loyerRef,datePaiement,fmt,payment.commentaire||'',true);
+  const blob=new Blob([html],{type:'text/html;charset=utf-8'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.target='_blank';a.rel='noopener';
+  document.body.appendChild(a);a.click();document.body.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(a.href),30000);
 }
 
 function genFactureEauPDF(tenant, releves, mois, annee){
@@ -7096,6 +7115,11 @@ function bindAll(){
     const tenant=S.tenants.find(t=>t.id===tId);
     const existing=S.rentPayments.find(p=>p.tenant_id===tId&&p.mois===mois&&p.annee===annee);
     S.modal={type:'saisie-loyer',tenantId:tId,mois,annee,existing,tenant};render();
+  });
+  document.querySelectorAll('[data-remb-dette]').forEach(el=>el.onclick=()=>{
+    const tenant=S.tenants.find(t=>t.id===el.dataset.rembDette);
+    if(!tenant)return;
+    S.modal={type:'remb-dette',tenant};render();
   });
   document.querySelectorAll('[data-loc-annee]').forEach(el=>el.onclick=()=>{S.locAnnee=parseInt(el.dataset.locAnnee);render();});
 
@@ -8865,12 +8889,21 @@ function buildQuittanceHtml(tenant,payment,mois,annee,loyer,charges,total,datePa
     +'<button onclick=\'window.print()\' style=\'background:#fff;color:#1D9E75;border:none;padding:8px 20px;border-radius:6px;font-weight:700;font-size:13px;cursor:pointer\'>🖨 Imprimer</button>'
     +'</div>'
     +'<script>try{setTimeout(function(){window.print();},800);}catch(e){}<\/script>';
+  // Signature dynamique selon bailleur
+  const sigNom = isDubail ? 'JOSSE Antoine' : 'Antoine JOSSE';
+  const sigQualite = isDubail ? 'GÉRANT J&A SAVADUR' : 'Bailleur';
+  // Adresse locataire : extraire l'adresse physique depuis la topologie si possible
+  const propName = (tenant.logement||'').split(' — ')[0].split(' - ')[0].trim();
+  const topoP = S.topology?.properties?.find(p=>p.name===propName);
+  // Adresse du logement pour la quittance
+  const adresseLogement = isDubail ? '26 RUE GÉNÉRAL DUBAIL, 56100 LORIENT' : (topoP?.adresse||bailAddr+', '+bailCP);
+
   return '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>'+css+'</style></head><body>'+(showPrintBar?printBar:'')
     +'<div class="header">'
     +'<div><strong>LE BAILLEUR</strong><br>'+bailNom+'<br>'+bailAddr+'<br>'+bailCP+'<br>'+bailEmail+(bailTel?'<br>'+bailTel:'')+'</div>'
-    +'<div style="text-align:right"><strong>LE LOCATAIRE</strong><br>'+tenant.nom+'<br>'+tenant.logement+'<br>26 Rue Général Dubail<br>56100 LORIENT</div>'
+    +'<div style="text-align:right"><strong>LE LOCATAIRE</strong><br>'+tenant.nom+'<br>'+tenant.logement+'<br>'+adresseLogement+'</div>'
     +'</div>'
-    +'<div class="title">Quittance de loyer</div>'
+    +'<div class="title">'+(total<loyerRef+chargesRef?'Reçu de paiement':'Quittance de loyer')+'</div>'
     +'<div class="subtitle">LOYER '+mois.toUpperCase()+' '+annee+'</div>'
     +'<div class="montant-box">'
     +'<div>REÇU LA SOMME DE</div>'
@@ -8880,21 +8913,28 @@ function buildQuittanceHtml(tenant,payment,mois,annee,loyer,charges,total,datePa
     +(commentaire?'<div style="font-size:12px;color:#666;margin-top:8px;font-style:italic">'+commentaire+'</div>':'')
     +'</div>'
     +'<div style="font-size:13px;margin:20px 0;line-height:1.7"><strong>POUR LOYER DU LOGEMENT SITUÉ :</strong><br>'
-    +tenant.logement+'<br>26 RUE GÉNÉRAL DUBAIL<br>56100 LORIENT</div>'
+    +tenant.logement+'<br>'+adresseLogement+'</div>'
     +(chargesRef>0?'<table><tr><td>Loyer nu :</td><td>'+fmt(loyerRef)+'</td></tr><tr><td>Charges :</td><td>'+fmt(chargesRef)+'</td></tr>'
     +(payment.note_quittance?'<tr><td>'+payment.note_quittance+' :</td><td>'+fmt(payment.ajustement||0)+'</td></tr>':'')
-    +'<tr><td><strong>Total :</strong></td><td><strong>'+fmt(loyerRef+chargesRef+(payment.ajustement||0))+'</strong></td></tr></table>':
+    +'<tr><td><strong>Total appelé :</strong></td><td><strong>'+fmt(loyerRef+chargesRef+(payment.ajustement||0))+'</strong></td></tr>'
+    +'<tr><td><strong>Montant reçu :</strong></td><td><strong style="color:'+(total<loyerRef+chargesRef?'#E24B4A':'#1D9E75')+'">'+fmt(total)+'</strong></td></tr>'
+    +(total<loyerRef+chargesRef?'<tr><td><strong>Solde restant dû :</strong></td><td><strong style="color:#E24B4A">'+fmt(loyerRef+chargesRef-total)+'</strong></td></tr>':'')
+    +'</table>':
     '<table>'
     +'<tr><td>Loyer :</td><td>'+fmt(loyerRef)+'</td></tr>'
-    +(payment.note_quittance?'<tr><td>'+payment.note_quittance+' :</td><td>'+fmt(payment.ajustement||0)+'</td></tr>':'')
-    +(payment.note_quittance?'<tr><td><strong>Total :</strong></td><td><strong>'+fmt(loyerRef+(payment.ajustement||0))+'</strong></td></tr>':'')
+    +'<tr><td><strong>Montant reçu :</strong></td><td><strong style="color:'+(total<loyerRef?'#E24B4A':'#1D9E75')+'">'+fmt(total)+'</strong></td></tr>'
+    +(total<loyerRef?'<tr><td><strong>Solde restant dû :</strong></td><td><strong style="color:#E24B4A">'+fmt(loyerRef-total)+'</strong></td></tr>':'')
     +'</table>')
-    +(tenant.dette>0?'<div style="background:#FFF3CD;border:1.5px solid #F0AD4E;border-radius:6px;padding:10px 14px;margin:12px 0;font-size:13px">'+'<strong>&#9888; Votre dette à ce jour s\'elève à : '+fmt(tenant.dette)+'</strong>'+'<br><span style="font-size:11px;color:#555">Ce montant sera inclus dans votre prochain appel de loyer.</span>'+'</div>':'')
+    +(tenant.dette>0?'<div style="background:#FFF3CD;border:1.5px solid #F0AD4E;border-radius:6px;padding:10px 14px;margin:12px 0;font-size:13px"><strong>&#9888; Dette cumulée à ce jour : '+fmt(tenant.dette)+'</strong><br><span style="font-size:11px;color:#555">Ce montant sera inclus dans votre prochain appel de loyer.</span></div>':'')
     +'<div class="sig-block">'
     +'<div style="font-size:13px">Fait à Lorient, le '+new Date().toLocaleDateString('fr-FR')+'</div>'
-    +'<div class="sig-right"><div>GÉRANT J&A SAVADUR</div><div class="name">JOSSE Antoine</div></div>'
+    +'<div class="sig-right">'
+    +'<div>'+sigQualite+'</div>'
+    +'<div style="font-size:11px;color:#888;margin-top:4px">Signature électronique automatique</div>'
+    +'<div class="name">'+sigNom+'</div>'
     +'</div>'
-    +'<p class="mention">Cette quittance annule tous reçus antérieurs pour les mêmes objets. Elle ne vaut qu\'après encaissement en cas de paiement par chèque.</p>'
+    +'</div>'
+    +'<p class="mention">Ce document atteste du règlement partiel ou total du loyer pour la période indiquée. Il ne vaut qu\'après encaissement effectif des fonds.</p>'
     +'</body></html>';
 }
 
