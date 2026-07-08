@@ -2038,36 +2038,74 @@ function renderLocatif(){
   }
 
   if(tab==='dettes'){
+    const MOIS_LIST=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+    const now=new Date();
     const debts = tenants.map(t=>{
-      const unpaid = S.rentPayments.filter(p=>p.tenant_id===t.id&&!p.paye&&(p.loyer||0)>0);
-      // Dette totale = somme des soldes de TOUS les mois impayés
-      const total = Math.round(unpaid.reduce((s,p)=>s+Math.max(0,(p.loyer||0)-(p.locataire_part||0)-(p.caf||0)),0)*100)/100;
-      // Inclure aussi les mois non saisis (loyer attendu mais aucun enregistrement)
-      return {t, unpaid, total};
+      // Le loyer mensuel de référence (jamais cumulé)
+      const loyerMensuel=parseFloat(t.loyer_ref||0);
+      if(!loyerMensuel)return{t,items:[],total:0};
+
+      // Générer tous les mois depuis date_entree jusqu'au mois en cours
+      const debut=t.date_entree?new Date(t.date_entree):null;
+      const items=[];
+
+      if(debut){
+        let y=debut.getFullYear();
+        let m=debut.getMonth(); // 0-indexed
+        const nowY=now.getFullYear();
+        const nowM=now.getMonth();
+        while(y<nowY||(y===nowY&&m<=nowM)){
+          const moisNom=MOIS_LIST[m];
+          const moisNum=m+1;
+          // Chercher le paiement enregistré pour ce mois
+          const p=S.rentPayments.find(x=>x.tenant_id===t.id&&x.annee===y&&x.mois===moisNom);
+          if(p&&p.paye){
+            // Soldé → pas de dette
+          } else {
+            const recu=p?Math.round(((p.locataire_part||0)+(p.caf||0))*100)/100:0;
+            const manque=Math.max(0,Math.round((loyerMensuel-recu)*100)/100);
+            if(manque>0.01){
+              items.push({mois:moisNom,annee:y,mois_num:moisNum,attendu:loyerMensuel,recu,manque,saisi:!!p,paiement:p||null});
+            }
+          }
+          m++;
+          if(m>11){m=0;y++;}
+        }
+      } else {
+        // Pas de date d'entrée → on se base sur les paiements enregistrés non soldés
+        S.rentPayments.filter(p=>p.tenant_id===t.id&&!p.paye&&(p.loyer||0)>0).forEach(p=>{
+          const recu=Math.round(((p.locataire_part||0)+(p.caf||0))*100)/100;
+          const manque=Math.max(0,Math.round((loyerMensuel-recu)*100)/100);
+          if(manque>0.01)items.push({mois:p.mois,annee:p.annee,mois_num:p.mois_num||0,attendu:loyerMensuel,recu,manque,saisi:true,paiement:p});
+        });
+      }
+
+      items.sort((a,b)=>a.annee!==b.annee?a.annee-b.annee:a.mois_num-b.mois_num);
+      const total=Math.round(items.reduce((s,i)=>s+i.manque,0)*100)/100;
+      return {t,items,total};
     }).filter(x=>x.total>0.01).sort((a,b)=>b.total-a.total);
+
     return `${tabBar}
     <div class="card">
       <div class="sec">Impayés & dettes</div>
       ${debts.length===0?'<div style="font-size:13px;color:var(--text2);padding:20px;text-align:center">Aucune dette enregistrée.</div>':''}
-      ${debts.map(({t,unpaid,total})=>`
+      ${debts.map(({t,items,total})=>`
         <div class="row" style="align-items:flex-start;padding:12px 0">
           <div class="fg">
             <div class="fgs">${t.nom} <span style="font-size:11px;color:var(--text2)">${t.logement||''}</span></div>
             <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
-              ${unpaid.sort((a,b)=>a.annee!==b.annee?a.annee-b.annee:(a.mois_num||0)-(b.mois_num||0)).map(p=>{
-                const s=Math.max(0,Math.round(((p.loyer||0)-(p.locataire_part||0)-(p.caf||0))*100)/100);
-                const recu=(p.locataire_part||0)+(p.caf||0);
-                const isPartial=recu>0&&recu<(p.loyer||0);
+              ${items.map(i=>{
+                const isPartial=i.recu>0&&i.recu<i.attendu;
                 return `<span class="badge ${isPartial?'bamber':'bred'}" style="font-size:10px">
-                  ${p.mois} ${p.annee} : <b>${fmt(s)}</b>
-                  (att.${fmt(p.loyer)}${recu>0?' / reçu '+fmt(recu):' ⚠ non saisi'})
+                  ${i.mois} ${i.annee} : <b>${fmt(i.manque)}</b>
+                  (att.${fmt(i.attendu)}${i.recu>0?' / reçu '+fmt(i.recu):i.saisi?' / reçu 0€':' ⚠ non saisi'})
                 </span>`;
               }).join('')}
             </div>
           </div>
           <div style="text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:6px">
             <div style="font-size:16px;font-weight:600;color:var(--red)">${fmt(total)}</div>
-            <div style="font-size:11px;color:var(--text2)">${unpaid.length} mois impayé(s)</div>
+            <div style="font-size:11px;color:var(--text2)">${items.length} mois impayé(s)</div>
             <button class="btn btn-sm" style="background:var(--green);color:#fff;border-color:var(--green)" data-remb-dette="${t.id}">↩ Rembourser</button>
           </div>
         </div>`).join('')}
@@ -8974,11 +9012,32 @@ function buildDocumentLoyer(tenant,payment,mois,annee,loyer,charges,total,datePa
   const detteBlock=(()=>{try{
     if(payment._skipDette||typeof S==='undefined'||!S.rentPayments)return'';
     const MOIS_LIST=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
-    const detail=(S.rentPayments||[])
-      .filter(p=>p.tenant_id===tenant.id&&!p.paye&&(p.loyer||0)>0&&!(p.mois===mois&&String(p.annee)===String(annee)))
-      .map(p=>{const r=Math.round(((p.locataire_part||0)+(p.caf||0))*100)/100;const m=Math.round(((p.loyer||0)-r)*100)/100;return{mois:p.mois||'?',annee:p.annee||'',attendu:p.loyer||0,recu:r,manque:m,mois_num:p.mois_num||MOIS_LIST.indexOf(p.mois)+1};})
-      .filter(d=>d.manque>0.01)
-      .sort((a,b)=>a.annee!==b.annee?a.annee-b.annee:a.mois_num-b.mois_num);
+    const loyerMensuel=parseFloat(tenant.loyer_ref||0);
+    const now=new Date();
+    const debut=tenant.date_entree?new Date(tenant.date_entree):null;
+    let detail=[];
+    if(debut&&loyerMensuel>0){
+      let y=debut.getFullYear(),m=debut.getMonth();
+      const nowY=now.getFullYear(),nowM=now.getMonth();
+      while(y<nowY||(y===nowY&&m<=nowM)){
+        const moisNom=MOIS_LIST[m];
+        const moisAnnee=y;
+        // Exclure le mois en cours du document
+        if(moisNom===mois&&String(moisAnnee)===String(annee)){m++;if(m>11){m=0;y++;}continue;}
+        const p=S.rentPayments.find(x=>x.tenant_id===tenant.id&&x.annee===moisAnnee&&x.mois===moisNom);
+        if(p&&p.paye){m++;if(m>11){m=0;y++;}continue;}
+        const r=p?Math.round(((p.locataire_part||0)+(p.caf||0))*100)/100:0;
+        const manque=Math.max(0,Math.round((loyerMensuel-r)*100)/100);
+        if(manque>0.01)detail.push({mois:moisNom,annee:moisAnnee,attendu:loyerMensuel,recu:r,manque,mois_num:m+1});
+        m++;if(m>11){m=0;y++;}
+      }
+    } else {
+      detail=(S.rentPayments||[])
+        .filter(p=>p.tenant_id===tenant.id&&!p.paye&&(p.loyer||0)>0&&!(p.mois===mois&&String(p.annee)===String(annee)))
+        .map(p=>{const r=Math.round(((p.locataire_part||0)+(p.caf||0))*100)/100;const mk=Math.max(0,Math.round((loyerMensuel-r)*100)/100);return{mois:p.mois,annee:p.annee,attendu:loyerMensuel,recu:r,manque:mk,mois_num:p.mois_num||MOIS_LIST.indexOf(p.mois)+1};})
+        .filter(d=>d.manque>0.01);
+    }
+    detail.sort((a,b)=>a.annee!==b.annee?a.annee-b.annee:a.mois_num-b.mois_num);
     const detteMoisPrec=detail.reduce((s,d)=>s+d.manque,0);
     const detteTotal=Math.round((soldeMois+detteMoisPrec)*100)/100;
     if(detteTotal<=0.01)return'';
@@ -9010,7 +9069,7 @@ function buildDocumentLoyer(tenant,payment,mois,annee,loyer,charges,total,datePa
       +'</tbody></table>'
       +'<div style="font-size:11px;color:#888;margin-top:8px">Merci de r&#233;gulariser cette situation dans les meilleurs d&#233;lais.</div>'
       +'</div>';
-  }catch(e){return'';}})();
+  }catch(e){console.error('detteBlock error:',e);return'';}})();
   const css='@media print{.pb{display:none!important}body{margin:0;padding:20px}}'
     +'body{font-family:Arial,sans-serif;max-width:700px;margin:0 auto;padding:0 30px 30px;color:#222;font-size:14px}'
     +'.hdr{display:flex;justify-content:space-between;margin-bottom:24px;padding:20px 0;border-bottom:2px solid #222}'
