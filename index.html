@@ -6647,13 +6647,27 @@ function genQuittancePDF(tenant, payment, mois, annee){
   const moisNum=String(['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'].indexOf(mois)+1).padStart(2,'0');
   const invoiceNum=annee+'-'+moisNum+'-'+(tenant.logement||'').replace(/[^A-Z0-9]/gi,'').toUpperCase().slice(0,6);
   const isComm=tenant.type_bail==='commercial';
-  const html=isComm
-    ?buildFactureHtml(tenant,payment,mois,annee,loyerRef,chargesRef,totalRecu||loyerRef,datePaiement,invoiceNum,fmt,payment.commentaire||'',true)
-    :buildQuittanceHtml(tenant,payment,mois,annee,loyerRef,chargesRef,totalRecu||loyerRef,datePaiement,fmt,payment.commentaire||'',true);
-  const blob=new Blob([html],{type:'text/html;charset=utf-8'});
-  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.target='_blank';a.rel='noopener';
-  document.body.appendChild(a);a.click();document.body.removeChild(a);
-  setTimeout(()=>URL.revokeObjectURL(a.href),30000);
+  let html='';
+  try{
+    html=isComm
+      ?buildFactureHtml(tenant,payment,mois,annee,loyerRef,chargesRef,totalRecu||loyerRef,datePaiement,invoiceNum,fmt,payment.commentaire||'',true)
+      :buildQuittanceHtml(tenant,payment,mois,annee,loyerRef,chargesRef,totalRecu||loyerRef,datePaiement,fmt,payment.commentaire||'',true);
+  }catch(e){
+    console.error('genQuittancePDF error:',e);
+    // Fallback sans détail dette
+    html=isComm
+      ?buildFactureHtml(tenant,{...payment,_skipDette:true},mois,annee,loyerRef,chargesRef,totalRecu||loyerRef,datePaiement,invoiceNum,fmt,payment.commentaire||'',true)
+      :buildQuittanceHtml(tenant,{...payment,_skipDette:true},mois,annee,loyerRef,chargesRef,totalRecu||loyerRef,datePaiement,fmt,payment.commentaire||'',true);
+  }
+  try{
+    const blob=new Blob([html],{type:'text/html;charset=utf-8'});
+    const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.target='_blank';a.rel='noopener';
+    document.body.appendChild(a);a.click();document.body.removeChild(a);
+    setTimeout(()=>URL.revokeObjectURL(a.href),30000);
+  }catch(e){
+    const url='data:text/html;charset=utf-8,'+encodeURIComponent(html);
+    const a=document.createElement('a');a.href=url;a.target='_blank';a.click();
+  }
 }
 
 function genFactureEauPDF(tenant, releves, mois, annee){
@@ -8809,16 +8823,25 @@ async function autoSendQuittance(tenant,payment,mois,annee,commentaire='',isPart
   }catch(e){console.warn('Copie failed:',e.message);}
 
   // 3. Ouvrir le document en popup
-  const previewHtml=isCommercial
-    ?buildFactureHtml(tenant,payment,mois,annee,loyerRef,chargesRef,total,datePaiement,invoiceNum,fmt,commentaire,false)
-    :buildQuittanceHtml(tenant,payment,mois,annee,loyerRef,chargesRef,total,datePaiement,fmt,commentaire,false);
+  let previewHtml='';
   try{
-    const blob=new Blob([previewHtml],{type:'text/html;charset=utf-8'});
+    previewHtml=isCommercial
+      ?buildFactureHtml(tenant,payment,mois,annee,loyerRef,chargesRef,total,datePaiement,invoiceNum,fmt,commentaire,false)
+      :buildQuittanceHtml(tenant,payment,mois,annee,loyerRef,chargesRef,total,datePaiement,fmt,commentaire,false);
+  }catch(e){
+    console.error('Erreur génération document:',e);
+    // Fallback sans détail dette
+    previewHtml=isCommercial
+      ?buildFactureHtml(tenant,payment,mois,annee,loyerRef,chargesRef,total,datePaiement,invoiceNum,fmt,commentaire,false)
+      :buildQuittanceHtml(tenant,{...payment,_skipDette:true},mois,annee,loyerRef,chargesRef,total,datePaiement,fmt,commentaire,false);
+  }
+  try{
+    const blob=new Blob([previewHtml||emailHtml],{type:'text/html;charset=utf-8'});
     const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.target='_blank';a.rel='noopener';
     document.body.appendChild(a);a.click();document.body.removeChild(a);
     setTimeout(()=>URL.revokeObjectURL(a.href),30000);
   }catch(e){
-    const url='data:text/html;charset=utf-8,'+encodeURIComponent(previewHtml);
+    const url='data:text/html;charset=utf-8,'+encodeURIComponent(previewHtml||emailHtml);
     const a=document.createElement('a');a.href=url;a.target='_blank';a.click();
   }
 
@@ -8948,7 +8971,7 @@ function buildQuittanceHtml(tenant,payment,mois,annee,loyer,charges,total,datePa
   // Calcul du détail de la dette mois par mois depuis S.rentPayments
   const detteDetail=(()=>{
     try{
-      if(typeof S==='undefined'||!S.rentPayments)return[];
+      if(payment._skipDette||typeof S==='undefined'||!S.rentPayments)return[];
       const MOIS_LIST=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
       return (S.rentPayments||[])
         .filter(p=>
@@ -9106,7 +9129,7 @@ function buildFactureHtml(tenant,payment,mois,annee,loyer,charges,total,datePaie
     +(commentaire?'<div style="background:#f5f5f5;border-left:3px solid #185FA5;padding:8px 12px;margin:12px 0;font-size:13px;font-style:italic;color:#444">'+commentaire+'</div>':'')
     // Détail de la dette mois par mois
     +(()=>{try{
-      if(typeof S==='undefined'||!S.rentPayments)return'';
+      if(payment._skipDette||typeof S==='undefined'||!S.rentPayments)return'';
       const MOIS_LIST=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
       const recu=parseFloat((payment.locataire_part||0)+(payment.caf||0));
       const soldeMois=Math.max(0,Math.round((totalTTC-recu)*100)/100);
