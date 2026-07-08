@@ -2046,7 +2046,10 @@ function renderLocatif(){
       if(!loyerMensuel)return{t,items:[],total:0};
 
       // Générer tous les mois depuis date_entree jusqu'au mois en cours
-      const debut=t.date_entree?new Date(t.date_entree):null;
+      // On ne remonte pas avant janvier 2026
+      const DETTE_DEPUIS=new Date(2026,0,1);
+      const entree=t.date_entree?new Date(t.date_entree):null;
+      const debut=entree&&entree>DETTE_DEPUIS?entree:DETTE_DEPUIS;
       const items=[];
 
       if(debut){
@@ -9014,7 +9017,9 @@ function buildDocumentLoyer(tenant,payment,mois,annee,loyer,charges,total,datePa
     const MOIS_LIST=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
     const loyerMensuel=parseFloat(tenant.loyer_ref||0);
     const now=new Date();
-    const debut=tenant.date_entree?new Date(tenant.date_entree):null;
+    const DETTE_DEPUIS=new Date(2026,0,1);
+    const entree=tenant.date_entree?new Date(tenant.date_entree):null;
+    const debut=entree&&entree>DETTE_DEPUIS?entree:DETTE_DEPUIS;
     let detail=[];
     if(debut&&loyerMensuel>0){
       let y=debut.getFullYear(),m=debut.getMonth();
