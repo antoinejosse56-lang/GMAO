@@ -2040,58 +2040,45 @@ function renderLocatif(){
   if(tab==='dettes'){
     const MOIS_LIST=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
     const now=new Date();
-    const debts = tenants.map(t=>{
-      // Le loyer mensuel de référence (jamais cumulé)
-      const loyerMensuel=parseFloat(t.loyer_ref||0);
-      if(!loyerMensuel)return{t,items:[],total:0};
+    // Inclure tous les locataires actifs Dubail (y compris Julie Coiffure sans loyer_ref)
+    const allActiveTenants=S.tenants.filter(t=>t.actif!==false&&(!isDubail||dubailFilter(t.logement||'')));
+    const debts = allActiveTenants.map(t=>{
+      const isComm=t.type_bail==='commercial';
+      const loyerHT=parseFloat(t.loyer_ref||0);
+      const chargesHT=parseFloat(t.charges||0);
+      const loyerMensuel=isComm
+        ?Math.round((loyerHT*1.2+chargesHT*1.2)*100)/100
+        :Math.round((loyerHT+chargesHT)*100)/100;
 
-      // Générer tous les mois depuis date_entree jusqu'au mois en cours
-      // On ne remonte pas avant janvier 2026
       const DETTE_DEPUIS=new Date(2026,0,1);
       const entree=t.date_entree?new Date(t.date_entree):null;
       const debut=entree&&entree>DETTE_DEPUIS?entree:DETTE_DEPUIS;
+
+      // dette_initiale = solde au 1er jour de la période (saisi manuellement dans la fiche)
+      // Formule : dette(fin mois) = dette(début mois) + loyerMensuel - reçu
+      let detteCourante=Math.max(0,Math.round((parseFloat(t.dette||0))*100)/100);
       const items=[];
 
-      if(debut){
-        let y=debut.getFullYear();
-        let m=debut.getMonth(); // 0-indexed
-        const nowY=now.getFullYear();
-        const nowM=now.getMonth();
-        let creditReporte=0; // trop-perçu accumulé des mois précédents
+      if(loyerMensuel>0){
+        let y=debut.getFullYear(),m=debut.getMonth();
+        const nowY=now.getFullYear(),nowM=now.getMonth();
         while(y<nowY||(y===nowY&&m<=nowM)){
           const moisNom=MOIS_LIST[m];
           const moisNum=m+1;
           const p=S.rentPayments.find(x=>x.tenant_id===t.id&&x.annee===y&&x.mois===moisNom);
-          if(p&&p.paye){
-            // Soldé → calculer l'éventuel trop-perçu
-            const recu=Math.round(((p.locataire_part||0)+(p.caf||0))*100)/100;
-            const tropPercu=Math.max(0,Math.round((recu-loyerMensuel)*100)/100);
-            creditReporte=Math.round((creditReporte+tropPercu)*100)/100;
-            m++;if(m>11){m=0;y++;}continue;
-          }
           const recu=p?Math.round(((p.locataire_part||0)+(p.caf||0))*100)/100:0;
-          // Appliquer le crédit reporté sur ce mois
-          const recuEffectif=Math.round((recu+creditReporte)*100)/100;
-          creditReporte=Math.max(0,Math.round((recuEffectif-loyerMensuel)*100)/100);
-          const manque=Math.max(0,Math.round((loyerMensuel-recuEffectif)*100)/100);
-          if(manque>0.01){
-            items.push({mois:moisNom,annee:y,mois_num:moisNum,attendu:loyerMensuel,recu:Math.min(recuEffectif,loyerMensuel),manque,saisi:!!p,paiement:p||null});
-          }
+          detteCourante=Math.round((detteCourante+loyerMensuel-recu)*100)/100;
+          items.push({mois:moisNom,annee:y,mois_num:moisNum,attendu:loyerMensuel,recu,dette:Math.max(0,detteCourante),saisi:!!p});
+          if(detteCourante<0)detteCourante=0; // crédit épuisé → on ne reporte pas le surplus
           m++;if(m>11){m=0;y++;}
         }
-      } else {
-        // Pas de date d'entrée → on se base sur les paiements enregistrés non soldés
-        S.rentPayments.filter(p=>p.tenant_id===t.id&&!p.paye&&(p.loyer||0)>0).forEach(p=>{
-          const recu=Math.round(((p.locataire_part||0)+(p.caf||0))*100)/100;
-          const manque=Math.max(0,Math.round((loyerMensuel-recu)*100)/100);
-          if(manque>0.01)items.push({mois:p.mois,annee:p.annee,mois_num:p.mois_num||0,attendu:loyerMensuel,recu,manque,saisi:true,paiement:p});
-        });
       }
 
-      items.sort((a,b)=>a.annee!==b.annee?a.annee-b.annee:a.mois_num-b.mois_num);
-      const total=Math.round(items.reduce((s,i)=>s+i.manque,0)*100)/100;
-      return {t,items,total};
-    }).filter(x=>x.total>0.01).sort((a,b)=>b.total-a.total);
+      const total=Math.max(0,detteCourante);
+      // N'afficher que les mois où il y avait une dette non nulle
+      const itemsAvecDette=items.filter(i=>i.dette>0.01);
+      return {t,items:itemsAvecDette,total};
+    }).filter(x=>x.total>0.01||x.items.length>0).filter(x=>x.total>0.01).sort((a,b)=>b.total-a.total);
 
     return `${tabBar}
     <div class="card">
@@ -2105,7 +2092,7 @@ function renderLocatif(){
               ${items.map(i=>{
                 const isPartial=i.recu>0&&i.recu<i.attendu;
                 return `<span class="badge ${isPartial?'bamber':'bred'}" style="font-size:10px">
-                  ${i.mois} ${i.annee} : <b>${fmt(i.manque)}</b>
+                  ${i.mois} ${i.annee} : <b>→ ${fmt(i.dette)}</b>
                   (att.${fmt(i.attendu)}${i.recu>0?' / reçu '+fmt(i.recu):i.saisi?' / reçu 0€':' ⚠ non saisi'})
                 </span>`;
               }).join('')}
