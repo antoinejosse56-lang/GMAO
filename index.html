@@ -9088,10 +9088,70 @@ function buildFactureHtml(tenant,payment,mois,annee,loyer,charges,total,datePaie
     +(chargesHT>0?'<tr><td>Provisions sur charges</td><td>'+fmt(chargesHT)+'</td><td>'+fmt(chargesTVA)+'</td><td>'+fmt(chargesTTC)+'</td></tr>':'')
     +'<tr class="total-row"><td colspan="3">TOTAL TTC</td><td>'+fmt(totalTTC)+'</td></tr>'
     +'</tbody></table>'
-    +'<p style="font-size:13px">Date de paiement : '+dateLoc+'</p>'
+    // Montant reçu
+    +(()=>{
+      const recu=parseFloat((payment.locataire_part||0)+(payment.caf||0));
+      const solde=Math.round((totalTTC-recu)*100)/100;
+      const caf=parseFloat(payment.caf||0);
+      const locPart=parseFloat(payment.locataire_part||0);
+      if(!recu&&!payment.date_loc)return'';
+      return '<table style="margin-top:0"><tbody>'
+        +'<tr><td style="color:#555">Date de paiement :</td><td style="font-weight:500">'+dateLoc+'</td></tr>'
+        +(caf>0?'<tr><td style="color:#555">dont part CAF :</td><td>'+fmt(caf)+'</td></tr>':'')
+        +(caf>0?'<tr><td style="color:#555">Part locataire :</td><td>'+fmt(locPart)+'</td></tr>':'')
+        +'<tr><td><strong>Montant reçu :</strong></td><td><strong style="color:'+(solde>0.01?'#E24B4A':'#1D9E75')+'">'+fmt(recu)+'</strong></td></tr>'
+        +(solde>0.01?'<tr><td><strong>Solde ce mois :</strong></td><td><strong style="color:#E24B4A">'+fmt(solde)+'</strong></td></tr>':'')
+        +'</tbody></table>';
+    })()
     +(commentaire?'<div style="background:#f5f5f5;border-left:3px solid #185FA5;padding:8px 12px;margin:12px 0;font-size:13px;font-style:italic;color:#444">'+commentaire+'</div>':'')
-+(tenant.dette>0?'<div style="background:#FFF3CD;border:1.5px solid #F0AD4E;border-radius:6px;padding:10px 14px;margin:12px 0;font-size:13px">'+'<strong>&#9888; Votre dette à ce jour s\'elève à : '+fmt(tenant.dette)+'</strong>'+'<br><span style="font-size:11px;color:#555">Ce montant sera inclus dans votre prochain appel de loyer.</span>'+'</div>':'')
-        +'<div class="sig-block">SCI J&A SAVADUR<br>savadur56@gmail.com<br><br><strong>JOSSE Antoine — Gérant</strong></div>'
+    // Détail de la dette mois par mois
+    +(()=>{try{
+      if(typeof S==='undefined'||!S.rentPayments)return'';
+      const MOIS_LIST=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+      const recu=parseFloat((payment.locataire_part||0)+(payment.caf||0));
+      const soldeMois=Math.max(0,Math.round((totalTTC-recu)*100)/100);
+      const detteDetail=(S.rentPayments||[])
+        .filter(p=>p.tenant_id===tenant.id&&!p.paye&&(p.loyer||0)>0&&!(p.mois===mois&&String(p.annee)===String(annee)))
+        .map(p=>{
+          const r=Math.round(((p.locataire_part||0)+(p.caf||0))*100)/100;
+          const m=Math.round(((p.loyer||0)-r)*100)/100;
+          return {mois:p.mois||'?',annee:p.annee||'',attendu:p.loyer||0,recu:r,manque:m,mois_num:p.mois_num||MOIS_LIST.indexOf(p.mois)+1};
+        })
+        .filter(d=>d.manque>0.01)
+        .sort((a,b)=>a.annee!==b.annee?a.annee-b.annee:a.mois_num-b.mois_num);
+      const detteMoisPrec=detteDetail.reduce((s,d)=>s+d.manque,0);
+      const detteTotal=Math.round((soldeMois+detteMoisPrec)*100)/100;
+      if(detteTotal<=0.01)return'';
+      return '<div style="border:2px solid #E24B4A;border-radius:6px;padding:14px 16px;margin:16px 0;background:#FFF5F5">'
+        +'<div style="font-size:14px;font-weight:700;color:#E24B4A;margin-bottom:10px">&#9888; Situation locative — Soldes impay&#233;s</div>'
+        +'<table style="width:100%;border-collapse:collapse;font-size:12px;margin:0">'
+        +'<thead><tr style="background:#FCEBEB">'
+          +'<th style="padding:6px 8px;text-align:left;border:1px solid #F7C1C1">Mois</th>'
+          +'<th style="padding:6px 8px;text-align:right;border:1px solid #F7C1C1">Appel&#233; TTC</th>'
+          +'<th style="padding:6px 8px;text-align:right;border:1px solid #F7C1C1">Re&#231;u</th>'
+          +'<th style="padding:6px 8px;text-align:right;border:1px solid #F7C1C1;color:#E24B4A">Manquant</th>'
+        +'</tr></thead><tbody>'
+        +detteDetail.map(function(d){return '<tr>'
+          +'<td style="padding:5px 8px;border:1px solid #F7C1C1">'+d.mois+' '+d.annee+'</td>'
+          +'<td style="padding:5px 8px;text-align:right;border:1px solid #F7C1C1">'+fmt(d.attendu)+'</td>'
+          +'<td style="padding:5px 8px;text-align:right;border:1px solid #F7C1C1;color:#1D9E75">'+fmt(d.recu)+'</td>'
+          +'<td style="padding:5px 8px;text-align:right;border:1px solid #F7C1C1;color:#E24B4A;font-weight:600">'+fmt(d.manque)+'</td>'
+        +'</tr>';}).join('')
+        +(soldeMois>0.01?'<tr style="background:#FFF0F0">'
+          +'<td style="padding:5px 8px;border:1px solid #F7C1C1;font-weight:500">'+mois+' '+annee+' <span style="font-size:10px;color:#888">(en cours)</span></td>'
+          +'<td style="padding:5px 8px;text-align:right;border:1px solid #F7C1C1">'+fmt(totalTTC)+'</td>'
+          +'<td style="padding:5px 8px;text-align:right;border:1px solid #F7C1C1;color:#1D9E75">'+fmt(recu)+'</td>'
+          +'<td style="padding:5px 8px;text-align:right;border:1px solid #F7C1C1;color:#E24B4A;font-weight:600">'+fmt(soldeMois)+'</td>'
+        +'</tr>':'')
+        +'<tr style="background:#FCEBEB;font-weight:700">'
+          +'<td style="padding:6px 8px;border:1px solid #F7C1C1" colspan="3">DETTE TOTALE CUMULée</td>'
+          +'<td style="padding:6px 8px;text-align:right;border:1px solid #F7C1C1;color:#E24B4A;font-size:14px">'+fmt(detteTotal)+'</td>'
+        +'</tr>'
+        +'</tbody></table>'
+        +'<div style="font-size:11px;color:#888;margin-top:8px">Merci de r&#233;gulariser cette situation dans les meilleurs d&#233;lais.</div>'
+        +'</div>';
+    }catch(e){return'';}})()
+    +'<div class="sig-block">SCI J&A SAVADUR<br>savadur56@gmail.com<br><br><strong>JOSSE Antoine — Gérant</strong></div>'
     +'<p style="font-size:11px;color:#888;margin-top:24px">Facture établie par J&A SAVADUR. TVA 20% appliquée. Conserver ce document pour votre comptabilité.</p>'
     +'</body></html>';
 }
