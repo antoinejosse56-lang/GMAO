@@ -2057,22 +2057,27 @@ function renderLocatif(){
         let m=debut.getMonth(); // 0-indexed
         const nowY=now.getFullYear();
         const nowM=now.getMonth();
+        let creditReporte=0; // trop-perçu accumulé des mois précédents
         while(y<nowY||(y===nowY&&m<=nowM)){
           const moisNom=MOIS_LIST[m];
           const moisNum=m+1;
-          // Chercher le paiement enregistré pour ce mois
           const p=S.rentPayments.find(x=>x.tenant_id===t.id&&x.annee===y&&x.mois===moisNom);
           if(p&&p.paye){
-            // Soldé → pas de dette
-          } else {
-            const recu=p?Math.round(((p.locataire_part||0)+(p.caf||0))*100)/100:0;
-            const manque=Math.max(0,Math.round((loyerMensuel-recu)*100)/100);
-            if(manque>0.01){
-              items.push({mois:moisNom,annee:y,mois_num:moisNum,attendu:loyerMensuel,recu,manque,saisi:!!p,paiement:p||null});
-            }
+            // Soldé → calculer l'éventuel trop-perçu
+            const recu=Math.round(((p.locataire_part||0)+(p.caf||0))*100)/100;
+            const tropPercu=Math.max(0,Math.round((recu-loyerMensuel)*100)/100);
+            creditReporte=Math.round((creditReporte+tropPercu)*100)/100;
+            m++;if(m>11){m=0;y++;}continue;
           }
-          m++;
-          if(m>11){m=0;y++;}
+          const recu=p?Math.round(((p.locataire_part||0)+(p.caf||0))*100)/100:0;
+          // Appliquer le crédit reporté sur ce mois
+          const recuEffectif=Math.round((recu+creditReporte)*100)/100;
+          creditReporte=Math.max(0,Math.round((recuEffectif-loyerMensuel)*100)/100);
+          const manque=Math.max(0,Math.round((loyerMensuel-recuEffectif)*100)/100);
+          if(manque>0.01){
+            items.push({mois:moisNom,annee:y,mois_num:moisNum,attendu:loyerMensuel,recu:Math.min(recuEffectif,loyerMensuel),manque,saisi:!!p,paiement:p||null});
+          }
+          m++;if(m>11){m=0;y++;}
         }
       } else {
         // Pas de date d'entrée → on se base sur les paiements enregistrés non soldés
@@ -8997,7 +9002,30 @@ function buildDocumentLoyer(tenant,payment,mois,annee,loyer,charges,total,datePa
   const caf=parseFloat(payment.caf||0);
   const locPart=parseFloat(payment.locataire_part||0);
   const recu=Math.round((locPart+caf)*100)/100;
-  const soldeMois=Math.max(0,Math.round(((isComm?(loyerRef+chargesRef)*1.2:(loyerRef+chargesRef))-recu)*100)/100);
+  // Calculer le crédit reporté des mois précédents (trop-perçus)
+  const creditReporteCalc=(()=>{
+    try{
+      if(typeof S==='undefined'||!S.rentPayments)return 0;
+      const MOIS_LIST2=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+      const DETTE_DEPUIS2=new Date(2026,0,1);
+      const entree2=tenant.date_entree?new Date(tenant.date_entree):null;
+      const debut2=entree2&&entree2>DETTE_DEPUIS2?entree2:DETTE_DEPUIS2;
+      let credit=0;
+      let y=debut2.getFullYear(),m=debut2.getMonth();
+      const moisCourantNum=MOIS_LIST2.indexOf(mois);
+      while(y<annee||(y===annee&&m<moisCourantNum)){
+        const mn=MOIS_LIST2[m];
+        const p=S.rentPayments.find(x=>x.tenant_id===tenant.id&&x.annee===y&&x.mois===mn);
+        const r=p?Math.round(((p.locataire_part||0)+(p.caf||0))*100)/100:0;
+        const rEff=Math.round((r+credit)*100)/100;
+        credit=Math.max(0,Math.round((rEff-loyerRef)*100)/100);
+        m++;if(m>11){m=0;y++;}
+      }
+      return credit;
+    }catch(e){return 0;}
+  })();
+  const recuEffectif=Math.round((recu+creditReporteCalc)*100)/100;
+  const soldeMois=Math.max(0,Math.round(((isComm?(loyerRef+chargesRef)*1.2:(loyerRef+chargesRef))-recuEffectif)*100)/100);
   const dateLoc=payment.date_loc?new Date(payment.date_loc).toLocaleDateString('fr-FR'):datePaiement;
   const moisNum=String(['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'].indexOf(mois)+1).padStart(2,'0');
   const invoiceNum=annee+'-'+moisNum+'-'+(tenant.logement||'').replace(/[^A-Z0-9]/gi,'').toUpperCase().slice(0,6);
@@ -9024,16 +9052,22 @@ function buildDocumentLoyer(tenant,payment,mois,annee,loyer,charges,total,datePa
     if(debut&&loyerMensuel>0){
       let y=debut.getFullYear(),m=debut.getMonth();
       const nowY=now.getFullYear(),nowM=now.getMonth();
+      let creditReporte=0;
       while(y<nowY||(y===nowY&&m<=nowM)){
         const moisNom=MOIS_LIST[m];
         const moisAnnee=y;
-        // Exclure le mois en cours du document
         if(moisNom===mois&&String(moisAnnee)===String(annee)){m++;if(m>11){m=0;y++;}continue;}
         const p=S.rentPayments.find(x=>x.tenant_id===tenant.id&&x.annee===moisAnnee&&x.mois===moisNom);
-        if(p&&p.paye){m++;if(m>11){m=0;y++;}continue;}
+        if(p&&p.paye){
+          const r=Math.round(((p.locataire_part||0)+(p.caf||0))*100)/100;
+          creditReporte=Math.round((creditReporte+Math.max(0,r-loyerMensuel))*100)/100;
+          m++;if(m>11){m=0;y++;}continue;
+        }
         const r=p?Math.round(((p.locataire_part||0)+(p.caf||0))*100)/100:0;
-        const manque=Math.max(0,Math.round((loyerMensuel-r)*100)/100);
-        if(manque>0.01)detail.push({mois:moisNom,annee:moisAnnee,attendu:loyerMensuel,recu:r,manque,mois_num:m+1});
+        const rEffectif=Math.round((r+creditReporte)*100)/100;
+        creditReporte=Math.max(0,Math.round((rEffectif-loyerMensuel)*100)/100);
+        const manque=Math.max(0,Math.round((loyerMensuel-rEffectif)*100)/100);
+        if(manque>0.01)detail.push({mois:moisNom,annee:moisAnnee,attendu:loyerMensuel,recu:Math.min(rEffectif,loyerMensuel),manque,mois_num:m+1});
         m++;if(m>11){m=0;y++;}
       }
     } else {
