@@ -9106,17 +9106,23 @@ function buildDocumentLoyer(tenant,payment,mois,annee,loyer,charges,total,datePa
   // Détail dette mois précédents
   const detteBlock=(()=>{try{
     if(payment._skipDette||typeof S==='undefined'||!S.rentPayments)return'';
+    // calcDetteLigne exclut le mois courant → detteFinale = solde début du mois courant
     const {lignes,detteFinale}=calcDetteLigne(tenant,mois,parseInt(annee),false);
-    // Ajouter le mois en cours
     const recuCourant=Math.round((locPart+caf)*100)/100;
-    const soldeCourant=Math.round(((lignes.length>0?lignes[lignes.length-1].solde:parseFloat(tenant.dette||0))+totalTTC-recuCourant)*100)/100;
+    const remiseCourante=Math.round((payment.remise||0)*100)/100;
+    const attenduCourant=Math.max(0,Math.round((totalTTC-remiseCourante)*100)/100);
+    // solde fin mois courant = dette début mois + loyer attendu - reçu
+    const soldeCourant=Math.round((detteFinale+attenduCourant-recuCourant)*100)/100;
+    // Construire toutes les lignes à afficher (mois précédents + mois courant)
     const toutesLignes=[...lignes];
-    if(Math.abs(soldeCourant)>0.01){
-      toutesLignes.push({mois,annee:parseInt(annee),attendu:totalTTC,recu:recuCourant,solde:soldeCourant,estCredit:soldeCourant<-0.01,estSolde:Math.abs(soldeCourant)<0.01,enCours:true});
+    // Ajouter le mois courant seulement s'il a un solde non nul
+    if(Math.abs(soldeCourant)>0.01||recuCourant>0||attenduCourant>0){
+      toutesLignes.push({
+        mois,annee:parseInt(annee),attendu:attenduCourant,recu:recuCourant,
+        solde:soldeCourant,estCredit:soldeCourant<-0.01,estSolde:Math.abs(soldeCourant)<0.01,enCours:true
+      });
     }
-    if(toutesLignes.length===0)return'';
-    const detteAffichee=Math.abs(soldeCourant)>0.01?soldeCourant:detteFinale;
-    if(detteAffichee<=0.01)return'';
+    if(toutesLignes.length===0||soldeCourant<=0.01)return'';
     return '<div style="border:2px solid #E24B4A;border-radius:6px;padding:14px 16px;margin:16px 0;background:#FFF5F5">'
       +'<div style="font-size:14px;font-weight:700;color:#E24B4A;margin-bottom:10px">&#9888; Situation locative depuis le 1er janvier 2026</div>'
       +'<table style="width:100%;border-collapse:collapse;font-size:12px;margin:0">'
@@ -9138,7 +9144,7 @@ function buildDocumentLoyer(tenant,payment,mois,annee,loyer,charges,total,datePa
       }).join('')
       +'<tr style="background:#FCEBEB;font-weight:700">'
         +'<td style="padding:6px 8px;border:1px solid #ddd" colspan="3">SOLDE TOTAL</td>'
-        +'<td style="padding:6px 8px;text-align:right;border:1px solid #ddd;color:#E24B4A;font-size:14px">'+fmt(Math.max(0,detteAffichee))+'</td>'
+        +'<td style="padding:6px 8px;text-align:right;border:1px solid #ddd;color:#E24B4A;font-size:14px">'+fmt(Math.max(0,soldeCourant))+'</td>'
       +'</tr>'
       +'</tbody></table>'
       +'<div style="font-size:11px;color:#888;margin-top:8px">Merci de r&#233;gulariser cette situation dans les meilleurs d&#233;lais.</div>'
