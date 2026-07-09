@@ -2061,9 +2061,10 @@ function renderLocatif(){
               ${items.map(i=>{
                 const color=i.estCredit?'var(--green)':i.estSolde?'var(--text2)':'var(--red)';
                 const cls=i.estCredit?'bgreen':i.recu>0&&!i.estSolde?'bamber':'bred';
-                return `<span class="badge ${cls}" style="font-size:10px">
+                return `<span class="badge ${cls}" style="font-size:10px;display:inline-flex;align-items:center;gap:4px">
                   ${i.mois} ${i.annee} : <b style="color:${color}">${i.estCredit?'crédit ':''} ${fmt(Math.abs(i.solde))}</b>
                   (att.${fmt(i.attendu)}${i.recu>0?' / reçu '+fmt(i.recu):i.saisi?' / reçu 0€':' ⚠ non saisi'})
+                  ${!i.saisi?`<button data-qtt-zero="${t.id}" data-qtt-mois="${i.mois}" data-qtt-annee="${i.annee}" style="background:#fff;border:1px solid #999;border-radius:3px;font-size:9px;padding:1px 4px;cursor:pointer;margin-left:2px" title="Créer paiement 0€ et envoyer quittance">📄 0€</button>`:''}
                 </span>`;
               }).join('')}
             </div>
@@ -7162,6 +7163,45 @@ function bindAll(){
     const tenant=S.tenants.find(t=>t.id===el.dataset.rembDette);
     if(!tenant)return;
     S.modal={type:'remb-dette',tenant};render();
+  });
+  document.querySelectorAll('[data-qtt-zero]').forEach(el=>el.onclick=async(e)=>{
+    e.stopPropagation();
+    const tenant=S.tenants.find(t=>t.id===el.dataset.qttZero);
+    if(!tenant)return;
+    const mois=el.dataset.qttMois;
+    const annee=parseInt(el.dataset.qttAnnee);
+    if(!confirm(`Créer un paiement 0€ pour ${mois} ${annee} — ${tenant.nom} ?\nUne quittance/facture sera générée et envoyée si email disponible.`))return;
+    const isComm=tenant.type_bail==='commercial';
+    const loyerHT=parseFloat(tenant.loyer_ref||0);
+    const chargesHT=parseFloat(tenant.charges||0);
+    const loyerTTC=isComm?Math.round((loyerHT+chargesHT)*1.2*100)/100:Math.round((loyerHT+chargesHT)*100)/100;
+    const MOIS_LIST=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+    const moisNum=MOIS_LIST.indexOf(mois)+1;
+    const existing=S.rentPayments.find(p=>p.tenant_id===tenant.id&&p.annee===annee&&p.mois===mois);
+    let payment;
+    if(!existing){
+      const rec={tenant_id:tenant.id,mois,annee,mois_num:moisNum,loyer:loyerTTC,locataire_part:0,caf:0,paye:false,commentaire:'Loyer non perçu — dette reportée'};
+      const {data,error}=await sb.from('rent_payments').insert(rec).select().single();
+      if(error){alert('Erreur création paiement : '+error.message);return;}
+      S.rentPayments.push(data);
+      payment=data;
+    } else {
+      payment=existing;
+    }
+    // Générer et envoyer la quittance/facture avec 0€ reçu
+    if(tenant.email){
+      try{
+        await autoSendQuittance(tenant,payment,mois,annee,'Loyer non perçu — dette reportée au mois suivant',true);
+      }catch(e){
+        // Ouvrir quand même le document
+        genQuittancePDF(tenant,payment,mois,annee);
+        alert('✓ Paiement créé\n⚠ Email non envoyé : '+e.message);
+      }
+    } else {
+      genQuittancePDF(tenant,payment,mois,annee);
+      alert('✓ Paiement 0€ créé — pas d\'email pour ce locataire. Document ouvert.');
+    }
+    render();
   });
   document.querySelectorAll('[data-loc-annee]').forEach(el=>el.onclick=()=>{S.locAnnee=parseInt(el.dataset.locAnnee);render();});
 
