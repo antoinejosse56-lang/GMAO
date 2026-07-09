@@ -6105,14 +6105,18 @@ async function saveModal(){
     const loyerRef=t.loyer_ref||0;
     const chargesRef=t.charges||0;
     const base=isComm?(loyerRef+chargesRef)*1.2:(loyerRef+chargesRef);
-    // loyerAttendu = loyer mensuel de référence (la dette est gérée par calcDetteLigne, pas stockée dans p.loyer)
-    const loyerAttendu=Math.round((base-remise)*100)/100;
+    // loyerAttendu = loyer de référence sans remise (calcDetteLigne gère la dette)
+    // La remise réduit ce qui est dû ce mois — comptablement c'est un avoir, pas une recette
+    const loyerAttendu=Math.round(base*100)/100;
     const totalPaye=Math.round((locPart+cafPart)*100)/100;
-    const solde=Math.round((loyerAttendu-totalPaye)*100)/100;
+    // Soldé si argent reçu + remise couvre le loyer attendu
+    const solde=Math.max(0,Math.round((loyerAttendu-remise-totalPaye)*100)/100);
+    const payeAuto=solde<0.01; // auto-détecter si soldé
+    const payeFinal=paye||payeAuto;
     const rec={
       tenant_id:t.id,mois:m.mois,mois_num:moisNum,annee:m.annee,
       loyer:loyerAttendu,locataire_part:locPart,caf:cafPart,
-      date_loc:dateL,date_caf:dateCaf,paye,notes,commentaire,
+      date_loc:dateL,date_caf:dateCaf,paye:payeFinal,notes,commentaire,
       remise:remise||null,remise_motif:remise_motif||null,
       quittance_envoyee:false
     };
@@ -6120,7 +6124,7 @@ async function saveModal(){
     if(payment){
       const {error}=await sb.from('rent_payments').update(rec).eq('id',payment.id);
       if(error){alert('Erreur : '+error.message);return;}
-      Object.assign(payment,rec);payment._dette_ant=detteAnt;
+      Object.assign(payment,rec);
     } else {
       const {data,error}=await sb.from('rent_payments').insert(rec).select().single();
       if(error){alert('Erreur : '+error.message);return;}
@@ -6130,12 +6134,12 @@ async function saveModal(){
     // calcDetteLigne gère le cumul automatiquement depuis t.dette
     const hasPayment=totalPaye>0||remise>0;
     const fmtM=new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'});
-    const partialComment=!paye?('[Règlement partiel — Solde restant : '
+    const partialComment=!payeFinal?('[Règlement partiel — Solde restant : '
       +fmtM.format(solde)
       +']'+(commentaire?' '+commentaire:'')):commentaire;
     if(t.email&&payment&&hasPayment){
       try{
-        await autoSendQuittance(t,payment,m.mois,m.annee,partialComment,!paye);
+        await autoSendQuittance(t,payment,m.mois,m.annee,partialComment,!payeFinal);
       }catch(e){alert('✓ Enregistré\n⚠ Email non envoyé : '+e.message);}
     } else if(payment){
       const isComm=t.type_bail==='commercial';
