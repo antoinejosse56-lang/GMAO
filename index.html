@@ -5371,6 +5371,13 @@ function renderModal(){
       <option value="false" ${!p.paye&&!(p.locataire_part>0||p.caf>0)?'selected':''}>Non — rien reçu</option>
     </select></div>
     <div class="form-group"><label>Notes (internes, non imprimées)</label><input id="m-sl-notes" value="${p.notes||''}"></div>
+    <div style="border:0.5px solid var(--border2);border-radius:var(--radius);padding:12px;margin-bottom:12px">
+      <div class="sec" style="margin-bottom:8px">Remise / Loyer offert <span style="font-size:11px;color:var(--text2)">(optionnel)</span></div>
+      <div class="g2c">
+        <div class="form-group"><label>Montant remise (€)</label><input id="m-sl-remise" type="number" step="0.01" min="0" value="${p.remise||0}" placeholder="0.00"></div>
+        <div class="form-group"><label>Motif (apparaîtra sur le document)</label><input id="m-sl-remise-motif" value="${p.remise_motif||''}" placeholder="Ex: Travaux peinture, Dédommagement fuite..."></div>
+      </div>
+    </div>
     <div class="form-group"><label>Commentaire sur la quittance/facture <span style="color:var(--text2);font-size:11px">(apparaîtra sur le document)</span></label>
       <input id="m-sl-comment" value="${p.commentaire||''}" placeholder="Ex: Paiement reçu par virement, Solde partiel — reste dû...">
     </div>
@@ -6098,19 +6105,23 @@ async function saveModal(){
     const paye=payeVal==='true';
     const notes=q('m-sl-notes')?.value||'';
     const commentaire=q('m-sl-comment')?.value||'';
+    const remise=parseFloat(q('m-sl-remise')?.value)||0;
+    const remise_motif=q('m-sl-remise-motif')?.value||'';
     // loyer = montant attendu (loyer_ref + charges + dette anterieure)
     const isComm=t.type_bail==='commercial';
     const loyerRef=t.loyer_ref||0;
     const chargesRef=t.charges||0;
     const base=isComm?(loyerRef+chargesRef)*1.2:(loyerRef+chargesRef);
     const detteAnt=parseFloat(q('m-sl-dette-ant')?.value)||0;
-    const loyerAttendu=Math.round((base+detteAnt)*100)/100;
+    // Le loyer attendu tient compte de la remise éventuelle
+    const loyerAttendu=Math.round((base+detteAnt-remise)*100)/100;
     const totalPaye=Math.round((locPart+cafPart)*100)/100;
     const solde=Math.round((loyerAttendu-totalPaye)*100)/100;
     const rec={
       tenant_id:t.id,mois:m.mois,mois_num:moisNum,annee:m.annee,
       loyer:loyerAttendu,locataire_part:locPart,caf:cafPart,
       date_loc:dateL,date_caf:dateCaf,paye,notes,commentaire,
+      remise:remise||null,remise_motif:remise_motif||null,
       quittance_envoyee:false
     };
     let payment=m.existing;
@@ -9016,13 +9027,15 @@ function calcDetteLigne(tenant, moisCourant, anneeCourante, includeAll){
     if(moisCourant&&moisNom===moisCourant&&y===anneeCourante){m++;if(m>11){m=0;y++;}continue;}
     const p=S.rentPayments.find(x=>x.tenant_id===tenant.id&&x.annee===y&&x.mois===moisNom);
     const recu=p?Math.round(((p.locataire_part||0)+(p.caf||0))*100)/100:0;
+    const remise=p?Math.round((p.remise||0)*100)/100:0;
+    // Loyer attendu ce mois = loyer mensuel référence - remise éventuelle
+    const attenduCeMois=Math.max(0,Math.round((loyerMensuel-remise)*100)/100);
     const soldePrecedent=solde;
-    solde=Math.round((solde+loyerMensuel-recu)*100)/100;
-    // On ajoute la ligne si solde non nul OU si includeAll
+    solde=Math.round((solde+attenduCeMois-recu)*100)/100;
     if(includeAll||Math.abs(solde)>0.01){
       lignes.push({
         mois:moisNom,annee:y,mois_num:moisNum,
-        attendu:loyerMensuel,recu,
+        attendu:attenduCeMois,recu,remise,remise_motif:p?.remise_motif||'',
         soldePrecedent:Math.round(soldePrecedent*100)/100,
         solde:Math.round(solde*100)/100,
         saisi:!!p,
@@ -9163,7 +9176,8 @@ function buildDocumentLoyer(tenant,payment,mois,annee,loyer,charges,total,datePa
     +'<table><thead><tr><th>Description</th>'+(isComm?'<th style="text-align:right">HT</th><th style="text-align:right">TVA '+Math.round(tvaTaux*100)+'%</th>':'')+'<th style="text-align:right">TTC</th></tr></thead><tbody>'
     +'<tr><td>Loyer mensuel</td>'+(isComm?'<td style="text-align:right">'+fmt(loyerHT)+'</td><td style="text-align:right;color:#E65C00">'+fmt(loyerTVA)+'</td>':'')+'<td style="text-align:right">'+fmt(loyerTTC)+'</td></tr>'
     +(chargesRef>0?'<tr><td>Provisions sur charges</td>'+(isComm?'<td style="text-align:right">'+fmt(chargesHT)+'</td><td style="text-align:right;color:#E65C00">'+fmt(chargesTVA)+'</td>':'')+'<td style="text-align:right">'+fmt(chargesTTC)+'</td></tr>':'')
-    +'<tr class="tr"><td colspan="'+(isComm?'3':'1')+'">TOTAL TTC APPELÉ</td><td style="text-align:right">'+fmt(totalTTC)+'</td></tr>'
+    +((payment.remise&&payment.remise>0)?'<tr style="background:#F0FFF4"><td style="color:#1D9E75">Remise'+(payment.remise_motif?' — '+payment.remise_motif:'')+'</td>'+(isComm?'<td></td><td></td>':'')+'<td style="text-align:right;color:#1D9E75">- '+fmt(payment.remise)+'</td></tr>':'')
+    +'<tr class="tr"><td colspan="'+(isComm?'3':'1')+'">TOTAL TTC APPELÉ</td><td style="text-align:right">'+fmt(totalTTC-(payment.remise||0))+'</td></tr>'
     +'<tr style="background:#E8F5E9"><td colspan="'+(isComm?'3':'1')+'"><strong>MONTANT REÇU</strong></td><td style="text-align:right;font-weight:700;color:'+(recu>0?'#1D9E75':'#888')+'">'+fmt(recu)+'</td></tr>'
     +(soldeMois>0.01?'<tr style="background:#FFEBEE"><td colspan="'+(isComm?'3':'1')+'"><strong>SOLDE RESTANT DÛ (ce mois)</strong></td><td style="text-align:right;font-weight:700;color:#E24B4A">'+fmt(soldeMois)+'</td></tr>':'')
     +'</tbody></table>'
