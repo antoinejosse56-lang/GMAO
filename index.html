@@ -5358,13 +5358,6 @@ function renderModal(){
       </div>
     </div>
 
-    <div style="border:0.5px solid var(--border2);border-radius:var(--radius);padding:12px;margin-bottom:12px">
-      <div class="sec" style="margin-bottom:8px">Dette antérieure</div>
-      <div class="g2c">
-        <div class="form-group"><label>Dette antérieure (&#8364;)</label><input id="m-sl-dette-ant" type="number" step="0.01" value="${(p._dette_ant!=null?p._dette_ant:p.dette_ant!=null?p.dette_ant:(t.dette||0))}" placeholder="0.00"></div>
-        <div class="form-group"><label>Total attendu (&#8364;)</label><input type="number" value="${Math.round(((t.type_bail==='commercial'?(loyerRef+chargesRef)*1.2:(loyerRef+chargesRef))+(p.dette_ant!=null?p.dette_ant:(t.dette||0)))*100)/100}" readonly style="background:var(--bg2)"></div>
-      </div>
-    </div>
     <div class="form-group"><label>Payé intégralement ?</label><select id="m-sl-paye">
       <option value="true" ${p.paye?'selected':''}>Oui — loyer soldé</option>
       <option value="partial" ${!p.paye&&(p.locataire_part>0||p.caf>0)?'selected':''}>Partiel — dette restante</option>
@@ -6112,9 +6105,8 @@ async function saveModal(){
     const loyerRef=t.loyer_ref||0;
     const chargesRef=t.charges||0;
     const base=isComm?(loyerRef+chargesRef)*1.2:(loyerRef+chargesRef);
-    const detteAnt=parseFloat(q('m-sl-dette-ant')?.value)||0;
-    // Le loyer attendu tient compte de la remise éventuelle
-    const loyerAttendu=Math.round((base+detteAnt-remise)*100)/100;
+    // loyerAttendu = loyer mensuel de référence (la dette est gérée par calcDetteLigne, pas stockée dans p.loyer)
+    const loyerAttendu=Math.round((base-remise)*100)/100;
     const totalPaye=Math.round((locPart+cafPart)*100)/100;
     const solde=Math.round((loyerAttendu-totalPaye)*100)/100;
     const rec={
