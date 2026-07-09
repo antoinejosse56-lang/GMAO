@@ -6134,22 +6134,18 @@ async function saveModal(){
       if(error){alert('Erreur : '+error.message);return;}
       if(data){S.rentPayments.push(data);payment=data;}
     }
-    // Update tenant dette field
-    if(!paye&&solde>0){await sb.from('tenants').update({dette:solde}).eq('id',t.id);if(t)t.dette=solde;}
-    else if(paye){await sb.from('tenants').update({dette:0}).eq('id',t.id);if(t)t.dette=0;}
-    const hasPayment=totalPaye>0;
+    // NE PAS écraser t.dette automatiquement — c'est le solde initial saisi manuellement
+    // calcDetteLigne gère le cumul automatiquement depuis t.dette
+    const hasPayment=totalPaye>0||remise>0;
+    const fmtM=new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'});
+    const partialComment=!paye?('[Règlement partiel — Solde restant : '
+      +fmtM.format(solde)
+      +']'+(commentaire?' '+commentaire:'')):commentaire;
     if(t.email&&payment&&hasPayment){
-      // Always generate document if something was paid (full or partial)
-      const partialComment=!paye?('[Règlement partiel — Solde restant : '
-        +new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(solde)
-        +']'+(commentaire?' '+commentaire:'')):commentaire;
       try{
         await autoSendQuittance(t,payment,m.mois,m.annee,partialComment,!paye);
-        // Le message de confirmation est affiché dans autoSendQuittance
       }catch(e){alert('✓ Enregistré\n⚠ Email non envoyé : '+e.message);}
-    } else if(!t.email&&payment){
-      const fmtM=new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'});
-      // Pas d'email : ouvrir quand même le document
+    } else if(payment){
       const isComm=t.type_bail==='commercial';
       const loyerRef=parseFloat(t.loyer_ref||0);const chargesRef=parseFloat(t.charges||0);
       const totalRecu=parseFloat((payment.locataire_part||0)+(payment.caf||0));
@@ -6163,9 +6159,8 @@ async function saveModal(){
       const blob=new Blob([docHtml],{type:'text/html;charset=utf-8'});
       const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.target='_blank';a.rel='noopener';
       document.body.appendChild(a);a.click();document.body.removeChild(a);
-      alert('✓ Enregistré !'+(solde>0?'\nSolde restant : '+fmtM.format(solde):'')+'\n⚠ Aucun email renseigné pour ce locataire — document ouvert pour impression.');
+      alert('✓ Enregistré !'+(solde>0?'\nSolde restant : '+fmtM.format(solde):'')+(!t.email?'\n⚠ Aucun email — document ouvert pour impression.':''));
     } else {
-      const fmtM=new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'});
       alert(solde>0?'✓ Enregistré - Solde restant : '+fmtM.format(solde):'✓ Enregistré !');
     }
   }
