@@ -9061,30 +9061,21 @@ function buildDocumentLoyer(tenant,payment,mois,annee,loyer,charges,total,datePa
   const caf=parseFloat(payment.caf||0);
   const locPart=parseFloat(payment.locataire_part||0);
   const recu=Math.round((locPart+caf)*100)/100;
-  // Calculer le crédit reporté des mois précédents (trop-perçus)
-  const creditReporteCalc=(()=>{
+  const remisePaiement=Math.round((payment.remise||0)*100)/100;
+  // Utiliser calcDetteLigne pour obtenir la dette en entrée du mois courant
+  // puis calculer le solde du mois = dette_entree + loyer_attendu - remise - recu
+  const loyerMensuelRef=isComm
+    ?Math.round((loyerRef+chargesRef)*1.2*100)/100
+    :Math.round((loyerRef+chargesRef)*100)/100;
+  const attenduCeMois=Math.max(0,Math.round((loyerMensuelRef-remisePaiement)*100)/100);
+  const detteEntreeMois=(()=>{
     try{
-      if(typeof S==='undefined'||!S.rentPayments)return 0;
-      const MOIS_LIST2=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
-      const DETTE_DEPUIS2=new Date(2026,0,1);
-      const entree2=tenant.date_entree?new Date(tenant.date_entree):null;
-      const debut2=entree2&&entree2>DETTE_DEPUIS2?entree2:DETTE_DEPUIS2;
-      let credit=0;
-      let y=debut2.getFullYear(),m=debut2.getMonth();
-      const moisCourantNum=MOIS_LIST2.indexOf(mois);
-      while(y<annee||(y===annee&&m<moisCourantNum)){
-        const mn=MOIS_LIST2[m];
-        const p=S.rentPayments.find(x=>x.tenant_id===tenant.id&&x.annee===y&&x.mois===mn);
-        const r=p?Math.round(((p.locataire_part||0)+(p.caf||0))*100)/100:0;
-        const rEff=Math.round((r+credit)*100)/100;
-        credit=Math.max(0,Math.round((rEff-loyerRef)*100)/100);
-        m++;if(m>11){m=0;y++;}
-      }
-      return credit;
-    }catch(e){return 0;}
+      if(typeof S==='undefined'||!S.rentPayments)return Math.max(0,parseFloat(tenant.dette||0));
+      const {detteFinale}=calcDetteLigne(tenant,mois,parseInt(annee),false);
+      return detteFinale;
+    }catch(e){return Math.max(0,parseFloat(tenant.dette||0));}
   })();
-  const recuEffectif=Math.round((recu+creditReporteCalc)*100)/100;
-  const soldeMois=Math.max(0,Math.round(((isComm?(loyerRef+chargesRef)*1.2:(loyerRef+chargesRef))-recuEffectif)*100)/100);
+  const soldeMois=Math.max(0,Math.round((detteEntreeMois+attenduCeMois-recu)*100)/100);
   const dateLoc=payment.date_loc?new Date(payment.date_loc).toLocaleDateString('fr-FR'):datePaiement;
   const moisNum=String(['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'].indexOf(mois)+1).padStart(2,'0');
   const invoiceNum=annee+'-'+moisNum+'-'+(tenant.logement||'').replace(/[^A-Z0-9]/gi,'').toUpperCase().slice(0,6);
@@ -9095,8 +9086,9 @@ function buildDocumentLoyer(tenant,payment,mois,annee,loyer,charges,total,datePa
   const chargesHT=chargesRef;
   const chargesTVA=Math.round(chargesHT*tvaTaux*100)/100;
   const chargesTTC=chargesHT+chargesTVA;
-  const totalTTC=loyerTTC+chargesTTC;
-  const isPartialDoc=recu>0&&recu<totalTTC;
+  const totalTTC=loyerTTC+chargesTTC; // total brut avant remise
+  const totalAppele=attenduCeMois; // total net après remise = ce que le locataire doit ce mois
+  const isPartialDoc=recu>0&&recu<totalAppele;
   const docTitle=isPartialDoc?'Reçu de paiement':(recu===0?'Appel de loyer':'Quittance de loyer');
   // Détail dette mois précédents
   const detteBlock=(()=>{try{
@@ -9178,7 +9170,7 @@ function buildDocumentLoyer(tenant,payment,mois,annee,loyer,charges,total,datePa
     +'<tr><td>Loyer mensuel</td>'+(isComm?'<td style="text-align:right">'+fmt(loyerHT)+'</td><td style="text-align:right;color:#E65C00">'+fmt(loyerTVA)+'</td>':'')+'<td style="text-align:right">'+fmt(loyerTTC)+'</td></tr>'
     +(chargesRef>0?'<tr><td>Provisions sur charges</td>'+(isComm?'<td style="text-align:right">'+fmt(chargesHT)+'</td><td style="text-align:right;color:#E65C00">'+fmt(chargesTVA)+'</td>':'')+'<td style="text-align:right">'+fmt(chargesTTC)+'</td></tr>':'')
     +((payment.remise&&payment.remise>0)?'<tr style="background:#F0FFF4"><td style="color:#1D9E75">Remise'+(payment.remise_motif?' — '+payment.remise_motif:'')+'</td>'+(isComm?'<td></td><td></td>':'')+'<td style="text-align:right;color:#1D9E75">- '+fmt(payment.remise)+'</td></tr>':'')
-    +'<tr class="tr"><td colspan="'+(isComm?'3':'1')+'">TOTAL TTC APPELÉ</td><td style="text-align:right">'+fmt(totalTTC-(payment.remise||0))+'</td></tr>'
+    +'<tr class="tr"><td colspan="'+(isComm?'3':'1')+'">TOTAL TTC APPELÉ</td><td style="text-align:right">'+fmt(totalAppele)+'</td></tr>'
     +'<tr style="background:#E8F5E9"><td colspan="'+(isComm?'3':'1')+'"><strong>MONTANT REÇU</strong></td><td style="text-align:right;font-weight:700;color:'+(recu>0?'#1D9E75':'#888')+'">'+fmt(recu)+'</td></tr>'
     +(soldeMois>0.01?'<tr style="background:#FFEBEE"><td colspan="'+(isComm?'3':'1')+'"><strong>SOLDE RESTANT DÛ (ce mois)</strong></td><td style="text-align:right;font-weight:700;color:#E24B4A">'+fmt(soldeMois)+'</td></tr>':'')
     +'</tbody></table>'
