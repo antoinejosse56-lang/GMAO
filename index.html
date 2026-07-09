@@ -2040,45 +2040,14 @@ function renderLocatif(){
   if(tab==='dettes'){
     const MOIS_LIST=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
     const now=new Date();
-    // Inclure tous les locataires actifs Dubail (y compris Julie Coiffure sans loyer_ref)
+    // Tous les locataires actifs visibles (y compris Julie Coiffure)
     const allActiveTenants=S.tenants.filter(t=>t.actif!==false&&(!isDubail||dubailFilter(t.logement||'')));
     const debts = allActiveTenants.map(t=>{
-      const isComm=t.type_bail==='commercial';
-      const loyerHT=parseFloat(t.loyer_ref||0);
-      const chargesHT=parseFloat(t.charges||0);
-      const loyerMensuel=isComm
-        ?Math.round((loyerHT*1.2+chargesHT*1.2)*100)/100
-        :Math.round((loyerHT+chargesHT)*100)/100;
-
-      const DETTE_DEPUIS=new Date(2026,0,1);
-      const entree=t.date_entree?new Date(t.date_entree):null;
-      const debut=entree&&entree>DETTE_DEPUIS?entree:DETTE_DEPUIS;
-
-      // dette_initiale = solde au 1er jour de la période (saisi manuellement dans la fiche)
-      // Formule : dette(fin mois) = dette(début mois) + loyerMensuel - reçu
-      let detteCourante=Math.max(0,Math.round((parseFloat(t.dette||0))*100)/100);
-      const items=[];
-
-      if(loyerMensuel>0){
-        let y=debut.getFullYear(),m=debut.getMonth();
-        const nowY=now.getFullYear(),nowM=now.getMonth();
-        while(y<nowY||(y===nowY&&m<=nowM)){
-          const moisNom=MOIS_LIST[m];
-          const moisNum=m+1;
-          const p=S.rentPayments.find(x=>x.tenant_id===t.id&&x.annee===y&&x.mois===moisNom);
-          const recu=p?Math.round(((p.locataire_part||0)+(p.caf||0))*100)/100:0;
-          detteCourante=Math.round((detteCourante+loyerMensuel-recu)*100)/100;
-          items.push({mois:moisNom,annee:y,mois_num:moisNum,attendu:loyerMensuel,recu,dette:Math.max(0,detteCourante),saisi:!!p});
-          if(detteCourante<0)detteCourante=0; // crédit épuisé → on ne reporte pas le surplus
-          m++;if(m>11){m=0;y++;}
-        }
-      }
-
-      const total=Math.max(0,detteCourante);
-      // N'afficher que les mois où il y avait une dette non nulle
-      const itemsAvecDette=items.filter(i=>i.dette>0.01);
-      return {t,items:itemsAvecDette,total};
-    }).filter(x=>x.total>0.01||x.items.length>0).filter(x=>x.total>0.01).sort((a,b)=>b.total-a.total);
+      const {lignes,detteFinale}=calcDetteLigne(t,null,null,false);
+      // On n'affiche que les lignes où il y a un écart (dette ou crédit)
+      const items=lignes.filter(l=>Math.abs(l.solde)>0.01||l.recu>0);
+      return {t,items,total:Math.max(0,detteFinale)};
+    }).filter(x=>x.total>0.01).sort((a,b)=>b.total-a.total);
 
     return `${tabBar}
     <div class="card">
@@ -2090,9 +2059,10 @@ function renderLocatif(){
             <div class="fgs">${t.nom} <span style="font-size:11px;color:var(--text2)">${t.logement||''}</span></div>
             <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
               ${items.map(i=>{
-                const isPartial=i.recu>0&&i.recu<i.attendu;
-                return `<span class="badge ${isPartial?'bamber':'bred'}" style="font-size:10px">
-                  ${i.mois} ${i.annee} : <b>→ ${fmt(i.dette)}</b>
+                const color=i.estCredit?'var(--green)':i.estSolde?'var(--text2)':'var(--red)';
+                const cls=i.estCredit?'bgreen':i.recu>0&&!i.estSolde?'bamber':'bred';
+                return `<span class="badge ${cls}" style="font-size:10px">
+                  ${i.mois} ${i.annee} : <b style="color:${color}">${i.estCredit?'crédit ':''} ${fmt(Math.abs(i.solde))}</b>
                   (att.${fmt(i.attendu)}${i.recu>0?' / reçu '+fmt(i.recu):i.saisi?' / reçu 0€':' ⚠ non saisi'})
                 </span>`;
               }).join('')}
@@ -8971,6 +8941,60 @@ async function sendAccuseEau(releve,cpt,tenant,montant){
   return true;
 }
 
+// ============================================================
+// Calcul de la situation locative mois par mois
+// Retourne un tableau de lignes avec : mois, annee, attendu, recu, solde (peut être négatif = crédit)
+// Seuls les mois à solde non nul sont retournés (ou tous si includeAll=true)
+function calcDetteLigne(tenant, moisCourant, anneeCourante, includeAll){
+  const MOIS_LIST=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+  const isComm=tenant.type_bail==='commercial';
+  const loyerHT=parseFloat(tenant.loyer_ref||0);
+  const chargesHT=parseFloat(tenant.charges||0);
+  const loyerMensuel=isComm
+    ?Math.round((loyerHT*1.2+chargesHT*1.2)*100)/100
+    :Math.round((loyerHT+chargesHT)*100)/100;
+  if(!loyerMensuel||typeof S==='undefined')return{lignes:[],detteFinale:0};
+
+  const DETTE_DEPUIS=new Date(2026,0,1);
+  const entree=tenant.date_entree?new Date(tenant.date_entree):null;
+  const debut=entree&&entree>DETTE_DEPUIS?entree:DETTE_DEPUIS;
+
+  // Solde au 1er janvier 2026 (ou date d'entrée si après) saisi manuellement
+  let solde=Math.round((parseFloat(tenant.dette||0))*100)/100;
+  const lignes=[];
+
+  let y=debut.getFullYear(),m=debut.getMonth();
+  // On s'arrête au mois courant INCLUS (ou mois précédent si moisCourant défini)
+  const moisCourantNum=moisCourant?MOIS_LIST.indexOf(moisCourant):-1;
+  const stopY=anneeCourante||new Date().getFullYear();
+  const stopM=moisCourantNum>=0?moisCourantNum:(new Date().getMonth());
+
+  while(y<stopY||(y===stopY&&m<=stopM)){
+    const moisNom=MOIS_LIST[m];
+    const moisNum=m+1;
+    // Exclure le mois du document courant (sera traité séparément)
+    if(moisCourant&&moisNom===moisCourant&&y===anneeCourante){m++;if(m>11){m=0;y++;}continue;}
+    const p=S.rentPayments.find(x=>x.tenant_id===tenant.id&&x.annee===y&&x.mois===moisNom);
+    const recu=p?Math.round(((p.locataire_part||0)+(p.caf||0))*100)/100:0;
+    const soldePrecedent=solde;
+    solde=Math.round((solde+loyerMensuel-recu)*100)/100;
+    // On ajoute la ligne si solde non nul OU si includeAll
+    if(includeAll||Math.abs(solde)>0.01){
+      lignes.push({
+        mois:moisNom,annee:y,mois_num:moisNum,
+        attendu:loyerMensuel,recu,
+        soldePrecedent:Math.round(soldePrecedent*100)/100,
+        solde:Math.round(solde*100)/100,
+        saisi:!!p,
+        estCredit:solde<-0.01,
+        estSolde:Math.abs(solde)<0.01
+      });
+    }
+    m++;if(m>11){m=0;y++;}
+  }
+  return{lignes,detteFinale:Math.round(solde*100)/100};
+}
+
 function buildDocumentLoyer(tenant,payment,mois,annee,loyer,charges,total,datePaiement,fmt,commentaire,showPrintBar){
   const isDubail=dubailFilter(tenant.logement||'');
   const isComm=tenant.type_bail==='commercial';
@@ -9029,73 +9053,44 @@ function buildDocumentLoyer(tenant,payment,mois,annee,loyer,charges,total,datePa
   // Détail dette mois précédents
   const detteBlock=(()=>{try{
     if(payment._skipDette||typeof S==='undefined'||!S.rentPayments)return'';
-    const MOIS_LIST=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
-    const loyerMensuel=parseFloat(tenant.loyer_ref||0);
-    const now=new Date();
-    const DETTE_DEPUIS=new Date(2026,0,1);
-    const entree=tenant.date_entree?new Date(tenant.date_entree):null;
-    const debut=entree&&entree>DETTE_DEPUIS?entree:DETTE_DEPUIS;
-    let detail=[];
-    if(debut&&loyerMensuel>0){
-      let y=debut.getFullYear(),m=debut.getMonth();
-      const nowY=now.getFullYear(),nowM=now.getMonth();
-      let creditReporte=0;
-      while(y<nowY||(y===nowY&&m<=nowM)){
-        const moisNom=MOIS_LIST[m];
-        const moisAnnee=y;
-        if(moisNom===mois&&String(moisAnnee)===String(annee)){m++;if(m>11){m=0;y++;}continue;}
-        const p=S.rentPayments.find(x=>x.tenant_id===tenant.id&&x.annee===moisAnnee&&x.mois===moisNom);
-        if(p&&p.paye){
-          const r=Math.round(((p.locataire_part||0)+(p.caf||0))*100)/100;
-          creditReporte=Math.round((creditReporte+Math.max(0,r-loyerMensuel))*100)/100;
-          m++;if(m>11){m=0;y++;}continue;
-        }
-        const r=p?Math.round(((p.locataire_part||0)+(p.caf||0))*100)/100:0;
-        const rEffectif=Math.round((r+creditReporte)*100)/100;
-        creditReporte=Math.max(0,Math.round((rEffectif-loyerMensuel)*100)/100);
-        const manque=Math.max(0,Math.round((loyerMensuel-rEffectif)*100)/100);
-        if(manque>0.01)detail.push({mois:moisNom,annee:moisAnnee,attendu:loyerMensuel,recu:Math.min(rEffectif,loyerMensuel),manque,mois_num:m+1});
-        m++;if(m>11){m=0;y++;}
-      }
-    } else {
-      detail=(S.rentPayments||[])
-        .filter(p=>p.tenant_id===tenant.id&&!p.paye&&(p.loyer||0)>0&&!(p.mois===mois&&String(p.annee)===String(annee)))
-        .map(p=>{const r=Math.round(((p.locataire_part||0)+(p.caf||0))*100)/100;const mk=Math.max(0,Math.round((loyerMensuel-r)*100)/100);return{mois:p.mois,annee:p.annee,attendu:loyerMensuel,recu:r,manque:mk,mois_num:p.mois_num||MOIS_LIST.indexOf(p.mois)+1};})
-        .filter(d=>d.manque>0.01);
+    const {lignes,detteFinale}=calcDetteLigne(tenant,mois,parseInt(annee),false);
+    // Ajouter le mois en cours
+    const recuCourant=Math.round((locPart+caf)*100)/100;
+    const soldeCourant=Math.round(((lignes.length>0?lignes[lignes.length-1].solde:parseFloat(tenant.dette||0))+totalTTC-recuCourant)*100)/100;
+    const toutesLignes=[...lignes];
+    if(Math.abs(soldeCourant)>0.01){
+      toutesLignes.push({mois,annee:parseInt(annee),attendu:totalTTC,recu:recuCourant,solde:soldeCourant,estCredit:soldeCourant<-0.01,estSolde:Math.abs(soldeCourant)<0.01,enCours:true});
     }
-    detail.sort((a,b)=>a.annee!==b.annee?a.annee-b.annee:a.mois_num-b.mois_num);
-    const detteMoisPrec=detail.reduce((s,d)=>s+d.manque,0);
-    const detteTotal=Math.round((soldeMois+detteMoisPrec)*100)/100;
-    if(detteTotal<=0.01)return'';
+    if(toutesLignes.length===0)return'';
+    const detteAffichee=Math.abs(soldeCourant)>0.01?soldeCourant:detteFinale;
+    if(detteAffichee<=0.01)return'';
     return '<div style="border:2px solid #E24B4A;border-radius:6px;padding:14px 16px;margin:16px 0;background:#FFF5F5">'
-      +'<div style="font-size:14px;font-weight:700;color:#E24B4A;margin-bottom:10px">&#9888; Situation locative — Soldes impay&#233;s</div>'
+      +'<div style="font-size:14px;font-weight:700;color:#E24B4A;margin-bottom:10px">&#9888; Situation locative depuis le 1er janvier 2026</div>'
       +'<table style="width:100%;border-collapse:collapse;font-size:12px;margin:0">'
       +'<thead><tr style="background:#FCEBEB">'
-        +'<th style="padding:6px 8px;text-align:left;border:1px solid #F7C1C1">Mois</th>'
-        +'<th style="padding:6px 8px;text-align:right;border:1px solid #F7C1C1">Appel&#233; TTC</th>'
-        +'<th style="padding:6px 8px;text-align:right;border:1px solid #F7C1C1">Re&#231;u</th>'
-        +'<th style="padding:6px 8px;text-align:right;border:1px solid #F7C1C1;color:#E24B4A">Manquant</th>'
+        +'<th style="padding:6px 8px;text-align:left;border:1px solid #ddd">Mois</th>'
+        +'<th style="padding:6px 8px;text-align:right;border:1px solid #ddd">Attendu</th>'
+        +'<th style="padding:6px 8px;text-align:right;border:1px solid #ddd">Re&#231;u</th>'
+        +'<th style="padding:6px 8px;text-align:right;border:1px solid #ddd">Solde</th>'
       +'</tr></thead><tbody>'
-      +detail.map(function(d){return'<tr>'
-        +'<td style="padding:5px 8px;border:1px solid #F7C1C1">'+d.mois+' '+d.annee+'</td>'
-        +'<td style="padding:5px 8px;text-align:right;border:1px solid #F7C1C1">'+fmt(d.attendu)+'</td>'
-        +'<td style="padding:5px 8px;text-align:right;border:1px solid #F7C1C1;color:#1D9E75">'+fmt(d.recu)+'</td>'
-        +'<td style="padding:5px 8px;text-align:right;border:1px solid #F7C1C1;color:#E24B4A;font-weight:600">'+fmt(d.manque)+'</td>'
-      +'</tr>';}).join('')
-      +(soldeMois>0.01?'<tr style="background:#FFF0F0">'
-        +'<td style="padding:5px 8px;border:1px solid #F7C1C1;font-weight:500">'+mois+' '+annee+' <span style="font-size:10px;color:#888">(en cours)</span></td>'
-        +'<td style="padding:5px 8px;text-align:right;border:1px solid #F7C1C1">'+fmt(totalTTC)+'</td>'
-        +'<td style="padding:5px 8px;text-align:right;border:1px solid #F7C1C1;color:#1D9E75">'+fmt(recu)+'</td>'
-        +'<td style="padding:5px 8px;text-align:right;border:1px solid #F7C1C1;color:#E24B4A;font-weight:600">'+fmt(soldeMois)+'</td>'
-      +'</tr>':'')
+      +toutesLignes.map(function(l){
+        const sColor=l.estCredit?'#1D9E75':l.estSolde?'#888':'#E24B4A';
+        const sLabel=(l.estCredit?'Crédit : -':'')+fmt(Math.abs(l.solde));
+        return '<tr style="'+(l.enCours?'background:#FFF8E6':'')+(l.estCredit?'background:#F0FFF4':'')+'">'
+          +'<td style="padding:5px 8px;border:1px solid #ddd">'+l.mois+' '+l.annee+(l.enCours?' <span style="font-size:10px;color:#888">(en cours)</span>':'')+'</td>'
+          +'<td style="padding:5px 8px;text-align:right;border:1px solid #ddd">'+fmt(l.attendu)+'</td>'
+          +'<td style="padding:5px 8px;text-align:right;border:1px solid #ddd;color:#1D9E75">'+fmt(l.recu)+'</td>'
+          +'<td style="padding:5px 8px;text-align:right;border:1px solid #ddd;font-weight:600;color:'+sColor+'">'+sLabel+'</td>'
+        +'</tr>';
+      }).join('')
       +'<tr style="background:#FCEBEB;font-weight:700">'
-        +'<td style="padding:6px 8px;border:1px solid #F7C1C1" colspan="3">DETTE TOTALE CUMULÉE</td>'
-        +'<td style="padding:6px 8px;text-align:right;border:1px solid #F7C1C1;color:#E24B4A;font-size:14px">'+fmt(detteTotal)+'</td>'
+        +'<td style="padding:6px 8px;border:1px solid #ddd" colspan="3">SOLDE TOTAL</td>'
+        +'<td style="padding:6px 8px;text-align:right;border:1px solid #ddd;color:#E24B4A;font-size:14px">'+fmt(Math.max(0,detteAffichee))+'</td>'
       +'</tr>'
       +'</tbody></table>'
       +'<div style="font-size:11px;color:#888;margin-top:8px">Merci de r&#233;gulariser cette situation dans les meilleurs d&#233;lais.</div>'
       +'</div>';
-  }catch(e){console.error('detteBlock error:',e);return'';}})();
+  }catch(e){console.error('detteBlock:',e);return'';}})();
   const css='@media print{.pb{display:none!important}body{margin:0;padding:20px}}'
     +'body{font-family:Arial,sans-serif;max-width:700px;margin:0 auto;padding:0 30px 30px;color:#222;font-size:14px}'
     +'.hdr{display:flex;justify-content:space-between;margin-bottom:24px;padding:20px 0;border-bottom:2px solid #222}'
