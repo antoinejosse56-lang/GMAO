@@ -2058,7 +2058,10 @@ function renderLocatif(){
 
     return `${tabBar}
     <div class="card">
-      <div class="sec">Impayés & dettes</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <div class="sec" style="margin:0">Impayés & dettes</div>
+        <button class="btn btn-sm" id="btn-gen-qtt-manquantes" style="background:var(--blue);color:#fff;border-color:var(--blue)">📄 Générer quittances manquantes</button>
+      </div>
       ${debts.length===0?'<div style="font-size:13px;color:var(--text2);padding:20px;text-align:center">Aucune dette enregistrée.</div>':''}
       ${debts.map(({t,items,total})=>`
         <div class="row" style="align-items:flex-start;padding:12px 0">
@@ -2071,7 +2074,17 @@ function renderLocatif(){
                 return `<span class="badge ${cls}" style="font-size:10px;display:inline-flex;align-items:center;gap:4px">
                   ${i.mois} ${i.annee} : <b style="color:${color}">${i.estCredit?'crédit ':''} ${fmt(Math.abs(i.solde))}</b>
                   (att.${fmt(i.attendu)}${i.remise>0&&i.recu===0?' / remise '+fmt(i.remise):i.recu>0?' / reçu '+fmt(i.recu):i.saisi?' / reçu 0€':' ⚠ non saisi'})
-                  ${!i.saisi?`<button data-qtt-zero="${t.id}" data-qtt-mois="${i.mois}" data-qtt-annee="${i.annee}" style="background:#fff;border:1px solid #999;border-radius:3px;font-size:9px;padding:1px 4px;cursor:pointer;margin-left:2px" title="Créer paiement 0€ et envoyer quittance">📄 0€</button>`:''}
+                  ${!i.saisi
+                    ?`<button data-qtt-zero="${t.id}" data-qtt-mois="${i.mois}" data-qtt-annee="${i.annee}" style="background:#fff;border:1px solid #999;border-radius:3px;font-size:9px;padding:1px 4px;cursor:pointer;margin-left:2px" title="Créer paiement 0€ et envoyer quittance">📄 0€</button>`
+                    :i.recu===0&&i.saisi
+                      ?(()=>{
+                        const p=S.rentPayments.find(x=>x.tenant_id===t.id&&x.annee===i.annee&&x.mois===i.mois);
+                        return p?.quittance_envoyee
+                          ?`<span style="font-size:9px;color:var(--green);margin-left:3px">✓ envoyée</span>`
+                          :`<button data-qtt-send="${p?.id}" style="background:#fff;border:1px solid var(--blue);border-radius:3px;font-size:9px;padding:1px 4px;cursor:pointer;margin-left:2px;color:var(--blue)" title="Envoyer la quittance 0€ par email">📧 envoyer</button>`;
+                      })()
+                      :''
+                  }
                 </span>`;
               }).join('')}
             </div>
@@ -2087,7 +2100,7 @@ function renderLocatif(){
 
     if(tab==='emises'){
     const dubailTenantIds=isDubail?S.tenants.filter(t=>dubailFilter(t.logement||'')).map(t=>t.id):null;
-    const allRp=S.rentPayments.filter(p=>p.annee===year&&(p.paye||(p.locataire_part>0||p.caf>0))&&(!dubailTenantIds||dubailTenantIds.includes(p.tenant_id)));
+    const allRp=S.rentPayments.filter(p=>p.annee===year&&(p.paye||(p.locataire_part>0||p.caf>0)||p.remise>0||p.loyer>0)&&(!dubailTenantIds||dubailTenantIds.includes(p.tenant_id)));
     // Releves linked to tenants (water/charges invoices)
     const allRel=S.releves.filter(r=>{
       const cpt=S.compteurs.find(c=>c.id===r.compteur_id);
@@ -2123,19 +2136,29 @@ function renderLocatif(){
           const items=[...byBien[bien][zone]].sort((a,b2)=>(a.mois_num||0)>(b2.mois_num||0)?1:-1);
           const zT=items.reduce((s,f)=>s+(f.locataire_part||0)+(f.caf||0),0);
           const rows=items.map(function(f){
-            const recu=(f.locataire_part||0)+(f.caf||0);const sol=Math.round(((f.loyer||0)-recu)*100)/100;
-            const isPartial=!f.paye&&recu>0;
-            return '<tr style="'+(isPartial?'background:#FFF9E6':'')+'">'
+            const t=f._t;
+            const isComm=t?.type_bail==='commercial';
+            const loyerRef=parseFloat(t?.loyer_ref||0);
+            const chargesRef=parseFloat(t?.charges||0);
+            const remiseF=parseFloat(f.remise||0);
+            // Loyer attendu = loyer_ref TTC - remise (cohérent avec calcDetteLigne)
+            const loyerAttenduF=Math.max(0,Math.round(((isComm?(loyerRef+chargesRef)*1.2:(loyerRef+chargesRef))-remiseF)*100)/100);
+            const recu=Math.round(((f.locataire_part||0)+(f.caf||0))*100)/100;
+            const sol=Math.round((loyerAttenduF-recu)*100)/100;
+            const isPartial=!f.paye&&recu>0&&sol>0.01;
+            const hasRemise=remiseF>0&&recu===0;
+            return '<tr style="'+(isPartial?'background:#FFF9E6':hasRemise?'background:#F0FFF4':'')+'">'
               +'<td style="font-size:11px">'+(f.mois||'')+' '+(f.annee||'')
                 +(isPartial?' <span class="badge bamber" style="font-size:9px">Partiel</span>':'')
+                +(hasRemise?' <span class="badge bgreen" style="font-size:9px">Remise</span>':'')
               +'</td>'
-              +'<td>'+(f._t?.nom||'')+'</td>'
-              +'<td style="text-align:right">'+fmt(f.loyer||0)+'</td>'
-              +'<td style="text-align:right;color:var(--green)">'+fmt(recu)+'</td>'
-              +'<td style="text-align:right;font-weight:600;color:'+(sol>0?'var(--red)':'var(--green)')+';">'+fmt(sol)+'</td>'
+              +'<td>'+(t?.nom||'')+'</td>'
+              +'<td style="text-align:right">'+fmt(loyerAttenduF)+'</td>'
+              +'<td style="text-align:right;color:var(--green)">'+(hasRemise?'<span style="font-size:10px;color:var(--green)">Remise '+fmt(remiseF)+'</span>':fmt(recu))+'</td>'
+              +'<td style="text-align:right;font-weight:600;color:'+(sol>0.01?'var(--red)':sol<-0.01?'var(--green)':'var(--text2)')+';">'+fmt(Math.abs(sol))+(sol<-0.01?' (crédit)':'')+'</td>'
               +'<td style="text-align:center;white-space:nowrap">'
                 +'<button class="btn btn-sm" data-print-qtt="'+f.id+'" style="font-size:10px;padding:2px 5px" title="Ouvrir document">&#128438;</button>'
-                +(f._t?.email?'<button class="btn btn-sm" data-resend-qtt="'+f.id+'" style="font-size:10px;padding:2px 5px;margin-left:3px" title="Renvoyer par email">&#128233;</button>':'')
+                +(t?.email?'<button class="btn btn-sm" data-resend-qtt="'+f.id+'" style="font-size:10px;padding:2px 5px;margin-left:3px" title="Renvoyer par email">&#128233;</button>':'')
                 +(isAdmin()?'<button class="btn btn-d btn-sm" data-del-rp="'+f.id+'" style="font-size:10px;padding:2px 5px;margin-left:3px">&#10005;</button>':'')
               +'</td></tr>';
           }).join('');
@@ -7173,13 +7196,81 @@ function bindAll(){
     if(!tenant)return;
     S.modal={type:'remb-dette',tenant};render();
   });
+  // Générer toutes les quittances/paiements manquants (0€) pour tous les locataires actifs
+  async function genererQuittancesManquantes(envoyerEmails){
+    const MOIS_LIST=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+    const now=new Date();
+    const nowY=now.getFullYear(),nowM=now.getMonth();
+    const DETTE_DEPUIS=new Date(2026,0,1);
+    const tenantsConcernes=S.tenants.filter(t=>t.actif!==false);
+    let nbCrees=0,nbEnvoyes=0,erreurs=[];
+    for(const t of tenantsConcernes){
+      const isComm=t.type_bail==='commercial';
+      const loyerHT=parseFloat(t.loyer_ref||0);
+      const chargesHT=parseFloat(t.charges||0);
+      const loyerTTC=isComm?Math.round((loyerHT+chargesHT)*1.2*100)/100:Math.round((loyerHT+chargesHT)*100)/100;
+      if(!loyerTTC)continue;
+      const entree=t.date_entree?new Date(t.date_entree):null;
+      const debut=entree&&entree>DETTE_DEPUIS?entree:DETTE_DEPUIS;
+      let y=debut.getFullYear(),m=debut.getMonth();
+      while(y<nowY||(y===nowY&&m<=nowM)){
+        const moisNom=MOIS_LIST[m];
+        const moisNum=m+1;
+        const existing=S.rentPayments.find(p=>p.tenant_id===t.id&&p.annee===y&&p.mois===moisNom);
+        if(!existing){
+          // Créer paiement 0€
+          try{
+            const rec={tenant_id:t.id,mois:moisNom,annee:y,mois_num:moisNum,loyer:loyerTTC,locataire_part:0,caf:0,paye:false,commentaire:'Loyer non perçu'};
+            const {data,error}=await sb.from('rent_payments').insert(rec).select().single();
+            if(error){erreurs.push(`${t.nom} ${moisNom} ${y}: ${error.message}`);}
+            else{S.rentPayments.push(data);nbCrees++;
+              // Envoyer email si demandé et locataire a un email
+              if(envoyerEmails&&t.email){
+                try{await autoSendQuittance(t,data,moisNom,y,'Loyer non perçu — dette reportée',true);nbEnvoyes++;}
+                catch(e){erreurs.push(`Email ${t.nom} ${moisNom}: ${e.message}`);}
+              }
+            }
+          }catch(e){erreurs.push(`${t.nom} ${moisNom} ${y}: ${e.message}`);}
+        }
+        m++;if(m>11){m=0;y++;}
+      }
+    }
+    render();
+    let msg=`✓ ${nbCrees} quittance(s) créée(s)`;
+    if(envoyerEmails)msg+=`, ${nbEnvoyes} email(s) envoyé(s)`;
+    if(erreurs.length)msg+=`\n⚠ ${erreurs.length} erreur(s):\n`+erreurs.slice(0,5).join('\n');
+    if(nbCrees>0||erreurs.length)alert(msg);
+    return nbCrees;
+  }
+
+  const btnGenQtt=document.getElementById('btn-gen-qtt-manquantes');
+  if(btnGenQtt)btnGenQtt.onclick=async()=>{
+    btnGenQtt.disabled=true;btnGenQtt.textContent='⏳ Génération...';
+    await genererQuittancesManquantes(false);
+    btnGenQtt.disabled=false;btnGenQtt.textContent='📄 Générer quittances manquantes';
+  };
+
+  document.querySelectorAll('[data-qtt-send]').forEach(el=>el.onclick=async(e)=>{
+    e.stopPropagation();
+    const payment=S.rentPayments.find(p=>p.id===el.dataset.qttSend);
+    if(!payment)return;
+    const tenant=S.tenants.find(t=>t.id===payment.tenant_id);
+    if(!tenant)return;
+    if(!tenant.email){alert('Pas d\'email pour ce locataire.');return;}
+    try{
+      await autoSendQuittance(tenant,payment,payment.mois,payment.annee,'Loyer non perçu — dette reportée',true);
+      await sb.from('rent_payments').update({quittance_envoyee:true}).eq('id',payment.id);
+      payment.quittance_envoyee=true;
+      render();
+    }catch(e){alert('Erreur envoi : '+e.message);}
+  });
+
   document.querySelectorAll('[data-qtt-zero]').forEach(el=>el.onclick=async(e)=>{
     e.stopPropagation();
     const tenant=S.tenants.find(t=>t.id===el.dataset.qttZero);
     if(!tenant)return;
     const mois=el.dataset.qttMois;
     const annee=parseInt(el.dataset.qttAnnee);
-    if(!confirm(`Créer un paiement 0€ pour ${mois} ${annee} — ${tenant.nom} ?\nUne quittance/facture sera générée et envoyée si email disponible.`))return;
     const isComm=tenant.type_bail==='commercial';
     const loyerHT=parseFloat(tenant.loyer_ref||0);
     const chargesHT=parseFloat(tenant.charges||0);
@@ -7197,18 +7288,20 @@ function bindAll(){
     } else {
       payment=existing;
     }
-    // Générer et envoyer la quittance/facture avec 0€ reçu
+    // Envoyer email si locataire a un email
     if(tenant.email){
       try{
         await autoSendQuittance(tenant,payment,mois,annee,'Loyer non perçu — dette reportée au mois suivant',true);
+        // Marquer quittance comme envoyée en BDD
+        await sb.from('rent_payments').update({quittance_envoyee:true}).eq('id',payment.id);
+        payment.quittance_envoyee=true;
       }catch(e){
-        // Ouvrir quand même le document
         genQuittancePDF(tenant,payment,mois,annee);
         alert('✓ Paiement créé\n⚠ Email non envoyé : '+e.message);
       }
     } else {
       genQuittancePDF(tenant,payment,mois,annee);
-      alert('✓ Paiement 0€ créé — pas d\'email pour ce locataire. Document ouvert.');
+      alert('✓ Paiement 0€ créé — pas d\'email. Document ouvert.');
     }
     render();
   });
