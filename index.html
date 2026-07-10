@@ -1923,6 +1923,8 @@ function renderLocatif(){
               const p = filteredPayments.find(x=>x.tenant_id===t.id&&x.annee===year&&x.mois===mois);
               const isPaid = p?.paye;
               const montant = p?.loyer||0;
+              const remiseP = p?.remise||0;
+              const recuP = (p?.locataire_part||0)+(p?.caf||0);
               const isComm = t.type_bail==='commercial';
               const loyerHT = t.loyer_ref||0;
               const loyerTVA = isComm ? loyerHT*0.2 : 0;
@@ -1930,6 +1932,11 @@ function renderLocatif(){
               const chargesHT = t.charges||0;
               const chargesTTC = isComm ? chargesHT*1.2 : chargesHT;
               const totalAttendu = loyerTTC + (isComm ? chargesTTC : chargesHT);
+              const recuLabel = remiseP>0&&recuP===0
+                ? `<span style="color:var(--green);font-size:11px">Remise ${fmt(remiseP)}</span>`
+                : remiseP>0&&recuP>0
+                  ? `${fmt(recuP)} <span style="color:var(--green);font-size:10px">+remise ${fmt(remiseP)}</span>`
+                  : recuP>0 ? fmt(recuP) : '—';
               return `<tr style="${isPaid?'':'background:var(--bg2)'}">
                 <td style="font-weight:500">${mois}</td>
                 ${isComm?`
@@ -1943,7 +1950,7 @@ function renderLocatif(){
                   ${chargesHT>0?`<td style="font-size:12px">${fmt(chargesHT)}</td>`:''}
                   <td style="font-weight:500">${fmt(loyerHT+chargesHT)}</td>
                 `}
-                <td style="font-weight:500;color:${isPaid?'var(--green)':'var(--text)'}">${(p?.locataire_part||0)+(p?.caf||0)>0?fmt((p?.locataire_part||0)+(p?.caf||0)):'—'}</td>
+                <td style="font-weight:500;color:${isPaid?'var(--green)':'var(--text)'}">${recuLabel}</td>
                 <td style="font-size:11px">
                   ${p?.date_loc?'🏦 '+new Date(p.date_loc).toLocaleDateString('fr-FR'):'—'}
                   ${p?.date_caf?'<br>🏢 CAF : '+new Date(p.date_caf).toLocaleDateString('fr-FR'):''}
@@ -2063,7 +2070,7 @@ function renderLocatif(){
                 const cls=i.estCredit?'bgreen':i.recu>0&&!i.estSolde?'bamber':'bred';
                 return `<span class="badge ${cls}" style="font-size:10px;display:inline-flex;align-items:center;gap:4px">
                   ${i.mois} ${i.annee} : <b style="color:${color}">${i.estCredit?'crédit ':''} ${fmt(Math.abs(i.solde))}</b>
-                  (att.${fmt(i.attendu)}${i.recu>0?' / reçu '+fmt(i.recu):i.saisi?' / reçu 0€':' ⚠ non saisi'})
+                  (att.${fmt(i.attendu)}${i.remise>0&&i.recu===0?' / remise '+fmt(i.remise):i.recu>0?' / reçu '+fmt(i.recu):i.saisi?' / reçu 0€':' ⚠ non saisi'})
                   ${!i.saisi?`<button data-qtt-zero="${t.id}" data-qtt-mois="${i.mois}" data-qtt-annee="${i.annee}" style="background:#fff;border:1px solid #999;border-radius:3px;font-size:9px;padding:1px 4px;cursor:pointer;margin-left:2px" title="Créer paiement 0€ et envoyer quittance">📄 0€</button>`:''}
                 </span>`;
               }).join('')}
