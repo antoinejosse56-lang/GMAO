@@ -6514,74 +6514,19 @@ function updateTenantZones(existingZoneName){
 
 
 function genQuittancePDF(tenant, payment, mois, annee){
-  const recu=(payment.locataire_part||0)+(payment.caf||0);
-  const loyer=payment.loyer||tenant.loyer_ref||0;
-  const charges=tenant.charges||0;
-  const solde=Math.round((loyer-recu)*100)/100;
-  const fmt=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(n||0);
-  const today=new Date().toLocaleDateString('fr-FR');
-  const isDubailT=dubailFilter(tenant.logement||'');
-  const bailleurName=isDubailT?'J\u0026A SAVADUR':'Antoine JOSSE';
-  const bailleurAddr=isDubailT?'26 RUE G\u00c9N\u00c9RAL DUBAIL':'5 RUE DE CALVIN';
-  const html=`<!DOCTYPE html><html><head><meta charset="utf-8">
-  <title>Quittance ${mois} ${annee}</title>
-  <style>
-    body{font-family:Arial,sans-serif;margin:0;padding:30px;color:#222;font-size:13px}
-    .header{display:flex;justify-content:space-between;margin-bottom:30px}
-    .bailleur{font-size:12px;line-height:1.6}
-    .title{text-align:center;font-size:20px;font-weight:700;text-transform:uppercase;letter-spacing:2px;margin:20px 0;padding:12px;border-top:2px solid #222;border-bottom:2px solid #222}
-    .section{margin-bottom:16px}
-    .label{font-weight:600;color:#555;font-size:11px;text-transform:uppercase;letter-spacing:0.5px}
-    table{width:100%;border-collapse:collapse;margin:12px 0}
-    td,th{padding:8px 12px;border:1px solid #ddd;font-size:12px}
-    th{background:#f5f5f5;font-weight:600;text-align:left}
-    .total{font-weight:700;font-size:14px;background:#f0f0f0}
-    .footer{margin-top:40px;font-size:11px;color:#888;border-top:1px solid #ddd;padding-top:12px}
-    .signature{margin-top:50px;display:flex;justify-content:space-between}
-    .solde-ok{color:#1D9E75;font-weight:700}
-    .solde-bad{color:#E74C3C;font-weight:700}
-    @media print{body{padding:15px}}
-  </style></head><body>
-  <div class="header">
-    <div class="bailleur">
-      <strong>${bailleurName}</strong><br>
-      ${bailleurAddr}<br>
-      56100 LORIENT<br>
-    </div>
-    <div style="text-align:right;font-size:12px">
-      <strong>${tenant.nom||''}</strong><br>
-      ${tenant.logement||''}<br>
-      Date d'émission : ${today}
-    </div>
-  </div>
-  <div class="title">Quittance de loyer — ${mois} ${annee}</div>
-  <div class="section">
-    <div class="label">Logement</div>
-    <div>${tenant.logement||''}</div>
-  </div>
-  <table>
-    <tr><th>Désignation</th><th style="text-align:right">Montant</th></tr>
-    <tr><td>Loyer nu</td><td style="text-align:right">${fmt(loyer-charges)}</td></tr>
-    ${charges?`<tr><td>Charges</td><td style="text-align:right">${fmt(charges)}</td></tr>`:''}
-    <tr class="total"><td><strong>Total appelé</strong></td><td style="text-align:right"><strong>${fmt(loyer)}</strong></td></tr>
-    ${payment.caf?`<tr><td style="color:#888">dont CAF (${fmt(payment.caf)})</td><td style="text-align:right;color:#888">${fmt(payment.locataire_part||0)} locataire</td></tr>`:''}
-    <tr class="total"><td><strong>Total reçu</strong></td><td style="text-align:right" class="${solde<=0?'solde-ok':'solde-bad'}"><strong>${fmt(recu)}</strong></td></tr>
-    ${solde>0?`<tr><td style="color:#E74C3C">Solde restant dû</td><td style="text-align:right;color:#E74C3C">${fmt(solde)}</td></tr>`:''}
-  </table>
-  ${payment.commentaire?`<div style="margin:12px 0;padding:10px;background:#FFF9E6;border-left:3px solid #F39C12;font-size:12px">${payment.commentaire}</div>`:''}
-  <div class="footer">
-    Quittance générée le ${today} — Je soussigné, bailleur, déclare avoir reçu la somme de ${fmt(recu)} 
-    au titre du loyer et des charges du logement désigné ci-dessus pour la période de ${mois} ${annee}.
-  </div>
-  <div class="signature">
-    <div style="font-size:12px">Le locataire<br><br><br>Signature :</div>
-    <div style="font-size:12px;text-align:right">Le bailleur<br><br><br>Signature :</div>
-  </div>
-  </body></html>`;
+  // Route vers le même document unifié que les envois automatiques (buildDocumentLoyer),
+  // pour garantir le tableau "Situation locative" et le solde cumulé partout où un document est imprimé.
+  const fmt=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR',minimumFractionDigits:2}).format(n||0);
+  const isComm=tenant.type_bail==='commercial';
+  const loyerRef=parseFloat(tenant.loyer_ref||0);
+  const chargesRef=parseFloat(tenant.charges||0);
+  const totalRecu=parseFloat((payment.locataire_part||0)+(payment.caf||0));
+  const datePaiement=payment.date_loc?new Date(payment.date_loc).toLocaleDateString('fr-FR'):new Date().toLocaleDateString('fr-FR');
+  const html=isComm
+    ?buildFactureHtml(tenant,payment,mois,annee,loyerRef,chargesRef,totalRecu||loyerRef,datePaiement,'',fmt,payment.commentaire||'',true)
+    :buildQuittanceHtml(tenant,payment,mois,annee,loyerRef,chargesRef,totalRecu||loyerRef,datePaiement,fmt,payment.commentaire||'',true);
   const w=window.open('','_blank','width=800,height=900');
-  w.document.write(html);
-  w.document.close();
-  setTimeout(()=>w.print(),500);
+  if(w){w.document.write(html);w.document.close();setTimeout(()=>{try{w.print();}catch(e){}},700);}
 }
 
 function genFactureEauPDF(tenant, releves, mois, annee){
