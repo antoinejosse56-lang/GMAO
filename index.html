@@ -2038,33 +2038,49 @@ function renderLocatif(){
 
   if(tab==='dettes'){
     const debts = tenants.map(t=>{
-      // Tous les paiements non soldés
-      const unpaid = S.rentPayments.filter(p=>p.tenant_id===t.id&&!p.paye&&p.loyer>0);
-      // Dette = solde du DERNIER paiement (le plus récent)
-      // trié par annee desc puis mois_num desc
-      const sorted = unpaid.slice().sort(function(a,b){
-        if(b.annee!==a.annee)return b.annee-a.annee;
-        return (b.mois_num||0)-(a.mois_num||0);
-      });
-      const last = sorted[0];
-      const total = last ? Math.max(0,Math.round(((last.loyer||0)-(last.locataire_part||0)-(last.caf||0))*100)/100) : (t.dette||0);
-      return {t, unpaid, total};
-    }).filter(x=>x.total>0).sort((a,b)=>b.total-a.total);
+      const {lignes,detteFinale}=calcDetteLigne(t,null,null,false);
+      // On n'affiche que les lignes où il y a un écart (dette ou crédit)
+      const items=lignes.filter(l=>Math.abs(l.solde)>0.01||l.recu>0);
+      return {t,items,total:Math.max(0,detteFinale)};
+    }).filter(x=>x.total>0.01).sort((a,b)=>b.total-a.total);
+
     return `${tabBar}
     <div class="card">
-      <div class="sec">Impayés & dettes</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <div class="sec" style="margin:0">Impayés & dettes</div>
+        ${canEdit()?'<button class="btn btn-sm" id="btn-gen-qtt-manquantes" style="background:var(--blue);color:#fff;border-color:var(--blue)">📄 Générer quittances manquantes</button>':''}
+      </div>
       ${debts.length===0?'<div style="font-size:13px;color:var(--text2);padding:20px;text-align:center">Aucune dette enregistrée.</div>':''}
-      ${debts.map(({t,unpaid,total})=>`
+      ${debts.map(({t,items,total})=>`
         <div class="row" style="align-items:flex-start;padding:12px 0">
           <div class="fg">
             <div class="fgs">${t.nom} <span style="font-size:11px;color:var(--text2)">${t.logement||''}</span></div>
             <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
-              ${unpaid.map(p=>{const s=Math.max(0,(p.loyer||0)-(p.locataire_part||0)-(p.caf||0));return `<span class="badge bred" style="font-size:10px">${p.mois} ${p.annee} : ${fmt(s)} (att.${fmt(p.loyer)}/payé ${fmt((p.locataire_part||0)+(p.caf||0))})</span>`;}).join('')}
+              ${items.map(i=>{
+                const color=i.estCredit?'var(--green)':i.estSolde?'var(--text2)':'var(--red)';
+                const cls=i.estCredit?'bgreen':i.recu>0&&!i.estSolde?'bamber':'bred';
+                return `<span class="badge ${cls}" style="font-size:10px;display:inline-flex;align-items:center;gap:4px">
+                  ${i.mois} ${i.annee} : <b style="color:${color}">${i.estCredit?'crédit ':''} ${fmt(Math.abs(i.solde))}</b>
+                  (att.${fmt(i.attendu)}${i.remise>0&&i.recu===0?' / remise '+fmt(i.remise):i.recu>0?' / reçu '+fmt(i.recu):i.saisi?' / reçu 0€':' ⚠ non saisi'})
+                  ${canEdit()&&!i.saisi
+                    ?`<button data-qtt-zero="${t.id}" data-qtt-mois="${i.mois}" data-qtt-annee="${i.annee}" style="background:#fff;border:1px solid #999;border-radius:3px;font-size:9px;padding:1px 4px;cursor:pointer;margin-left:2px" title="Créer paiement 0€ et envoyer quittance">📄 0€</button>`
+                    :canEdit()&&i.recu===0&&i.saisi
+                      ?(()=>{
+                        const p=S.rentPayments.find(x=>x.tenant_id===t.id&&x.annee===i.annee&&x.mois===i.mois);
+                        return p?.quittance_envoyee
+                          ?`<span style="font-size:9px;color:var(--green);margin-left:3px">✓ envoyée</span>`
+                          :`<button data-qtt-send="${p?.id}" style="background:#fff;border:1px solid var(--blue);border-radius:3px;font-size:9px;padding:1px 4px;cursor:pointer;margin-left:2px;color:var(--blue)" title="Envoyer la quittance 0€ par email">📧 envoyer</button>`;
+                      })()
+                      :''
+                  }
+                </span>`;
+              }).join('')}
             </div>
           </div>
-          <div style="text-align:right">
-            <div style="font-size:16px;font-weight:500;color:var(--red)">${fmt(total)}</div>
-            <div style="font-size:11px;color:var(--text2)">${unpaid.length} mois impayé(s)</div>
+          <div style="text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+            <div style="font-size:16px;font-weight:600;color:var(--red)">${fmt(total)}</div>
+            <div style="font-size:11px;color:var(--text2)">${items.length} mois impayé(s)</div>
+            ${canEdit()?`<button class="btn btn-sm" style="background:var(--green);color:#fff;border-color:var(--green)" data-remb-dette="${t.id}">↩ Rembourser</button>`:''}
           </div>
         </div>`).join('')}
     </div>`;
@@ -5241,6 +5257,30 @@ function renderModal(){
     ${mf}`;
   }
 
+  if(m.type==='remb-dette'){
+    const t=m.tenant||{};
+    const fmt2=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(n||0);
+    const {detteFinale}=calcDetteLigne(t,null,null,false);
+    html=`${mhd('↩ Remboursement dette — '+t.nom)}
+    <div style="background:var(--blue-bg);border-radius:var(--radius);padding:10px 12px;margin-bottom:14px;font-size:13px">
+      <b>${t.logement||''}</b><br>
+      Dette actuelle : <strong style="color:var(--red)">${fmt2(Math.max(0,detteFinale))}</strong>
+    </div>
+    <div class="form-group">
+      <label>Montant remboursé (€) *</label>
+      <input id="m-remb-montant" type="number" step="0.01" value="${Math.max(0,detteFinale)}" placeholder="0.00" autofocus>
+    </div>
+    <div class="form-group">
+      <label>Date de réception</label>
+      <input id="m-remb-date" type="date" value="${NOW}">
+    </div>
+    <div class="form-group">
+      <label>Commentaire (optionnel)</label>
+      <input id="m-remb-comment" placeholder="Ex: Virement reçu, chèque encaissé...">
+    </div>
+    ${mf}`;
+  }
+
   if(m.type==='saisie-loyer'){
     const t=m.tenant||{};
     const p=m.existing||{};
@@ -5900,10 +5940,57 @@ async function saveModal(){
     if(data)S.revenues=(S.revenues||[]).concat(data);
   }
 
-  
-
-
-
+  if(m.type==='remb-dette'){
+    const t=m.tenant;if(!t)return;
+    const montant=parseFloat(q('m-remb-montant')?.value)||0;
+    if(!montant)return alert('Montant requis');
+    const dateRemb=q('m-remb-date')?.value||NOW;
+    const comment=q('m-remb-comment')?.value?.trim()||'';
+    // On réduit le solde de départ (baseline dette au 1er janvier 2026) du montant remboursé :
+    // calcDetteLigne recalcule ensuite automatiquement le solde final à partir de cette baseline.
+    const nouvDette=Math.max(0,Math.round(((t.dette||0)-montant)*100)/100);
+    const {error}=await sb.from('tenants').update({dette:nouvDette}).eq('id',t.id);
+    if(error){alert('Erreur : '+error.message);return;}
+    t.dette=nouvDette;
+    const {detteFinale}=calcDetteLigne(t,null,null,false);
+    const detteRestante=Math.max(0,detteFinale);
+    const fmt2=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(n||0);
+    const isDubailR=dubailFilter(t.logement||'');
+    const sigNomR=isDubailR?'JOSSE Antoine':'Antoine JOSSE';
+    const sigQualR=isDubailR?'Gérant J&A SAVADUR':'Bailleur';
+    const fromNameR=isDubailR?'J&A SAVADUR':'Antoine JOSSE';
+    const fromEmailR=isDubailR?'savadur56@gmail.com':'antoinejosse56@gmail.com';
+    const recu='<!DOCTYPE html><html><head><meta charset="UTF-8"><style>body{font-family:Arial,sans-serif;max-width:640px;margin:40px auto;padding:30px;color:#222;font-size:14px}.box{border:2px solid #185FA5;padding:20px;text-align:center;margin:24px 0;border-radius:6px}.somme{font-size:26px;font-weight:bold;color:#185FA5;margin:8px 0}.mention{font-size:11px;color:#888;margin-top:24px;border-top:1px solid #ddd;padding-top:12px}.printbtn{background:#185FA5;color:#fff;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-weight:700;position:fixed;top:16px;right:16px}@media print{.printbtn{display:none}}</style></head><body>'
+      +'<button class="printbtn" onclick="window.print()">🖨 Imprimer</button>'
+      +'<div style="display:flex;justify-content:space-between;margin-bottom:24px">'
+        +'<div><strong>'+fromNameR+'</strong><br>Lorient</div>'
+        +'<div style="text-align:right"><strong>'+t.nom+'</strong><br>'+t.logement+'<br>Fait le : '+new Date(dateRemb).toLocaleDateString('fr-FR')+'</div>'
+      +'</div>'
+      +'<div style="text-align:center;font-size:18px;font-weight:bold;text-decoration:underline;margin:20px 0">REÇU DE REMBOURSEMENT DE DETTE</div>'
+      +'<div class="box"><div>Montant remboursé</div><div class="somme">'+fmt2(montant)+'</div><div>Le '+new Date(dateRemb).toLocaleDateString('fr-FR')+'</div>'
+        +(comment?'<div style="font-size:13px;color:#666;margin-top:8px;font-style:italic">'+comment+'</div>':'')
+      +'</div>'
+      +'<p>Nous accusons réception du remboursement de <strong>'+fmt2(montant)+'</strong> sur la dette locative de <strong>'+t.logement+'</strong>.</p>'
+      +(detteRestante>0?'<p style="color:#E24B4A"><strong>Solde restant dû : '+fmt2(detteRestante)+'</strong></p>':'<p style="color:#1D9E75"><strong>✓ Dette soldée intégralement.</strong></p>')
+      +'<div style="margin-top:50px;text-align:right"><div>'+sigQualR+'</div><div style="font-size:11px;color:#888;margin-top:4px">Signature électronique automatique</div><div style="font-weight:bold;margin-top:40px;border-top:1px solid #222;padding-top:6px;display:inline-block;min-width:180px">'+sigNomR+'</div></div>'
+      +'<p class="mention">Ce document atteste du remboursement partiel ou total de la dette locative.</p>'
+      +'</body></html>';
+    if(t.email&&BREVO_API_KEY){
+      try{
+        await fetch('https://api.brevo.com/v3/smtp/email',{method:'POST',
+          headers:{'api-key':BREVO_API_KEY,'Content-Type':'application/json'},
+          body:JSON.stringify({sender:{name:fromNameR,email:fromEmailR},to:[{email:t.email,name:t.nom}],
+            subject:'Reçu remboursement dette — '+t.logement+' — '+new Date(dateRemb).toLocaleDateString('fr-FR'),
+            htmlContent:recu})});
+      }catch(e){console.warn('Email remb failed:',e);}
+    }
+    const blob=new Blob([recu],{type:'text/html;charset=utf-8'});
+    const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.target='_blank';
+    document.body.appendChild(a);a.click();document.body.removeChild(a);
+    closeModal();render();
+    alert('✓ Remboursement enregistré !\nDette restante : '+fmt2(detteRestante));
+    return;
+  }
   if(m.type==='saisie-loyer'){
     const t=m.tenant||{};
     const MOIS=['Janvier','F\xe9vrier','Mars','Avril','Mai','Juin','Juillet','Ao\xfbt','Septembre','Octobre','Novembre','D\xe9cembre'];
@@ -5941,21 +6028,37 @@ async function saveModal(){
       if(error){alert('Erreur : '+error.message);return;}
       if(data){S.rentPayments.push(data);payment=data;}
     }
-    // Update tenant dette field
-    if(!paye&&solde>0){await sb.from('tenants').update({dette:solde}).eq('id',t.id);if(t)t.dette=solde;}
-    else if(paye){await sb.from('tenants').update({dette:0}).eq('id',t.id);if(t)t.dette=0;}
+    // NE PAS écraser t.dette automatiquement — c'est le solde initial saisi manuellement
+    // (baseline au 1er janvier 2026 / date d'entrée). calcDetteLigne gère le cumul
+    // automatiquement à partir de cette baseline + des paiements enregistrés chaque mois.
     const hasPayment=totalPaye>0;
+    const fmtM=new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'});
+    const partialComment=!paye?('[Règlement partiel — Solde restant : '
+      +fmtM.format(solde)
+      +']'+(commentaire?' '+commentaire:'')):commentaire;
     if(t.email&&payment&&hasPayment){
-      // Always generate document if something was paid (full or partial)
-      const partialComment=!paye?('[Règlement partiel — Solde restant : '
-        +new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(solde)
-        +']'+(commentaire?' '+commentaire:'')):commentaire;
       try{
         await autoSendQuittance(t,payment,m.mois,m.annee,partialComment,!paye);
         alert('✓ Enregistré ! Document ouvert.');
-      }catch(e){alert('✓ Enregistré : '+e.message);}
+      }catch(e){alert('✓ Enregistré\n⚠ Email non envoyé : '+e.message);}
+    } else if(payment){
+      // Aucun email ou aucun montant reçu ce mois-ci : on génère quand même le document
+      // (appel de loyer / situation avec impayés) pour impression, comme avant.
+      try{
+        const totalRecu=parseFloat((payment.locataire_part||0)+(payment.caf||0));
+        const datePaie=payment.date_loc?new Date(payment.date_loc).toLocaleDateString('fr-FR'):new Date().toLocaleDateString('fr-FR');
+        const moisNumDoc=String(moisNum).padStart(2,'0');
+        const invNum=m.annee+'-'+moisNumDoc+'-'+(t.logement||'').replace(/[^A-Z0-9]/gi,'').toUpperCase().slice(0,6);
+        const fmtDoc=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR',minimumFractionDigits:2}).format(n||0);
+        const docHtml=isComm
+          ?buildFactureHtml(t,payment,m.mois,m.annee,loyerRef,chargesRef,totalRecu||loyerRef,datePaie,invNum,fmtDoc,partialComment,false)
+          :buildQuittanceHtml(t,payment,m.mois,m.annee,loyerRef,chargesRef,totalRecu||loyerRef,datePaie,fmtDoc,partialComment,false);
+        const blob=new Blob([docHtml],{type:'text/html;charset=utf-8'});
+        const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.target='_blank';a.rel='noopener';
+        document.body.appendChild(a);a.click();document.body.removeChild(a);
+        alert('✓ Enregistré !'+(solde>0?'\nSolde restant : '+fmtM.format(solde):'')+(!t.email?'\n⚠ Aucun email — document ouvert pour impression.':''));
+      }catch(e){alert('✓ Enregistré'+(solde>0?' - Solde restant : '+fmtM.format(solde):'')+'\n⚠ Document non généré : '+e.message);}
     } else {
-      const fmtM=new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'});
       alert(solde>0?'✓ Enregistré - Solde restant : '+fmtM.format(solde):'✓ Enregistré !');
     }
   }
@@ -6949,6 +7052,119 @@ function bindAll(){
     S.modal={type:'saisie-loyer',tenantId:tId,mois,annee,existing,tenant};render();
   });
   document.querySelectorAll('[data-loc-annee]').forEach(el=>el.onclick=()=>{S.locAnnee=parseInt(el.dataset.locAnnee);render();});
+
+  // ====== Onglet Dettes : remboursement, quittances manquantes ======
+  document.querySelectorAll('[data-remb-dette]').forEach(el=>el.onclick=()=>{
+    const tenant=S.tenants.find(t=>t.id===el.dataset.rembDette);
+    if(!tenant)return;
+    S.modal={type:'remb-dette',tenant};render();
+  });
+
+  // Générer tous les paiements/quittances manquants (0€) pour tous les locataires actifs
+  async function genererQuittancesManquantes(envoyerEmails){
+    const MOIS_LIST=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+    const now=new Date();
+    const nowY=now.getFullYear(),nowM=now.getMonth();
+    const DETTE_DEPUIS=new Date(2026,0,1);
+    const tenantsConcernes=S.tenants.filter(t=>t.actif!==false);
+    let nbCrees=0,nbEnvoyes=0,erreurs=[];
+    for(const t of tenantsConcernes){
+      const isComm=t.type_bail==='commercial';
+      const loyerHT=parseFloat(t.loyer_ref||0);
+      const chargesHT=parseFloat(t.charges||0);
+      const loyerTTC=isComm?Math.round((loyerHT+chargesHT)*1.2*100)/100:Math.round((loyerHT+chargesHT)*100)/100;
+      if(!loyerTTC)continue;
+      const entree=t.date_entree?new Date(t.date_entree):null;
+      const debut=entree&&entree>DETTE_DEPUIS?entree:DETTE_DEPUIS;
+      let y=debut.getFullYear(),m=debut.getMonth();
+      while(y<nowY||(y===nowY&&m<=nowM)){
+        const moisNom=MOIS_LIST[m];
+        const moisNum=m+1;
+        const existing=S.rentPayments.find(p=>p.tenant_id===t.id&&p.annee===y&&p.mois===moisNom);
+        if(!existing){
+          try{
+            const rec={tenant_id:t.id,mois:moisNom,annee:y,mois_num:moisNum,loyer:loyerTTC,locataire_part:0,caf:0,paye:false,commentaire:'Loyer non perçu'};
+            const {data,error}=await sb.from('rent_payments').insert(rec).select().single();
+            if(error){erreurs.push(`${t.nom} ${moisNom} ${y}: ${error.message}`);}
+            else{S.rentPayments.push(data);nbCrees++;
+              if(envoyerEmails&&t.email){
+                try{await autoSendQuittance(t,data,moisNom,y,'Loyer non perçu — dette reportée',true);nbEnvoyes++;}
+                catch(e){erreurs.push(`Email ${t.nom} ${moisNom}: ${e.message}`);}
+              }
+            }
+          }catch(e){erreurs.push(`${t.nom} ${moisNom} ${y}: ${e.message}`);}
+        }
+        m++;if(m>11){m=0;y++;}
+      }
+    }
+    render();
+    let msg=`✓ ${nbCrees} quittance(s) créée(s)`;
+    if(envoyerEmails)msg+=`, ${nbEnvoyes} email(s) envoyé(s)`;
+    if(erreurs.length)msg+=`\n⚠ ${erreurs.length} erreur(s):\n`+erreurs.slice(0,5).join('\n');
+    if(nbCrees>0||erreurs.length)alert(msg);
+    return nbCrees;
+  }
+
+  const btnGenQtt=document.getElementById('btn-gen-qtt-manquantes');
+  if(btnGenQtt)btnGenQtt.onclick=async()=>{
+    btnGenQtt.disabled=true;btnGenQtt.textContent='⏳ Génération...';
+    await genererQuittancesManquantes(false);
+    btnGenQtt.disabled=false;btnGenQtt.textContent='📄 Générer quittances manquantes';
+  };
+
+  document.querySelectorAll('[data-qtt-send]').forEach(el=>el.onclick=async(e)=>{
+    e.stopPropagation();
+    const payment=S.rentPayments.find(p=>p.id===el.dataset.qttSend);
+    if(!payment)return;
+    const tenant=S.tenants.find(t=>t.id===payment.tenant_id);
+    if(!tenant)return;
+    if(!tenant.email){alert('Pas d\'email pour ce locataire.');return;}
+    try{
+      await autoSendQuittance(tenant,payment,payment.mois,payment.annee,'Loyer non perçu — dette reportée',true);
+      await sb.from('rent_payments').update({quittance_envoyee:true}).eq('id',payment.id);
+      payment.quittance_envoyee=true;
+      render();
+    }catch(e){alert('Erreur envoi : '+e.message);}
+  });
+
+  document.querySelectorAll('[data-qtt-zero]').forEach(el=>el.onclick=async(e)=>{
+    e.stopPropagation();
+    const tenant=S.tenants.find(t=>t.id===el.dataset.qttZero);
+    if(!tenant)return;
+    const mois=el.dataset.qttMois;
+    const annee=parseInt(el.dataset.qttAnnee);
+    const isComm=tenant.type_bail==='commercial';
+    const loyerHT=parseFloat(tenant.loyer_ref||0);
+    const chargesHT=parseFloat(tenant.charges||0);
+    const loyerTTC=isComm?Math.round((loyerHT+chargesHT)*1.2*100)/100:Math.round((loyerHT+chargesHT)*100)/100;
+    const MOIS_LIST=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+    const moisNum=MOIS_LIST.indexOf(mois)+1;
+    const existing=S.rentPayments.find(p=>p.tenant_id===tenant.id&&p.annee===annee&&p.mois===mois);
+    let payment;
+    if(!existing){
+      const rec={tenant_id:tenant.id,mois,annee,mois_num:moisNum,loyer:loyerTTC,locataire_part:0,caf:0,paye:false,commentaire:'Loyer non perçu — dette reportée'};
+      const {data,error}=await sb.from('rent_payments').insert(rec).select().single();
+      if(error){alert('Erreur création paiement : '+error.message);return;}
+      S.rentPayments.push(data);
+      payment=data;
+    } else {
+      payment=existing;
+    }
+    if(tenant.email){
+      try{
+        await autoSendQuittance(tenant,payment,mois,annee,'Loyer non perçu — dette reportée au mois suivant',true);
+        await sb.from('rent_payments').update({quittance_envoyee:true}).eq('id',payment.id);
+        payment.quittance_envoyee=true;
+      }catch(e){
+        genQuittancePDF(tenant,payment,mois,annee);
+        alert('✓ Paiement créé\n⚠ Email non envoyé : '+e.message);
+      }
+    } else {
+      genQuittancePDF(tenant,payment,mois,annee);
+      alert('✓ Paiement 0€ créé — pas d\'email. Document ouvert.');
+    }
+    render();
+  });
 
   const btnAddTenant=q('btn-add-tenant');
   if(btnAddTenant)btnAddTenant.onclick=()=>{S.modal={type:'add-tenant'};render();setTimeout(()=>{updateTenantZonesFull('','');},200);};
@@ -8709,122 +8925,207 @@ async function sendAccuseEau(releve,cpt,tenant,montant){
   return true;
 }
 
-function buildQuittanceHtml(tenant,payment,mois,annee,loyer,charges,total,datePaiement,fmt,commentaire='',showPrintBar=true){
-  const isDubail = dubailFilter(tenant.logement||'');
-  const bailNom   = isDubail ? 'J&A SAVADUR'               : 'Antoine JOSSE';
-  const bailAddr  = isDubail ? '26 RUE G\u00c9N\u00c9RAL DUBAIL' : '5 RUE DE CALVIN';
-  const bailCP    = '56100 LORIENT';
-  const bailEmail = isDubail ? 'savadur56@gmail.com'        : 'antoinejosse56@gmail.com';
-  const bailTel   = isDubail ? '06.30.37.06.88'             : '';
-  const caf=parseFloat(payment.caf||0);
-  const locPart=parseFloat(payment.locataire_part||0);
-  const dateLoc=payment.date_loc?new Date(payment.date_loc).toLocaleDateString('fr-FR'):datePaiement;
+// ============================================================
+// Calcul de la situation locative mois par mois
+// Retourne un tableau de lignes avec : mois, annee, attendu, recu, solde (peut être négatif = crédit)
+// Seuls les mois à solde non nul sont retournés (ou tous si includeAll=true)
+function calcDetteLigne(tenant, moisCourant, anneeCourante, includeAll){
+  const MOIS_LIST=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+  const isComm=tenant.type_bail==='commercial';
+  const loyerHT=parseFloat(tenant.loyer_ref||0);
+  const chargesHT=parseFloat(tenant.charges||0);
+  const loyerMensuel=isComm
+    ?Math.round((loyerHT*1.2+chargesHT*1.2)*100)/100
+    :Math.round((loyerHT+chargesHT)*100)/100;
+  if(!loyerMensuel||typeof S==='undefined')return{lignes:[],detteFinale:0};
+
+  const DETTE_DEPUIS=new Date(2026,0,1);
+  const entree=tenant.date_entree?new Date(tenant.date_entree):null;
+  const debut=entree&&entree>DETTE_DEPUIS?entree:DETTE_DEPUIS;
+
+  // Solde au 1er janvier 2026 (ou date d'entrée si après) saisi manuellement
+  let solde=Math.round((parseFloat(tenant.dette||0))*100)/100;
+  const lignes=[];
+
+  let y=debut.getFullYear(),m=debut.getMonth();
+  // On s'arrête au mois courant INCLUS (ou mois précédent si moisCourant défini)
+  const moisCourantNum=moisCourant?MOIS_LIST.indexOf(moisCourant):-1;
+  const stopY=anneeCourante||new Date().getFullYear();
+  const stopM=moisCourantNum>=0?moisCourantNum:(new Date().getMonth());
+
+  while(y<stopY||(y===stopY&&m<=stopM)){
+    const moisNom=MOIS_LIST[m];
+    const moisNum=m+1;
+    // Exclure le mois du document courant (sera traité séparément)
+    if(moisCourant&&moisNom===moisCourant&&y===anneeCourante){m++;if(m>11){m=0;y++;}continue;}
+    const p=S.rentPayments.find(x=>x.tenant_id===tenant.id&&x.annee===y&&x.mois===moisNom);
+    const recu=p?Math.round(((p.locataire_part||0)+(p.caf||0))*100)/100:0;
+    const remise=p?Math.round((p.remise||0)*100)/100:0;
+    // Loyer attendu ce mois = loyer mensuel référence - remise éventuelle
+    const attenduCeMois=Math.max(0,Math.round((loyerMensuel-remise)*100)/100);
+    const soldePrecedent=solde;
+    solde=Math.round((solde+attenduCeMois-recu)*100)/100;
+    if(includeAll||Math.abs(solde)>0.01){
+      lignes.push({
+        mois:moisNom,annee:y,mois_num:moisNum,
+        attendu:attenduCeMois,recu,remise,remise_motif:p?.remise_motif||'',
+        soldePrecedent:Math.round(soldePrecedent*100)/100,
+        solde:Math.round(solde*100)/100,
+        saisi:!!p,
+        estCredit:solde<-0.01,
+        estSolde:Math.abs(solde)<0.01
+      });
+    }
+    m++;if(m>11){m=0;y++;}
+  }
+  return{lignes,detteFinale:Math.round(solde*100)/100};
+}
+
+function buildDocumentLoyer(tenant,payment,mois,annee,loyer,charges,total,datePaiement,fmt,commentaire,showPrintBar){
+  const isDubail=dubailFilter(tenant.logement||'');
+  const isComm=tenant.type_bail==='commercial';
+  const tvaTaux=isComm?0.20:0;
+  const bailNom=isDubail?'J&A SAVADUR':'Antoine JOSSE';
+  const bailAddr=isDubail?'26 RUE GÉNÉRAL DUBAIL':'5 RUE DE CALVIN';
+  const bailCP='56100 LORIENT';
+  const bailEmail=isDubail?'savadur56@gmail.com':'antoinejosse56@gmail.com';
+  const bailTel=isDubail?'06.30.37.06.88':'';
+  const sigNom=isDubail?'JOSSE Antoine':'Antoine JOSSE';
+  const sigQualite=isDubail?'GÉRANT J&A SAVADUR':'Bailleur';
+  const adresseLogement=isDubail?'26 RUE GÉNÉRAL DUBAIL, 56100 LORIENT':(bailAddr+', '+bailCP);
   const loyerRef=parseFloat(tenant.loyer_ref||0);
   const chargesRef=parseFloat(tenant.charges||0);
-  const css=`
-    @media print{.print-bar{display:none!important}body{margin:0;padding:20px}}
-    .print-bar{background:#1D9E75;color:#fff;padding:10px 20px;display:flex;align-items:center;justify-content:space-between;font-family:Arial,sans-serif;font-size:13px}
-    .print-bar strong{font-size:14px}.print-bar .hint{font-size:11px;opacity:.85}
-    .print-btn{background:#fff;color:#1D9E75;border:none;padding:7px 18px;border-radius:6px;font-weight:700;font-size:13px;cursor:pointer}
-    body{font-family:Arial,sans-serif;max-width:680px;margin:0 auto;padding:0 30px 30px;color:#222;font-size:14px}
-    .header{display:flex;justify-content:space-between;margin-bottom:30px;padding-bottom:20px;border-top:40px solid #fff;border-bottom:2px solid #222}
-    .title{text-align:center;font-size:20px;font-weight:bold;margin:20px 0;text-transform:uppercase;letter-spacing:1px}
-    .subtitle{text-align:center;font-size:14px;margin-bottom:24px;color:#444}
-    .montant-box{border:2px solid #222;padding:20px;text-align:center;margin:24px 0;border-radius:4px}
-    .montant-box .somme{font-size:26px;font-weight:bold;margin:8px 0}
-    table{width:100%;border-collapse:collapse;margin:20px 0;font-size:13px}
-    td{padding:6px 0;vertical-align:top}
-    .mention{font-size:11px;color:#888;margin-top:24px;padding-top:12px;border-top:1px solid #ddd;line-height:1.6}
-    .sig-block{margin-top:40px;display:flex;justify-content:space-between;align-items:flex-end}
-    .sig-right{text-align:right;font-size:13px}
-    .sig-right .name{font-weight:bold;margin-top:50px;border-top:1px solid #222;padding-top:6px}`;
-  const printBar='<div style=\'position:sticky;top:0;z-index:999;background:#1D9E75;color:#fff;display:flex;align-items:center;justify-content:space-between;padding:10px 20px;margin-bottom:16px;font-family:Arial,sans-serif\'>'
-    +'<div><strong style=\'color:#fff;font-size:14px\'>📄 Quittance de loyer</strong><div style=\'font-size:11px;opacity:.8\'>Pour imprimer : utilisez Ctrl+P ou cliquez le bouton</div></div>'
-    +'<button onclick=\'window.print()\' style=\'background:#fff;color:#1D9E75;border:none;padding:8px 20px;border-radius:6px;font-weight:700;font-size:13px;cursor:pointer\'>🖨 Imprimer</button>'
+  const caf=parseFloat(payment.caf||0);
+  const locPart=parseFloat(payment.locataire_part||0);
+  const recu=Math.round((locPart+caf)*100)/100;
+  const remisePaiement=Math.round((payment.remise||0)*100)/100;
+  // Utiliser calcDetteLigne pour obtenir la dette en entrée du mois courant
+  // puis calculer le solde du mois = dette_entree + loyer_attendu - remise - recu
+  const loyerMensuelRef=isComm
+    ?Math.round((loyerRef+chargesRef)*1.2*100)/100
+    :Math.round((loyerRef+chargesRef)*100)/100;
+  const attenduCeMois=Math.max(0,Math.round((loyerMensuelRef-remisePaiement)*100)/100);
+  const detteEntreeMois=(()=>{
+    try{
+      if(typeof S==='undefined'||!S.rentPayments)return Math.max(0,parseFloat(tenant.dette||0));
+      const {detteFinale}=calcDetteLigne(tenant,mois,parseInt(annee),false);
+      return detteFinale;
+    }catch(e){return Math.max(0,parseFloat(tenant.dette||0));}
+  })();
+  const soldeMois=Math.max(0,Math.round((detteEntreeMois+attenduCeMois-recu)*100)/100);
+  const dateLoc=payment.date_loc?new Date(payment.date_loc).toLocaleDateString('fr-FR'):datePaiement;
+  const moisNum=String(['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'].indexOf(mois)+1).padStart(2,'0');
+  const invoiceNum=annee+'-'+moisNum+'-'+(tenant.logement||'').replace(/[^A-Z0-9]/gi,'').toUpperCase().slice(0,6);
+  // Lignes HT/TVA
+  const loyerHT=loyerRef;
+  const loyerTVA=Math.round(loyerHT*tvaTaux*100)/100;
+  const loyerTTC=loyerHT+loyerTVA;
+  const chargesHT=chargesRef;
+  const chargesTVA=Math.round(chargesHT*tvaTaux*100)/100;
+  const chargesTTC=chargesHT+chargesTVA;
+  const totalTTC=loyerTTC+chargesTTC; // total brut avant remise
+  const totalAppele=attenduCeMois; // total net après remise = ce que le locataire doit ce mois
+  const isPartialDoc=recu>0&&recu<totalAppele;
+  const docTitle=isPartialDoc?'Reçu de paiement':(recu===0?'Appel de loyer':'Quittance de loyer');
+  // Détail dette mois précédents
+  const detteBlock=(()=>{try{
+    if(payment._skipDette||typeof S==='undefined'||!S.rentPayments)return'';
+    // calcDetteLigne exclut le mois courant → detteFinale = solde début du mois courant
+    const {lignes,detteFinale}=calcDetteLigne(tenant,mois,parseInt(annee),false);
+    const recuCourant=Math.round((locPart+caf)*100)/100;
+    const remiseCourante=Math.round((payment.remise||0)*100)/100;
+    const attenduCourant=Math.max(0,Math.round((totalTTC-remiseCourante)*100)/100);
+    // solde fin mois courant = dette début mois + loyer attendu - reçu
+    const soldeCourant=Math.round((detteFinale+attenduCourant-recuCourant)*100)/100;
+    // Construire toutes les lignes à afficher (mois précédents + mois courant)
+    const toutesLignes=[...lignes];
+    // Ajouter le mois courant seulement s'il a un solde non nul
+    if(Math.abs(soldeCourant)>0.01||recuCourant>0||attenduCourant>0){
+      toutesLignes.push({
+        mois,annee:parseInt(annee),attendu:attenduCourant,recu:recuCourant,
+        solde:soldeCourant,estCredit:soldeCourant<-0.01,estSolde:Math.abs(soldeCourant)<0.01,enCours:true
+      });
+    }
+    if(toutesLignes.length===0||soldeCourant<=0.01)return'';
+    return '<div style="border:2px solid #E24B4A;border-radius:6px;padding:14px 16px;margin:16px 0;background:#FFF5F5">'
+      +'<div style="font-size:14px;font-weight:700;color:#E24B4A;margin-bottom:10px">&#9888; Situation locative depuis le 1er janvier 2026</div>'
+      +'<table style="width:100%;border-collapse:collapse;font-size:12px;margin:0">'
+      +'<thead><tr style="background:#FCEBEB">'
+        +'<th style="padding:6px 8px;text-align:left;border:1px solid #ddd">Mois</th>'
+        +'<th style="padding:6px 8px;text-align:right;border:1px solid #ddd">Attendu</th>'
+        +'<th style="padding:6px 8px;text-align:right;border:1px solid #ddd">Re&#231;u</th>'
+        +'<th style="padding:6px 8px;text-align:right;border:1px solid #ddd">Solde</th>'
+      +'</tr></thead><tbody>'
+      +toutesLignes.map(function(l){
+        const sColor=l.estCredit?'#1D9E75':l.estSolde?'#888':'#E24B4A';
+        const sLabel=(l.estCredit?'Crédit : -':'')+fmt(Math.abs(l.solde));
+        return '<tr style="'+(l.enCours?'background:#FFF8E6':'')+(l.estCredit?'background:#F0FFF4':'')+'">'
+          +'<td style="padding:5px 8px;border:1px solid #ddd">'+l.mois+' '+l.annee+(l.enCours?' <span style="font-size:10px;color:#888">(en cours)</span>':'')+'</td>'
+          +'<td style="padding:5px 8px;text-align:right;border:1px solid #ddd">'+fmt(l.attendu)+'</td>'
+          +'<td style="padding:5px 8px;text-align:right;border:1px solid #ddd;color:#1D9E75">'+fmt(l.recu)+'</td>'
+          +'<td style="padding:5px 8px;text-align:right;border:1px solid #ddd;font-weight:600;color:'+sColor+'">'+sLabel+'</td>'
+        +'</tr>';
+      }).join('')
+      +'<tr style="background:#FCEBEB;font-weight:700">'
+        +'<td style="padding:6px 8px;border:1px solid #ddd" colspan="3">SOLDE TOTAL</td>'
+        +'<td style="padding:6px 8px;text-align:right;border:1px solid #ddd;color:#E24B4A;font-size:14px">'+fmt(Math.max(0,soldeCourant))+'</td>'
+      +'</tr>'
+      +'</tbody></table>'
+      +'<div style="font-size:11px;color:#888;margin-top:8px">Merci de r&#233;gulariser cette situation dans les meilleurs d&#233;lais.</div>'
+      +'</div>';
+  }catch(e){console.error('detteBlock:',e);return'';}})();
+  const css='@media print{.pb{display:none!important}body{margin:0;padding:20px}}'
+    +'body{font-family:Arial,sans-serif;max-width:700px;margin:0 auto;padding:0 30px 30px;color:#222;font-size:14px}'
+    +'.hdr{display:flex;justify-content:space-between;margin-bottom:24px;padding:20px 0;border-bottom:2px solid #222}'
+    +'.title{text-align:center;font-size:20px;font-weight:bold;margin:16px 0;text-transform:uppercase;letter-spacing:1px}'
+    +'.sub{text-align:center;font-size:13px;margin-bottom:20px;color:#555}'
+    +'.box{border:2px solid #222;padding:16px 20px;text-align:center;margin:20px 0;border-radius:4px}'
+    +'.somme{font-size:28px;font-weight:bold;margin:8px 0}'
+    +'table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13px}'
+    +'th{background:#222;color:#fff;padding:8px 10px;text-align:left;-webkit-print-color-adjust:exact;print-color-adjust:exact}'
+    +'td{padding:7px 10px;border:1px solid #ddd}'
+    +'.tr{font-weight:700;background:#f0f0f0;border-top:2px solid #222}'
+    +'.sig{margin-top:50px;display:flex;justify-content:space-between;align-items:flex-end}'
+    +'.mention{font-size:10px;color:#aaa;margin-top:20px;padding-top:10px;border-top:1px solid #eee}';
+  const pb='<div class="pb" style="position:sticky;top:0;background:#1D9E75;color:#fff;display:flex;align-items:center;justify-content:space-between;padding:10px 20px;margin-bottom:16px">'
+    +'<div><strong>&#128196; '+docTitle+'</strong><div style="font-size:11px;opacity:.8">Ctrl+P pour imprimer / sauvegarder en PDF</div></div>'
+    +'<button onclick="window.print()" style="background:#fff;color:#1D9E75;border:none;padding:8px 18px;border-radius:6px;font-weight:700;cursor:pointer">&#128424; Imprimer</button>'
+    +'</div>';
+  return '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>'+css+'</style></head><body>'+(showPrintBar?pb:'')
+    +'<div class="hdr">'
+      +'<div><strong>'+bailNom+'</strong><br>'+bailAddr+'<br>'+bailCP+'<br>'+bailEmail+(bailTel?'<br>'+bailTel:'')+'</div>'
+      +'<div style="text-align:right"><strong>'+tenant.nom+'</strong><br>'+tenant.logement+'<br>'+adresseLogement+'</div>'
     +'</div>'
-    +'<script>try{setTimeout(function(){window.print();},800);}catch(e){}<\/script>';
-  return '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>'+css+'</style></head><body>'+(showPrintBar?printBar:'')
-    +'<div class="header">'
-    +'<div><strong>LE BAILLEUR</strong><br>'+bailNom+'<br>'+bailAddr+'<br>'+bailCP+'<br>'+bailEmail+(bailTel?'<br>'+bailTel:'')+'</div>'
-    +'<div style="text-align:right"><strong>LE LOCATAIRE</strong><br>'+tenant.nom+'<br>'+tenant.logement+'<br>26 Rue Général Dubail<br>56100 LORIENT</div>'
+    +'<div class="title">'+docTitle+'</div>'
+    +'<div class="sub">'+mois+' '+annee+(isComm?' — N° '+invoiceNum:'')+'</div>'
+    +(recu>0?'<div class="box"><div>REÇU LA SOMME DE</div><div class="somme">'+fmt(recu)+'</div><div>LE '+dateLoc+'</div>'
+      +(caf>0?'<div style="font-size:12px;color:#555;margin-top:6px">dont CAF : '+fmt(caf)+' — locataire : '+fmt(locPart)+'</div>':'')
+      +(commentaire?'<div style="font-size:11px;color:#666;margin-top:6px;font-style:italic">'+commentaire+'</div>':'')
+    +'</div>':'')
+    +'<div style="font-size:13px;margin:16px 0"><strong>POUR LOYER DU LOGEMENT :</strong><br>'+tenant.logement+'<br>'+adresseLogement+'</div>'
+    +'<table><thead><tr><th>Description</th>'+(isComm?'<th style="text-align:right">HT</th><th style="text-align:right">TVA '+Math.round(tvaTaux*100)+'%</th>':'')+'<th style="text-align:right">TTC</th></tr></thead><tbody>'
+    +'<tr><td>Loyer mensuel</td>'+(isComm?'<td style="text-align:right">'+fmt(loyerHT)+'</td><td style="text-align:right;color:#E65C00">'+fmt(loyerTVA)+'</td>':'')+'<td style="text-align:right">'+fmt(loyerTTC)+'</td></tr>'
+    +(chargesRef>0?'<tr><td>Provisions sur charges</td>'+(isComm?'<td style="text-align:right">'+fmt(chargesHT)+'</td><td style="text-align:right;color:#E65C00">'+fmt(chargesTVA)+'</td>':'')+'<td style="text-align:right">'+fmt(chargesTTC)+'</td></tr>':'')
+    +((payment.remise&&payment.remise>0)?'<tr style="background:#F0FFF4"><td style="color:#1D9E75">Remise'+(payment.remise_motif?' — '+payment.remise_motif:'')+'</td>'+(isComm?'<td></td><td></td>':'')+'<td style="text-align:right;color:#1D9E75">- '+fmt(payment.remise)+'</td></tr>':'')
+    +'<tr class="tr"><td colspan="'+(isComm?'3':'1')+'">TOTAL TTC APPELÉ</td><td style="text-align:right">'+fmt(totalAppele)+'</td></tr>'
+    +'<tr style="background:#E8F5E9"><td colspan="'+(isComm?'3':'1')+'"><strong>MONTANT REÇU</strong></td><td style="text-align:right;font-weight:700;color:'+(recu>0?'#1D9E75':'#888')+'">'+fmt(recu)+'</td></tr>'
+    +(soldeMois>0.01?'<tr style="background:#FFEBEE"><td colspan="'+(isComm?'3':'1')+'"><strong>SOLDE RESTANT DÛ (ce mois)</strong></td><td style="text-align:right;font-weight:700;color:#E24B4A">'+fmt(soldeMois)+'</td></tr>':'')
+    +'</tbody></table>'
+    +detteBlock
+    +'<div class="sig">'
+      +'<div style="font-size:12px">Fait à Lorient, le '+new Date().toLocaleDateString('fr-FR')+'</div>'
+      +'<div style="text-align:right;font-size:13px"><div>'+sigQualite+'</div><div style="font-size:11px;color:#888;margin:4px 0">Signature électronique automatique</div><div style="font-weight:bold;margin-top:40px;border-top:1px solid #222;padding-top:6px;min-width:200px">'+sigNom+'</div></div>'
     +'</div>'
-    +'<div class="title">Quittance de loyer</div>'
-    +'<div class="subtitle">LOYER '+mois.toUpperCase()+' '+annee+'</div>'
-    +'<div class="montant-box">'
-    +'<div>REÇU LA SOMME DE</div>'
-    +'<div class="somme">'+fmt(total||loyerRef+chargesRef)+'</div>'
-    +'<div>LE '+dateLoc+'</div>'
-    +(caf>0?'<div style="font-size:13px;color:#555;margin-top:8px">dont part CAF : '+fmt(caf)+' — part locataire : '+fmt(locPart)+'</div>':'')
-    +(commentaire?'<div style="font-size:12px;color:#666;margin-top:8px;font-style:italic">'+commentaire+'</div>':'')
-    +'</div>'
-    +'<div style="font-size:13px;margin:20px 0;line-height:1.7"><strong>POUR LOYER DU LOGEMENT SITUÉ :</strong><br>'
-    +tenant.logement+'<br>26 RUE GÉNÉRAL DUBAIL<br>56100 LORIENT</div>'
-    +(chargesRef>0?'<table><tr><td>Loyer nu :</td><td>'+fmt(loyerRef)+'</td></tr><tr><td>Charges :</td><td>'+fmt(chargesRef)+'</td></tr>'
-    +(payment.note_quittance?'<tr><td>'+payment.note_quittance+' :</td><td>'+fmt(payment.ajustement||0)+'</td></tr>':'')
-    +'<tr><td><strong>Total :</strong></td><td><strong>'+fmt(loyerRef+chargesRef+(payment.ajustement||0))+'</strong></td></tr></table>':
-    '<table>'
-    +'<tr><td>Loyer :</td><td>'+fmt(loyerRef)+'</td></tr>'
-    +(payment.note_quittance?'<tr><td>'+payment.note_quittance+' :</td><td>'+fmt(payment.ajustement||0)+'</td></tr>':'')
-    +(payment.note_quittance?'<tr><td><strong>Total :</strong></td><td><strong>'+fmt(loyerRef+(payment.ajustement||0))+'</strong></td></tr>':'')
-    +'</table>')
-    +(tenant.dette>0?'<div style="background:#FFF3CD;border:1.5px solid #F0AD4E;border-radius:6px;padding:10px 14px;margin:12px 0;font-size:13px">'+'<strong>&#9888; Votre dette à ce jour s\'elève à : '+fmt(tenant.dette)+'</strong>'+'<br><span style="font-size:11px;color:#555">Ce montant sera inclus dans votre prochain appel de loyer.</span>'+'</div>':'')
-    +'<div class="sig-block">'
-    +'<div style="font-size:13px">Fait à Lorient, le '+new Date().toLocaleDateString('fr-FR')+'</div>'
-    +'<div class="sig-right"><div>GÉRANT J&A SAVADUR</div><div class="name">JOSSE Antoine</div></div>'
-    +'</div>'
-    +'<p class="mention">Cette quittance annule tous reçus antérieurs pour les mêmes objets. Elle ne vaut qu\'après encaissement en cas de paiement par chèque.</p>'
+    +'<p class="mention">'+(isComm?'TVA '+Math.round(tvaTaux*100)+'% applicable. Facture établie par '+bailNom+'. Conserver pour votre comptabilité.':'Ce document atteste du règlement du loyer pour la période indiquée. Ne vaut qu\'après encaissement effectif.')+'</p>'
     +'</body></html>';
 }
 
+// Aliases pour compatibilité avec les appels existants (facture commerciale = même document, TVA incluse si bail commercial)
+function buildQuittanceHtml(tenant,payment,mois,annee,loyer,charges,total,datePaiement,fmt,commentaire='',showPrintBar=true){
+  return buildDocumentLoyer(tenant,payment,mois,annee,loyer,charges,total,datePaiement,fmt,commentaire,showPrintBar);
+}
 function buildFactureHtml(tenant,payment,mois,annee,loyer,charges,total,datePaiement,invoiceNum,fmt,commentaire='',showPrintBar=true){
-  const loyerHT=parseFloat(tenant.loyer_ref||0);
-  const loyerTVA=Math.round(loyerHT*0.2*100)/100;
-  const loyerTTC=Math.round((loyerHT+loyerTVA)*100)/100;
-  const chargesHT=parseFloat(tenant.charges||0);
-  const chargesTVA=chargesHT>0?Math.round(chargesHT*0.2*100)/100:0;
-  const chargesTTC=Math.round((chargesHT+chargesTVA)*100)/100;
-  const totalHT=loyerHT+chargesHT;
-  const totalTVA=loyerTVA+chargesTVA;
-  const totalTTC=loyerTTC+chargesTTC;
-  const dateLoc=payment.date_loc?new Date(payment.date_loc).toLocaleDateString('fr-FR'):datePaiement;
-  const css=`
-    @media print{.print-bar{display:none!important}body{margin:0;padding:20px}}
-    .print-bar{background:#1565C0;color:#fff;padding:10px 20px;display:flex;align-items:center;justify-content:space-between;font-family:Arial,sans-serif;font-size:13px}
-    .print-bar strong{font-size:14px}.print-bar .hint{font-size:11px;opacity:.85}
-    .print-btn{background:#fff;color:#1565C0;border:none;padding:7px 18px;border-radius:6px;font-weight:700;font-size:13px;cursor:pointer}
-    body{font-family:Arial,sans-serif;max-width:680px;margin:0 auto;padding:0 30px 30px;color:#222;font-size:14px}
-    .header{display:flex;justify-content:space-between;margin-bottom:24px;padding-top:20px}
-    .title{text-align:center;font-size:20px;font-weight:bold;margin:20px 0;text-decoration:underline}
-    .subtitle{text-align:center;font-size:14px;font-weight:bold;margin-bottom:20px}
-    table{width:100%;border-collapse:collapse;margin:16px 0;font-size:13px}
-    th{background:#222;color:#fff;padding:8px 10px;text-align:center;font-weight:500;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-    td{padding:8px 10px;border:1px solid #ddd;text-align:center}
-    td:first-child{text-align:left}
-    .total-row td{font-weight:bold;font-size:15px;background:#f0f0f0;border-top:2px solid #222}
-    .sig-block{margin-top:40px;text-align:right;font-size:13px}`;
-  const printBar='<div style=\'position:sticky;top:0;z-index:999;background:#1D9E75;color:#fff;display:flex;align-items:center;justify-content:space-between;padding:10px 20px;margin-bottom:16px;font-family:Arial,sans-serif\'>'
-    +'<div><strong style=\'color:#fff;font-size:14px\'>📄 Facture de loyer</strong><div style=\'font-size:11px;opacity:.8\'>Pour imprimer : utilisez Ctrl+P ou cliquez le bouton</div></div>'
-    +'<button onclick=\'window.print()\' style=\'background:#fff;color:#1D9E75;border:none;padding:8px 20px;border-radius:6px;font-weight:700;font-size:13px;cursor:pointer\'>🖨 Imprimer</button>'
-    +'</div>'
-    +'<script>try{setTimeout(function(){window.print();},800);}catch(e){}<\/script>';
-  return '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>'+css+'</style></head><body>'+(showPrintBar?printBar:'')
-    +'<div class="header">'
-    +'<div><strong>J&A SAVADUR</strong><br>26 RUE GÉNÉRAL DUBAIL<br>56100 LORIENT<br>savadur56@gmail.com<br>06.30.37.06.88</div>'
-    +'<div style="text-align:right"><strong>'+tenant.nom+'</strong><br>'+tenant.logement+'<br>26 rue général Dubail<br>56100 Lorient</div>'
-    +'</div>'
-    +'<div class="title">Facture de loyer</div>'
-    +'<div class="subtitle">'+mois+' '+annee+' — N° '+invoiceNum+'</div>'
-    +'<table><thead><tr><th>Description</th><th>Prix HT</th><th>TVA 20%</th><th>Prix TTC</th></tr></thead><tbody>'
-    +'<tr><td>Loyer mensuel</td><td>'+fmt(loyerHT)+'</td><td>'+fmt(loyerTVA)+'</td><td>'+fmt(loyerTTC)+'</td></tr>'
-    +(chargesHT>0?'<tr><td>Provisions sur charges</td><td>'+fmt(chargesHT)+'</td><td>'+fmt(chargesTVA)+'</td><td>'+fmt(chargesTTC)+'</td></tr>':'')
-    +'<tr class="total-row"><td colspan="3">TOTAL TTC</td><td>'+fmt(totalTTC)+'</td></tr>'
-    +'</tbody></table>'
-    +'<p style="font-size:13px">Date de paiement : '+dateLoc+'</p>'
-    +(commentaire?'<div style="background:#f5f5f5;border-left:3px solid #185FA5;padding:8px 12px;margin:12px 0;font-size:13px;font-style:italic;color:#444">'+commentaire+'</div>':'')
-+(tenant.dette>0?'<div style="background:#FFF3CD;border:1.5px solid #F0AD4E;border-radius:6px;padding:10px 14px;margin:12px 0;font-size:13px">'+'<strong>&#9888; Votre dette à ce jour s\'elève à : '+fmt(tenant.dette)+'</strong>'+'<br><span style="font-size:11px;color:#555">Ce montant sera inclus dans votre prochain appel de loyer.</span>'+'</div>':'')
-        +'<div class="sig-block">SCI J&A SAVADUR<br>savadur56@gmail.com<br><br><strong>JOSSE Antoine — Gérant</strong></div>'
-    +'<p style="font-size:11px;color:#888;margin-top:24px">Facture établie par J&A SAVADUR. TVA 20% appliquée. Conserver ce document pour votre comptabilité.</p>'
-    +'</body></html>';
+  return buildDocumentLoyer(tenant,payment,mois,annee,loyer,charges,total,datePaiement,fmt,commentaire,showPrintBar);
 }
 
 function buildFactureEauHtml(tenant,cpt,conso,montant,montantHT,montantTVA,prix,dateReleve,invoiceNum,releve,fmt){
