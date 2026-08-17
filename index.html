@@ -16,7 +16,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GMAO Pro v17</title>
 <!-- BUILD:20260401-042201 -->
-<meta name="version" content="v105-20260629-050018">
+<meta name="version" content="v105-20260814-104636">
 <meta name="theme-color" content="#1D9E75">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -1095,7 +1095,7 @@ function renderTasks(){
 
 function renderWorkOrders(){
   const assets = accessAssets(S.currentUser);
-  if(!S.woSearch) S.woSearch={prop:'',zone:'',sub:'',asset:'',status:localStorage.getItem('gmao_wo_status_filter')||'open'};
+  if(!S.woSearch) S.woSearch={prop:'',zone:'',sub:'',asset:'',status:'all'};
   const sf = S.woSearch;
 
   const wos = getFilteredWOs().filter(w=>isAdmin()||!w.asset_id||assets.map(a=>a.id).includes(w.asset_id)||isDubailProfile());
@@ -1168,7 +1168,7 @@ function renderWorkOrders(){
     return `<div class="wo-card">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:6px">
         <div>
-          <div style="font-size:14px;font-weight:600;color:var(--text)">${w.title}${w.source==='gamme'?` <span class="badge bteal" style="font-size:10px" title="BT généré automatiquement depuis une gamme d'entretien">⚙ Gamme</span>${(()=>{const mt=S.maintenanceTemplates.find(x=>x.id===w.gamme_id);const d=mt?.type==='periodic'?mt?.next_due:mt?.due_date;if(!d)return '';const days=Math.ceil((new Date(d)-new Date())/86400000);if(days>=0)return '';return ` <span class="badge bred" style="font-size:10px">⚠ ${-days}j retard</span>`;})()}`:''}</div>
+          <div style="font-size:14px;font-weight:600;color:var(--text)">${w.title}</div>
           ${locationLabel?`<div style="font-size:11px;color:var(--blue);margin-top:1px">📍 ${locationLabel}</div>`:''}
           <div style="font-size:11px;color:var(--text2)">${asset?`🔧 ${asset.name} · `:''}${dateLabel(w.date)}</div>
         </div>
@@ -1923,8 +1923,6 @@ function renderLocatif(){
               const p = filteredPayments.find(x=>x.tenant_id===t.id&&x.annee===year&&x.mois===mois);
               const isPaid = p?.paye;
               const montant = p?.loyer||0;
-              const remiseP = p?.remise||0;
-              const recuP = (p?.locataire_part||0)+(p?.caf||0);
               const isComm = t.type_bail==='commercial';
               const loyerHT = t.loyer_ref||0;
               const loyerTVA = isComm ? loyerHT*0.2 : 0;
@@ -1932,11 +1930,6 @@ function renderLocatif(){
               const chargesHT = t.charges||0;
               const chargesTTC = isComm ? chargesHT*1.2 : chargesHT;
               const totalAttendu = loyerTTC + (isComm ? chargesTTC : chargesHT);
-              const recuLabel = remiseP>0&&recuP===0
-                ? `<span style="color:var(--green);font-size:11px">Remise ${fmt(remiseP)}</span>`
-                : remiseP>0&&recuP>0
-                  ? `${fmt(recuP)} <span style="color:var(--green);font-size:10px">+remise ${fmt(remiseP)}</span>`
-                  : recuP>0 ? fmt(recuP) : '—';
               return `<tr style="${isPaid?'':'background:var(--bg2)'}">
                 <td style="font-weight:500">${mois}</td>
                 ${isComm?`
@@ -1950,7 +1943,7 @@ function renderLocatif(){
                   ${chargesHT>0?`<td style="font-size:12px">${fmt(chargesHT)}</td>`:''}
                   <td style="font-weight:500">${fmt(loyerHT+chargesHT)}</td>
                 `}
-                <td style="font-weight:500;color:${isPaid?'var(--green)':'var(--text)'}">${recuLabel}</td>
+                <td style="font-weight:500;color:${isPaid?'var(--green)':'var(--text)'}">${(p?.locataire_part||0)+(p?.caf||0)>0?fmt((p?.locataire_part||0)+(p?.caf||0)):'—'}</td>
                 <td style="font-size:11px">
                   ${p?.date_loc?'🏦 '+new Date(p.date_loc).toLocaleDateString('fr-FR'):'—'}
                   ${p?.date_caf?'<br>🏢 CAF : '+new Date(p.date_caf).toLocaleDateString('fr-FR'):''}
@@ -1960,7 +1953,6 @@ function renderLocatif(){
                 <td style="white-space:nowrap">
                   ${canEdit()&&!isPaid?`<button class="btn btn-sm btn-p" data-pay-loyer="${t.id}" data-pay-mois="${mois}" data-pay-year="${year}">✓ Valider</button> `:''}
                   ${canEdit()?`<button class="btn btn-sm" data-saisie-loyer="${t.id}" data-saisie-mois="${mois}" data-saisie-year="${year}">✎ Saisir</button>`:''}
-                  ${canEdit()&&(t.dette>0)?`<button class="btn btn-sm" style="background:var(--blue-bg);color:var(--blue);border-color:var(--blue)" data-remb-dette="${t.id}" data-remb-mois="${mois}" data-remb-year="${year}" title="Enregistrer un remboursement de dette">↩ Remb.</button>`:''}
                   ${p&&canEdit()?`<button class="btn btn-sm btn-d" data-del-rp="${p.id}" title="Supprimer ce paiement">✕</button>`:''}
                 </td>
               </tr>`;
@@ -2045,54 +2037,34 @@ function renderLocatif(){
   }
 
   if(tab==='dettes'){
-    const MOIS_LIST=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
-    const now=new Date();
-    // Tous les locataires actifs visibles (y compris Julie Coiffure)
-    const allActiveTenants=S.tenants.filter(t=>t.actif!==false&&(!isDubail||dubailFilter(t.logement||'')));
-    const debts = allActiveTenants.map(t=>{
-      const {lignes,detteFinale}=calcDetteLigne(t,null,null,false);
-      // On n'affiche que les lignes où il y a un écart (dette ou crédit)
-      const items=lignes.filter(l=>Math.abs(l.solde)>0.01||l.recu>0);
-      return {t,items,total:Math.max(0,detteFinale)};
-    }).filter(x=>x.total>0.01).sort((a,b)=>b.total-a.total);
-
+    const debts = tenants.map(t=>{
+      // Tous les paiements non soldés
+      const unpaid = S.rentPayments.filter(p=>p.tenant_id===t.id&&!p.paye&&p.loyer>0);
+      // Dette = solde du DERNIER paiement (le plus récent)
+      // trié par annee desc puis mois_num desc
+      const sorted = unpaid.slice().sort(function(a,b){
+        if(b.annee!==a.annee)return b.annee-a.annee;
+        return (b.mois_num||0)-(a.mois_num||0);
+      });
+      const last = sorted[0];
+      const total = last ? Math.max(0,Math.round(((last.loyer||0)-(last.locataire_part||0)-(last.caf||0))*100)/100) : (t.dette||0);
+      return {t, unpaid, total};
+    }).filter(x=>x.total>0).sort((a,b)=>b.total-a.total);
     return `${tabBar}
     <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-        <div class="sec" style="margin:0">Impayés & dettes</div>
-        <button class="btn btn-sm" id="btn-gen-qtt-manquantes" style="background:var(--blue);color:#fff;border-color:var(--blue)">📄 Générer quittances manquantes</button>
-      </div>
+      <div class="sec">Impayés & dettes</div>
       ${debts.length===0?'<div style="font-size:13px;color:var(--text2);padding:20px;text-align:center">Aucune dette enregistrée.</div>':''}
-      ${debts.map(({t,items,total})=>`
+      ${debts.map(({t,unpaid,total})=>`
         <div class="row" style="align-items:flex-start;padding:12px 0">
           <div class="fg">
             <div class="fgs">${t.nom} <span style="font-size:11px;color:var(--text2)">${t.logement||''}</span></div>
             <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
-              ${items.map(i=>{
-                const color=i.estCredit?'var(--green)':i.estSolde?'var(--text2)':'var(--red)';
-                const cls=i.estCredit?'bgreen':i.recu>0&&!i.estSolde?'bamber':'bred';
-                return `<span class="badge ${cls}" style="font-size:10px;display:inline-flex;align-items:center;gap:4px">
-                  ${i.mois} ${i.annee} : <b style="color:${color}">${i.estCredit?'crédit ':''} ${fmt(Math.abs(i.solde))}</b>
-                  (att.${fmt(i.attendu)}${i.remise>0&&i.recu===0?' / remise '+fmt(i.remise):i.recu>0?' / reçu '+fmt(i.recu):i.saisi?' / reçu 0€':' ⚠ non saisi'})
-                  ${!i.saisi
-                    ?`<button data-qtt-zero="${t.id}" data-qtt-mois="${i.mois}" data-qtt-annee="${i.annee}" style="background:#fff;border:1px solid #999;border-radius:3px;font-size:9px;padding:1px 4px;cursor:pointer;margin-left:2px" title="Créer paiement 0€ et envoyer quittance">📄 0€</button>`
-                    :i.recu===0&&i.saisi
-                      ?(()=>{
-                        const p=S.rentPayments.find(x=>x.tenant_id===t.id&&x.annee===i.annee&&x.mois===i.mois);
-                        return p?.quittance_envoyee
-                          ?`<span style="font-size:9px;color:var(--green);margin-left:3px">✓ envoyée</span>`
-                          :`<button data-qtt-send="${p?.id}" style="background:#fff;border:1px solid var(--blue);border-radius:3px;font-size:9px;padding:1px 4px;cursor:pointer;margin-left:2px;color:var(--blue)" title="Envoyer la quittance 0€ par email">📧 envoyer</button>`;
-                      })()
-                      :''
-                  }
-                </span>`;
-              }).join('')}
+              ${unpaid.map(p=>{const s=Math.max(0,(p.loyer||0)-(p.locataire_part||0)-(p.caf||0));return `<span class="badge bred" style="font-size:10px">${p.mois} ${p.annee} : ${fmt(s)} (att.${fmt(p.loyer)}/payé ${fmt((p.locataire_part||0)+(p.caf||0))})</span>`;}).join('')}
             </div>
           </div>
-          <div style="text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:6px">
-            <div style="font-size:16px;font-weight:600;color:var(--red)">${fmt(total)}</div>
-            <div style="font-size:11px;color:var(--text2)">${items.length} mois impayé(s)</div>
-            <button class="btn btn-sm" style="background:var(--green);color:#fff;border-color:var(--green)" data-remb-dette="${t.id}">↩ Rembourser</button>
+          <div style="text-align:right">
+            <div style="font-size:16px;font-weight:500;color:var(--red)">${fmt(total)}</div>
+            <div style="font-size:11px;color:var(--text2)">${unpaid.length} mois impayé(s)</div>
           </div>
         </div>`).join('')}
     </div>`;
@@ -2100,7 +2072,7 @@ function renderLocatif(){
 
     if(tab==='emises'){
     const dubailTenantIds=isDubail?S.tenants.filter(t=>dubailFilter(t.logement||'')).map(t=>t.id):null;
-    const allRp=S.rentPayments.filter(p=>p.annee===year&&(p.paye||(p.locataire_part>0||p.caf>0)||p.remise>0||p.loyer>0)&&(!dubailTenantIds||dubailTenantIds.includes(p.tenant_id)));
+    const allRp=S.rentPayments.filter(p=>p.annee===year&&p.paye&&(!dubailTenantIds||dubailTenantIds.includes(p.tenant_id)));
     // Releves linked to tenants (water/charges invoices)
     const allRel=S.releves.filter(r=>{
       const cpt=S.compteurs.find(c=>c.id===r.compteur_id);
@@ -2136,29 +2108,14 @@ function renderLocatif(){
           const items=[...byBien[bien][zone]].sort((a,b2)=>(a.mois_num||0)>(b2.mois_num||0)?1:-1);
           const zT=items.reduce((s,f)=>s+(f.locataire_part||0)+(f.caf||0),0);
           const rows=items.map(function(f){
-            const t=f._t;
-            const isComm=t?.type_bail==='commercial';
-            const loyerRef=parseFloat(t?.loyer_ref||0);
-            const chargesRef=parseFloat(t?.charges||0);
-            const remiseF=parseFloat(f.remise||0);
-            // Loyer attendu = loyer_ref TTC - remise (cohérent avec calcDetteLigne)
-            const loyerAttenduF=Math.max(0,Math.round(((isComm?(loyerRef+chargesRef)*1.2:(loyerRef+chargesRef))-remiseF)*100)/100);
-            const recu=Math.round(((f.locataire_part||0)+(f.caf||0))*100)/100;
-            const sol=Math.round((loyerAttenduF-recu)*100)/100;
-            const isPartial=!f.paye&&recu>0&&sol>0.01;
-            const hasRemise=remiseF>0&&recu===0;
-            return '<tr style="'+(isPartial?'background:#FFF9E6':hasRemise?'background:#F0FFF4':'')+'">'
-              +'<td style="font-size:11px">'+(f.mois||'')+' '+(f.annee||'')
-                +(isPartial?' <span class="badge bamber" style="font-size:9px">Partiel</span>':'')
-                +(hasRemise?' <span class="badge bgreen" style="font-size:9px">Remise</span>':'')
-              +'</td>'
-              +'<td>'+(t?.nom||'')+'</td>'
-              +'<td style="text-align:right">'+fmt(loyerAttenduF)+'</td>'
-              +'<td style="text-align:right;color:var(--green)">'+(hasRemise?'<span style="font-size:10px;color:var(--green)">Remise '+fmt(remiseF)+'</span>':fmt(recu))+'</td>'
-              +'<td style="text-align:right;font-weight:600;color:'+(sol>0.01?'var(--red)':sol<-0.01?'var(--green)':'var(--text2)')+';">'+fmt(Math.abs(sol))+(sol<-0.01?' (crédit)':'')+'</td>'
+            const recu=(f.locataire_part||0)+(f.caf||0);const sol=Math.round(((f.loyer||0)-recu)*100)/100;
+            return '<tr><td style="font-size:11px">'+(f.mois||'')+' '+(f.annee||'')+'</td>'
+              +'<td>'+(f._t?.nom||'')+'</td>'
+              +'<td style="text-align:right">'+fmt(f.loyer||0)+'</td>'
+              +'<td style="text-align:right;color:var(--green)">'+fmt(recu)+'</td>'
+              +'<td style="text-align:right;color:'+(sol>0?'var(--red)':'var(--green)')+';">'+fmt(sol)+'</td>'
               +'<td style="text-align:center;white-space:nowrap">'
-                +'<button class="btn btn-sm" data-print-qtt="'+f.id+'" style="font-size:10px;padding:2px 5px" title="Ouvrir document">&#128438;</button>'
-                +(t?.email?'<button class="btn btn-sm" data-resend-qtt="'+f.id+'" style="font-size:10px;padding:2px 5px;margin-left:3px" title="Renvoyer par email">&#128233;</button>':'')
+                +'<button class="btn btn-sm" data-print-qtt="'+f.id+'" style="font-size:10px;padding:2px 5px">&#128438;</button>'
                 +(isAdmin()?'<button class="btn btn-d btn-sm" data-del-rp="'+f.id+'" style="font-size:10px;padding:2px 5px;margin-left:3px">&#10005;</button>':'')
               +'</td></tr>';
           }).join('');
@@ -4035,8 +3992,6 @@ function renderMaintenance(){
       const d = mt.type==='periodic' ? mt.next_due : mt.due_date;
       const days = daysUntil(d);
       const user = S.users.find(u=>u.id===mt.assigned_to);
-      // BT auto lié ouvert
-      const linkedBT=S.workOrders.find(w=>w.status==='open'&&w.source==='gamme'&&w.gamme_id===mt.id);
       return `<div class="card">
         <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px">
           <div>
@@ -4054,8 +4009,7 @@ function renderMaintenance(){
         ${mt.type==='periodic'?`<div style="font-size:11px;color:var(--text3);margin-top:3px">Dernière : ${dateLabel(mt.last_done)}</div>`:''}
         ${user?`<div style="font-size:11px;color:var(--text3)">Assigné : ${user.name}</div>`:''}
         <div style="display:flex;gap:6px;margin-top:8px;align-items:center;flex-wrap:wrap">
-          ${mt.auto_bt?`<span class="badge bteal" title="BT auto ${mt.bt_jours_avant||'?'}j avant">⚙ Auto-BT</span>`:''}
-          ${linkedBT?`<span class="badge bamber" title="BT ouvert lié à cette gamme">📋 BT en cours</span>`:''}
+          ${mt.auto_bt?`<span class="badge bteal" title="Génère un BT automatiquement">⚙ Auto-BT</span>`:''}
           ${canEdit()?`<button class="btn btn-sm btn-p" data-done-mt="${mt.id}">✓ Réalisé</button>`:''}
           ${canEdit()?`<button class="btn btn-sm" data-edit-mt="${mt.id}">✎</button> `:''}${isAdmin()?`<button class="btn btn-d btn-sm" data-del-mt="${mt.id}">✕</button>`:''}
           <a class="btn btn-sm" href="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent('https://antoinejosse56-lang.github.io/GMAO/?action=done&mt='+mt.id)}" target="_blank" title="Télécharger QR Code" style="text-decoration:none">⬡ QR</a>
@@ -4708,28 +4662,6 @@ function renderModal(){
 
 
 
-  if(m.type==='close-wo'){
-    const w=m.wo;
-    const mt=w.gamme_id?S.maintenanceTemplates.find(x=>x.id===w.gamme_id):null;
-    html=`${mhd('✓ Terminer — '+w.title)}
-    <div style="background:var(--bg2);border-radius:var(--radius);padding:10px 12px;margin-bottom:14px;font-size:13px">
-      <div style="font-weight:500">${w.title}</div>
-      ${mt?`<div style="font-size:11px;color:var(--text2);margin-top:2px">⚙ Issu de la gamme : ${mt.name}</div>`:''}
-    </div>
-    <div class="form-group">
-      <label>Date de réalisation *</label>
-      <input id="m-close-date" type="date" value="${NOW}">
-    </div>
-    <div class="form-group">
-      <label>Commentaire (optionnel)</label>
-      <textarea id="m-close-comment" rows="3" placeholder="Ex: RAS, pièce remplacée, intervention effectuée..."></textarea>
-    </div>
-    ${mt&&mt.type==='periodic'?`<div style="font-size:11px;color:var(--text2);margin-bottom:10px">
-      📅 La prochaine échéance de la gamme sera recalculée automatiquement (+${mt.period_days||30}j depuis la date ci-dessus).
-    </div>`:''}
-    ${mf}`;
-  }
-
   if(m.type==='checklist-wo'){
     const w=m.wo;
     const items=w.checklist||[];
@@ -4799,31 +4731,6 @@ function renderModal(){
       <div class="form-group"><label>Dernière réalisation</label><input id="m-mlast" type="date" value="${mt.last_done||''}"></div>
     </div>`:''}
     <div class="form-group"><label>Prochaine échéance</label><input id="m-mnext" type="date" value="${mt.next_due||mt.due_date||''}"></div>
-    <div style="border:0.5px solid var(--border2);border-radius:var(--radius);padding:12px;margin-bottom:12px;background:var(--bg2)">
-      <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:10px">⚙ Génération automatique de BT</div>
-      <div class="form-group" style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-        <input type="checkbox" id="m-mautobt" ${mt.auto_bt?'checked':''} style="width:16px;height:16px;cursor:pointer" onchange="document.getElementById('m-mautobt-opts').style.display=this.checked?'block':'none'">
-        <label for="m-mautobt" style="font-weight:500;cursor:pointer;font-size:13px">Générer un BT automatiquement X jours avant l'échéance</label>
-      </div>
-      <div id="m-mautobt-opts" style="display:${mt.auto_bt?'block':'none'}">
-        <div class="g2c">
-          <div class="form-group"><label>Jours avant l'échéance</label>
-            <input id="m-mbt-jours" type="number" min="1" max="365" value="${mt.bt_jours_avant||30}" placeholder="Ex: 30">
-          </div>
-          <div class="form-group"><label>Catégorie du BT généré</label>
-            <select id="m-mbtcat">
-              ${['Entretien','Réparation','Amélioration','Urgence'].map(c=>`<option value="${c}" ${(mt.bt_category||'Entretien')===c?'selected':''}>${c}</option>`).join('')}
-            </select>
-          </div>
-        </div>
-        <div class="form-group"><label>Recalcul de l'échéance après validation</label>
-          <select id="m-mbt-recalcul">
-            <option value="validation" ${(mt.bt_recalcul||'validation')==='validation'?'selected':''}>Depuis la date de validation (ex: vidange → repart de la date d'intervention)</option>
-            <option value="echeance" ${mt.bt_recalcul==='echeance'?'selected':''}>Depuis l'échéance prévue (ex: contrôle extincteur → date fixe)</option>
-          </select>
-        </div>
-      </div>
-    </div>
     <div class="form-group"><label>🔔 M'alerter par email</label>
       <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
         <input type="checkbox" id="m-mtalert-on" ${mt.alert_days?'checked':''} onchange="document.getElementById('m-mtalert-wrap').style.display=this.checked?'flex':'none'">
@@ -4899,27 +4806,15 @@ function renderModal(){
     </div>
     <div id="mt-auto-bt-wrap">
       <div class="form-group" style="display:flex;align-items:center;gap:10px;background:var(--bg2);padding:10px;border-radius:var(--radius)">
-        <input type="checkbox" id="m-mautobt" style="width:16px;height:16px;cursor:pointer" onchange="document.getElementById('m-mbt-cat-wrap').style.display=this.checked?'':'none'">
+        <input type="checkbox" id="m-mautobt" style="width:16px;height:16px;cursor:pointer">
         <div>
-          <label for="m-mautobt" style="font-weight:500;cursor:pointer">Générer un BT automatiquement X jours avant l'échéance</label>
-          <div style="font-size:11px;color:var(--text2);margin-top:2px">Un BT sera créé au chargement de l'app quand l'échéance approche</div>
+          <label for="m-mautobt" style="font-weight:500;cursor:pointer">Générer un bon de travaux automatiquement</label>
+          <div style="font-size:11px;color:var(--text2);margin-top:2px">Un nouveau BT sera créé automatiquement à chaque fois que vous marquez cette gamme comme réalisée</div>
         </div>
       </div>
       <div class="form-group" id="m-mbt-cat-wrap" style="display:none">
-        <div class="g2c">
-          <div class="form-group"><label>Jours avant l'échéance</label>
-            <input id="m-mbt-jours" type="number" min="1" max="365" value="30" placeholder="Ex: 30">
-          </div>
-          <div class="form-group"><label>Catégorie du BT</label>
-            <select id="m-mbtcat"><option value="Entretien">Entretien</option><option value="Réparation">Réparation</option><option value="Amélioration">Amélioration</option><option value="Urgence">Urgence</option></select>
-          </div>
-        </div>
-        <div class="form-group"><label>Recalcul de l'échéance après validation</label>
-          <select id="m-mbt-recalcul">
-            <option value="validation">Depuis la date de validation (ex: vidange)</option>
-            <option value="echeance">Depuis l'échéance prévue (ex: contrôle extincteur à date fixe)</option>
-          </select>
-        </div>
+        <label>Catégorie du bon généré</label>
+        <select id="m-mbtcat"><option value="Entretien">Entretien</option><option value="Réparation">Réparation</option><option value="Amélioration">Amélioration</option><option value="Urgence">Urgence</option></select>
       </div>
     </div>
     <div class="form-group"><label>🔔 M'alerter par email</label>
@@ -5201,26 +5096,14 @@ function renderModal(){
     html=`${mhd(m.type==='add-tenant'?'Nouveau locataire':'Modifier locataire — '+t.nom)}
     <div class="g2c">
       <div class="form-group"><label>Nom / Raison sociale *</label><input id="m-tnom" value="${t.nom||''}"></div>
-      <div class="form-group"><label>Logement *</label>
-        <select id="m-tprop" onchange="(function(){
-          const pname=document.getElementById('m-tprop').value;
-          const p=S.topology.properties.find(x=>x.name===pname)||S.topology.properties.find(x=>x.name.toLowerCase()===pname.toLowerCase().trim());
-          const zones=p?(p.zones||[]):[];
-          const wrap=document.getElementById('m-tzone-wrap');
-          const sel=document.getElementById('m-tzone');
-          if(wrap&&zones.length){
-            sel.innerHTML='<option value="">\u2014 Aucune zone \u2014</option>'+zones.map(z=>'<option value="'+z.name+'">'+z.name+'</option>').join('');
-            wrap.style.display='';
-          } else if(wrap){
-            wrap.style.display='none';
-            sel.innerHTML='';
-          }
-        })()">
+      <div class="form-group"><label>Bien immobilier *</label>
+        <select id="m-tprop" onchange="updateTenantZonesFull()">
           <option value="">— Sélectionner un bien —</option>
           ${(()=>{
             const allOpts=[];
+            const logParts=(t.logement||'').split(' \u2014 ');
             S.topology.properties.forEach(p=>{
-              const pSelected=(()=>{const l=t.logement||'';const sep=l.includes(' \u2014 ')?' \u2014 ':' - ';return l.split(sep)[0];})()=== p.name;
+              const pSelected=logParts[0]===p.name;
               allOpts.push('<option value="'+p.name+'" '+(pSelected?'selected':'')+'>'+p.name+'</option>');
             });
             return allOpts.join('');
@@ -5228,10 +5111,38 @@ function renderModal(){
         </select>
       </div>
       <div class="form-group" id="m-tzone-wrap" style="display:none">
-        <label>Zone / Appartement</label>
-        <select id="m-tzone">
+        <label>Zone / Local</label>
+        <select id="m-tzone" onchange="updateTenantSubZones()">
           <option value="">— Aucune zone —</option>
         </select>
+      </div>
+      <div class="form-group" id="m-tsub-wrap" style="display:none">
+        <label>Sous-zone / Local précis</label>
+        <select id="m-tsub">
+          <option value="">— Aucune sous-zone —</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Désignation libre du logement <span style="font-size:11px;color:var(--text2)">(ex: Local BAAM, Appt 3, Studio)</span></label>
+        <input id="m-tlogement-libre" value="${(()=>{
+          const parts=(t.logement||'').split(' \u2014 ');
+          // Return last segment if more than 1 part and it's not a zone name from topology
+          if(parts.length>=2){
+            const propName=parts[0];
+            const prop=S.topology.properties.find(p=>p.name===propName);
+            if(prop){
+              const zoneName=parts[1];
+              const zone=prop.zones?.find(z=>z.name===zoneName);
+              if(zone&&parts[2])return parts.slice(2).join(' \u2014 ');
+              if(!zone)return parts.slice(1).join(' \u2014 ');
+            }
+          }
+          return '';
+        })()} " placeholder="Optionnel — précise le logement si besoin">
+        <div style="font-size:11px;color:var(--text2);margin-top:3px">Laissez vide si la zone suffit. Sinon écrivez directement le nom du local (ex: Local Anna, Appt 2, Studio 1er).</div>
+      </div>
+      <div style="background:var(--bg2);border-radius:var(--radius);padding:8px 10px;margin-bottom:8px;font-size:12px;color:var(--text2)" id="m-tlogement-preview">
+        Logement : <b id="m-tlogement-preview-val">—</b>
       </div>
 
       <div class="form-group"><label>Email (pour quittances)</label><input id="m-temail" type="email" value="${t.email||''}" placeholder="locataire@email.fr"></div>
@@ -5330,29 +5241,6 @@ function renderModal(){
     ${mf}`;
   }
 
-  if(m.type==='remb-dette'){
-    const t=m.tenant||{};
-    const fmt2=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(n||0);
-    html=`${mhd('↩ Remboursement dette — '+t.nom)}
-    <div style="background:var(--blue-bg);border-radius:var(--radius);padding:10px 12px;margin-bottom:14px;font-size:13px">
-      <b>${t.logement||''}</b><br>
-      Dette actuelle : <strong style="color:var(--red)">${fmt2(t.dette||0)}</strong>
-    </div>
-    <div class="form-group">
-      <label>Montant remboursé (€) *</label>
-      <input id="m-remb-montant" type="number" step="0.01" value="${t.dette||0}" placeholder="0.00" autofocus>
-    </div>
-    <div class="form-group">
-      <label>Date de réception</label>
-      <input id="m-remb-date" type="date" value="${NOW}">
-    </div>
-    <div class="form-group">
-      <label>Commentaire (optionnel)</label>
-      <input id="m-remb-comment" placeholder="Ex: Virement reçu, chèque encaissé...">
-    </div>
-    ${mf}`;
-  }
-
   if(m.type==='saisie-loyer'){
     const t=m.tenant||{};
     const p=m.existing||{};
@@ -5388,19 +5276,19 @@ function renderModal(){
       </div>
     </div>
 
+    <div style="border:0.5px solid var(--border2);border-radius:var(--radius);padding:12px;margin-bottom:12px">
+      <div class="sec" style="margin-bottom:8px">Dette antérieure</div>
+      <div class="g2c">
+        <div class="form-group"><label>Dette antérieure (&#8364;)</label><input id="m-sl-dette-ant" type="number" step="0.01" value="${(p._dette_ant!=null?p._dette_ant:p.dette_ant!=null?p.dette_ant:(t.dette||0))}" placeholder="0.00"></div>
+        <div class="form-group"><label>Total attendu (&#8364;)</label><input type="number" value="${Math.round(((t.type_bail==='commercial'?(loyerRef+chargesRef)*1.2:(loyerRef+chargesRef))+(p.dette_ant!=null?p.dette_ant:(t.dette||0)))*100)/100}" readonly style="background:var(--bg2)"></div>
+      </div>
+    </div>
     <div class="form-group"><label>Payé intégralement ?</label><select id="m-sl-paye">
       <option value="true" ${p.paye?'selected':''}>Oui — loyer soldé</option>
       <option value="partial" ${!p.paye&&(p.locataire_part>0||p.caf>0)?'selected':''}>Partiel — dette restante</option>
       <option value="false" ${!p.paye&&!(p.locataire_part>0||p.caf>0)?'selected':''}>Non — rien reçu</option>
     </select></div>
     <div class="form-group"><label>Notes (internes, non imprimées)</label><input id="m-sl-notes" value="${p.notes||''}"></div>
-    <div style="border:0.5px solid var(--border2);border-radius:var(--radius);padding:12px;margin-bottom:12px">
-      <div class="sec" style="margin-bottom:8px">Remise / Loyer offert <span style="font-size:11px;color:var(--text2)">(optionnel)</span></div>
-      <div class="g2c">
-        <div class="form-group"><label>Montant remise (€)</label><input id="m-sl-remise" type="number" step="0.01" min="0" value="${p.remise||0}" placeholder="0.00"></div>
-        <div class="form-group"><label>Motif (apparaîtra sur le document)</label><input id="m-sl-remise-motif" value="${p.remise_motif||''}" placeholder="Ex: Travaux peinture, Dédommagement fuite..."></div>
-      </div>
-    </div>
     <div class="form-group"><label>Commentaire sur la quittance/facture <span style="color:var(--text2);font-size:11px">(apparaîtra sur le document)</span></label>
       <input id="m-sl-comment" value="${p.commentaire||''}" placeholder="Ex: Paiement reçu par virement, Solde partiel — reste dû...">
     </div>
@@ -5533,52 +5421,6 @@ function renderModal(){
     ${mf}`;
   }
 
-  if(m.type==='done-mt'){
-    const mt=m.mt||{};
-    const isDate=mt.type==='date';
-    const recalcul=mt.bt_recalcul||'validation';
-    // Calcul de la date proposée selon le mode de recalcul
-    let proposedDate='';
-    if(!isDate&&mt.period_days){
-      if(recalcul==='validation'){
-        // Depuis aujourd'hui
-        const nd=new Date();nd.setDate(nd.getDate()+mt.period_days);
-        proposedDate=nd.toISOString().slice(0,10);
-      } else {
-        // Depuis l'échéance prévue
-        const base=new Date(mt.next_due||NOW);
-        base.setDate(base.getDate()+mt.period_days);
-        proposedDate=base.toISOString().slice(0,10);
-      }
-    }
-    const asset=S.assets.find(a=>a.id===mt.asset_id);
-    html=`${mhd('✓ Gamme réalisée — '+mt.name)}
-    <div style="background:var(--bg2);border-radius:var(--radius);padding:10px 12px;margin-bottom:14px;font-size:13px">
-      <div style="font-weight:500">${mt.name}</div>
-      ${asset?`<div style="font-size:11px;color:var(--text2)">🔧 ${asset.name}</div>`:''}
-      ${mt.description?`<div style="font-size:12px;color:var(--text2);margin-top:4px">${mt.description}</div>`:''}
-    </div>
-    <div class="form-group">
-      <label>Date de réalisation</label>
-      <input id="m-done-date" type="date" value="${NOW}">
-    </div>
-    ${!isDate?`<div class="form-group">
-      <label>Nouvelle date d'échéance *</label>
-      <input id="m-done-next" type="date" value="${proposedDate}">
-      <div style="font-size:11px;color:var(--text2);margin-top:4px">
-        Mode recalcul : <b>${recalcul==='validation'?'depuis la date de réalisation (ci-dessus)':'depuis l\'échéance prévue'}</b>
-        ${mt.period_days?` — soit ${mt.period_days} jours de périodicité`:''}
-      </div>
-    </div>`:`<div class="form-group">
-      <label>Nouvelle date d'échéance (optionnel)</label>
-      <input id="m-done-next" type="date" value="">
-      <div style="font-size:11px;color:var(--text2);margin-top:4px">Laissez vide si la date est déjà correcte dans la fiche gamme</div>
-    </div>`}
-    <div class="form-group"><label>Note / observation</label>
-      <input id="m-done-note" placeholder="Ex: RAS, pièce remplacée...">
-    </div>
-    ${mf}`;
-  }
   if(m.type==='add-zone'){html=`${mhd('Nouvelle zone')}
     <div class="form-group"><label>Nom *</label><input id="m-zn" placeholder="Ex: Appart 1er gauche, RDC, Cave..."></div>${mf}`;}
   if(m.type==='add-subzone'){html=`${mhd('Nouvelle sous-zone')}
@@ -5874,7 +5716,6 @@ async function saveModal(){
   if(m.type==='edit-mt'){
     const mt=m.mt;if(!mt)return;
     const nom=q('m-mn')?.value.trim();if(!nom)return alert('Nom requis');
-    const autoBt=q('m-mautobt')?.checked||false;
     const rec={
       name:nom,description:q('m-md')?.value||null,
       priority:q('m-mprio')?.value||'medium',
@@ -5883,10 +5724,7 @@ async function saveModal(){
       last_done:q('m-mlast')?.value||mt.last_done,
       next_due:q('m-mnext')?.value||mt.next_due,
       alert_days:q('m-mtalert-on')?.checked?(parseInt(q('m-mtalert-days')?.value)||30):null,
-      auto_bt:autoBt,
-      bt_jours_avant:autoBt?(parseInt(q('m-mbt-jours')?.value)||30):null,
-      bt_category:autoBt?(q('m-mbtcat')?.value||'Entretien'):null,
-      bt_recalcul:autoBt?(q('m-mbt-recalcul')?.value||'validation'):null,
+      auto_bt:q('m-mautobt')?.checked||false,
     };
     const {error}=await sb.from('maintenance_templates').update(rec).eq('id',mt.id);
     if(error){alert('Erreur : '+error.message);return;}
@@ -5908,8 +5746,6 @@ async function saveModal(){
       last_done:lastDone,next_due:nextDue,due_date:type==='date'?nextDue:null,
       priority:q('m-mprio')?.value||'medium',assigned_to:q('m-muser')?.value||null,
       auto_bt:q('m-mautobt')?.checked||false,bt_category:q('m-mbtcat')?.value||null,
-      bt_jours_avant:q('m-mautobt')?.checked?(parseInt(q('m-mbt-jours')?.value)||30):null,
-      bt_recalcul:q('m-mautobt')?.checked?(q('m-mbt-recalcul')?.value||'validation'):null,
       alert_days:q('m-mtalert-on')?.checked?(parseInt(q('m-mtalert-days')?.value)||30):null,
     };
     const {data,error}=await sb.from('maintenance_templates').insert(rec).select().single();
@@ -6068,54 +5904,6 @@ async function saveModal(){
 
 
 
-  if(m.type==='remb-dette'){
-    const t=m.tenant;if(!t)return;
-    const montant=parseFloat(q('m-remb-montant')?.value)||0;
-    if(!montant)return alert('Montant requis');
-    const dateRemb=q('m-remb-date')?.value||NOW;
-    const comment=q('m-remb-comment')?.value?.trim()||'';
-    const nouvDette=Math.max(0,Math.round(((t.dette||0)-montant)*100)/100);
-    const {error}=await sb.from('tenants').update({dette:nouvDette}).eq('id',t.id);
-    if(error){alert('Erreur : '+error.message);return;}
-    t.dette=nouvDette;
-    const fmt2=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(n||0);
-    const isDubailR=dubailFilter(t.logement||'');
-    const sigNomR=isDubailR?'JOSSE Antoine':'Antoine JOSSE';
-    const sigQualR=isDubailR?'Gérant J&A SAVADUR':'Bailleur';
-    const fromNameR=isDubailR?'J&A SAVADUR':'Antoine JOSSE';
-    const fromEmailR=isDubailR?'savadur56@gmail.com':'antoinejosse56@gmail.com';
-    const recu='<!DOCTYPE html><html><head><meta charset="UTF-8"><style>body{font-family:Arial,sans-serif;max-width:640px;margin:40px auto;padding:30px;color:#222;font-size:14px}.box{border:2px solid #185FA5;padding:20px;text-align:center;margin:24px 0;border-radius:6px}.somme{font-size:26px;font-weight:bold;color:#185FA5;margin:8px 0}.mention{font-size:11px;color:#888;margin-top:24px;border-top:1px solid #ddd;padding-top:12px}.printbtn{background:#185FA5;color:#fff;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-weight:700;position:fixed;top:16px;right:16px}@media print{.printbtn{display:none}}</style></head><body>'
-      +'<button class="printbtn" onclick="window.print()">🖨 Imprimer</button>'
-      +'<div style="display:flex;justify-content:space-between;margin-bottom:24px">'
-        +'<div><strong>'+fromNameR+'</strong><br>Lorient</div>'
-        +'<div style="text-align:right"><strong>'+t.nom+'</strong><br>'+t.logement+'<br>Fait le : '+new Date(dateRemb).toLocaleDateString('fr-FR')+'</div>'
-      +'</div>'
-      +'<div style="text-align:center;font-size:18px;font-weight:bold;text-decoration:underline;margin:20px 0">REÇU DE REMBOURSEMENT DE DETTE</div>'
-      +'<div class="box"><div>Montant remboursé</div><div class="somme">'+fmt2(montant)+'</div><div>Le '+new Date(dateRemb).toLocaleDateString('fr-FR')+'</div>'
-        +(comment?'<div style="font-size:13px;color:#666;margin-top:8px;font-style:italic">'+comment+'</div>':'')
-      +'</div>'
-      +'<p>Nous accusons réception du remboursement de <strong>'+fmt2(montant)+'</strong> sur la dette locative de <strong>'+t.logement+'</strong>.</p>'
-      +(nouvDette>0?'<p style="color:#E24B4A"><strong>Solde restant dû : '+fmt2(nouvDette)+'</strong></p>':'<p style="color:#1D9E75"><strong>✓ Dette soldée intégralement.</strong></p>')
-      +'<div style="margin-top:50px;text-align:right"><div>'+sigQualR+'</div><div style="font-size:11px;color:#888;margin-top:4px">Signature électronique automatique</div><div style="font-weight:bold;margin-top:40px;border-top:1px solid #222;padding-top:6px;display:inline-block;min-width:180px">'+sigNomR+'</div></div>'
-      +'<p class="mention">Ce document atteste du remboursement partiel ou total de la dette locative.</p>'
-      +'</body></html>';
-    if(t.email&&BREVO_API_KEY){
-      try{
-        await fetch('https://api.brevo.com/v3/smtp/email',{method:'POST',
-          headers:{'api-key':BREVO_API_KEY,'Content-Type':'application/json'},
-          body:JSON.stringify({sender:{name:fromNameR,email:fromEmailR},to:[{email:t.email,name:t.nom}],
-            subject:'Reçu remboursement dette — '+t.logement+' — '+new Date(dateRemb).toLocaleDateString('fr-FR'),
-            htmlContent:recu})});
-      }catch(e){console.warn('Email remb failed:',e);}
-    }
-    const blob=new Blob([recu],{type:'text/html;charset=utf-8'});
-    const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.target='_blank';
-    document.body.appendChild(a);a.click();document.body.removeChild(a);
-    closeModal();render();
-    alert('✓ Remboursement enregistré !\nDette restante : '+fmt2(nouvDette));
-    return;
-  }
-
   if(m.type==='saisie-loyer'){
     const t=m.tenant||{};
     const MOIS=['Janvier','F\xe9vrier','Mars','Avril','Mai','Juin','Juillet','Ao\xfbt','Septembre','Octobre','Novembre','D\xe9cembre'];
@@ -6128,65 +5916,46 @@ async function saveModal(){
     const paye=payeVal==='true';
     const notes=q('m-sl-notes')?.value||'';
     const commentaire=q('m-sl-comment')?.value||'';
-    const remise=parseFloat(q('m-sl-remise')?.value)||0;
-    const remise_motif=q('m-sl-remise-motif')?.value||'';
     // loyer = montant attendu (loyer_ref + charges + dette anterieure)
     const isComm=t.type_bail==='commercial';
     const loyerRef=t.loyer_ref||0;
     const chargesRef=t.charges||0;
     const base=isComm?(loyerRef+chargesRef)*1.2:(loyerRef+chargesRef);
-    // loyerAttendu = loyer de référence sans remise (calcDetteLigne gère la dette)
-    // La remise réduit ce qui est dû ce mois — comptablement c'est un avoir, pas une recette
-    const loyerAttendu=Math.round(base*100)/100;
+    const detteAnt=parseFloat(q('m-sl-dette-ant')?.value)||0;
+    const loyerAttendu=Math.round((base+detteAnt)*100)/100;
     const totalPaye=Math.round((locPart+cafPart)*100)/100;
-    // Soldé si argent reçu + remise couvre le loyer attendu
-    const solde=Math.max(0,Math.round((loyerAttendu-remise-totalPaye)*100)/100);
-    const payeAuto=solde<0.01; // auto-détecter si soldé
-    const payeFinal=paye||payeAuto;
+    const solde=Math.round((loyerAttendu-totalPaye)*100)/100;
     const rec={
       tenant_id:t.id,mois:m.mois,mois_num:moisNum,annee:m.annee,
       loyer:loyerAttendu,locataire_part:locPart,caf:cafPart,
-      date_loc:dateL,date_caf:dateCaf,paye:payeFinal,notes,commentaire,
-      remise:remise||null,remise_motif:remise_motif||null,
+      date_loc:dateL,date_caf:dateCaf,paye,notes,commentaire,
       quittance_envoyee:false
     };
     let payment=m.existing;
     if(payment){
       const {error}=await sb.from('rent_payments').update(rec).eq('id',payment.id);
       if(error){alert('Erreur : '+error.message);return;}
-      Object.assign(payment,rec);
+      Object.assign(payment,rec);payment._dette_ant=detteAnt;
     } else {
       const {data,error}=await sb.from('rent_payments').insert(rec).select().single();
       if(error){alert('Erreur : '+error.message);return;}
       if(data){S.rentPayments.push(data);payment=data;}
     }
-    // NE PAS écraser t.dette automatiquement — c'est le solde initial saisi manuellement
-    // calcDetteLigne gère le cumul automatiquement depuis t.dette
-    const hasPayment=totalPaye>0||remise>0;
-    const fmtM=new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'});
-    const partialComment=!payeFinal?('[Règlement partiel — Solde restant : '
-      +fmtM.format(solde)
-      +']'+(commentaire?' '+commentaire:'')):commentaire;
+    // Update tenant dette field
+    if(!paye&&solde>0){await sb.from('tenants').update({dette:solde}).eq('id',t.id);if(t)t.dette=solde;}
+    else if(paye){await sb.from('tenants').update({dette:0}).eq('id',t.id);if(t)t.dette=0;}
+    const hasPayment=totalPaye>0;
     if(t.email&&payment&&hasPayment){
+      // Always generate document if something was paid (full or partial)
+      const partialComment=!paye?('[Règlement partiel — Solde restant : '
+        +new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(solde)
+        +']'+(commentaire?' '+commentaire:'')):commentaire;
       try{
-        await autoSendQuittance(t,payment,m.mois,m.annee,partialComment,!payeFinal);
-      }catch(e){alert('✓ Enregistré\n⚠ Email non envoyé : '+e.message);}
-    } else if(payment){
-      const isComm=t.type_bail==='commercial';
-      const loyerRef=parseFloat(t.loyer_ref||0);const chargesRef=parseFloat(t.charges||0);
-      const totalRecu=parseFloat((payment.locataire_part||0)+(payment.caf||0));
-      const datePaie=payment.date_loc?new Date(payment.date_loc).toLocaleDateString('fr-FR'):new Date().toLocaleDateString('fr-FR');
-      const moisNumDoc=String(['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'].indexOf(m.mois)+1).padStart(2,'0');
-      const invNum=m.annee+'-'+moisNumDoc+'-'+(t.logement||'').replace(/[^A-Z0-9]/gi,'').toUpperCase().slice(0,6);
-      const fmtDoc=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR',minimumFractionDigits:2}).format(n||0);
-      const docHtml=isComm
-        ?buildFactureHtml(t,payment,m.mois,m.annee,loyerRef,chargesRef,totalRecu||loyerRef,datePaie,invNum,fmtDoc,partialComment,false)
-        :buildQuittanceHtml(t,payment,m.mois,m.annee,loyerRef,chargesRef,totalRecu||loyerRef,datePaie,fmtDoc,partialComment,false);
-      const blob=new Blob([docHtml],{type:'text/html;charset=utf-8'});
-      const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.target='_blank';a.rel='noopener';
-      document.body.appendChild(a);a.click();document.body.removeChild(a);
-      alert('✓ Enregistré !'+(solde>0?'\nSolde restant : '+fmtM.format(solde):'')+(!t.email?'\n⚠ Aucun email — document ouvert pour impression.':''));
+        await autoSendQuittance(t,payment,m.mois,m.annee,partialComment,!paye);
+        alert('✓ Enregistré ! Document ouvert.');
+      }catch(e){alert('✓ Enregistré : '+e.message);}
     } else {
+      const fmtM=new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'});
       alert(solde>0?'✓ Enregistré - Solde restant : '+fmtM.format(solde):'✓ Enregistré !');
     }
   }
@@ -6367,7 +6136,14 @@ async function saveModal(){
     const nom=q('m-tnom')?.value?.trim();if(!nom)return alert('Nom requis');
     const propVal=q('m-tprop')?.value||'';
     const zoneVal=q('m-tzone')?.value||'';
-    const logement=propVal?(zoneVal?propVal+' \u2014 '+zoneVal:propVal):(m.type==='edit-tenant'?m.tenant?.logement||'':'');
+    const subVal=q('m-tsub')?.value||'';
+    const libreVal=(q('m-tlogement-libre')?.value||'').trim();
+    // Build logement: prop [ — zone [ — sub ]] [ — libre ]
+    let logement=propVal;
+    if(zoneVal)logement+=' \u2014 '+zoneVal;
+    if(subVal)logement+=' \u2014 '+subVal;
+    if(libreVal)logement+=' \u2014 '+libreVal;
+    if(!logement)logement=m.type==='edit-tenant'?m.tenant?.logement||'':'';
     const rec={nom,logement,
       email:q('m-temail')?.value||'',telephone:q('m-ttel')?.value||'',
       type_bail:q('m-tbail')?.value||'habitation',
@@ -6539,174 +6315,155 @@ async function saveModal(){
     S.familleEnfant=membId;
   }
 
-  if(m.type==='close-wo'){
-    const w=m.wo;if(!w)return;
-    const dateRealise=q('m-close-date')?.value||NOW;
-    const comment=q('m-close-comment')?.value?.trim()||'';
-    const journal=[...(w.journal||[])];
-    journal.push({id:uid(),date:new Date(dateRealise).toLocaleDateString('fr-FR'),by:S.currentUser?.name||'—',
-      note:'✓ Terminé'+(comment?' — '+comment:'')});
-    const csoItems=(w.checklist||[]).filter(i=>i.type==='cso'&&!i.done);
-    if(csoItems.length>0){
-      const deduct=confirm('Déduire les consommables utilisés du stock ?\n'+csoItems.map(i=>`- ${i.nom} × ${i.quantite}`).join('\n'));
-      if(deduct){
-        for(const item of csoItems){
-          const cso=S.consommables.find(c=>c.id===item.id);
-          if(cso){const ns=Math.max(0,(cso.stock||0)-item.quantite);await sb.from('consommables').update({stock:ns}).eq('id',cso.id);cso.stock=ns;}
-        }
-      }
-    }
-    const {error}=await sb.from('work_orders').update({status:'done',date:dateRealise,journal}).eq('id',w.id);
-    if(error){alert('Erreur : '+error.message);return;}
-    w.status='done';w.date=dateRealise;w.journal=journal;
-
-    // Si ce BT vient d'une gamme, mettre à jour l'échéance de la gamme pour éviter qu'un nouveau BT ne soit recréé
-    let nextDueMsg='';
-    if(w.source==='gamme'&&w.gamme_id){
-      const mt=S.maintenanceTemplates.find(x=>x.id===w.gamme_id);
-      if(mt){
-        let nextDue=null;
-        if(mt.type==='periodic'&&mt.period_days){
-          const nd=new Date(dateRealise);nd.setDate(nd.getDate()+mt.period_days);
-          nextDue=nd.toISOString().slice(0,10);
-        }
-        const updMt={last_done:dateRealise};
-        if(nextDue){if(mt.type==='periodic')updMt.next_due=nextDue;else updMt.due_date=nextDue;}
-        const {error:mtErr}=await sb.from('maintenance_templates').update(updMt).eq('id',mt.id);
-        if(!mtErr){Object.assign(mt,updMt);if(nextDue)nextDueMsg='\n📅 Prochaine échéance gamme : '+new Date(nextDue).toLocaleDateString('fr-FR');}
-        // Historique équipement
-        if(mt.asset_id){
-          const asset=S.assets.find(a=>a.id===mt.asset_id);
-          if(asset){
-            const h={id:'x'+Math.random().toString(36).slice(2,9),type:'Entretien',date:dateRealise,
-              desc:mt.name+(comment?' — '+comment:''),cost:0,by:S.currentUser?.name||'—'};
-            asset.history=[...(asset.history||[]),h];
-            await sb.from('assets').update({history:asset.history}).eq('id',asset.id);
-          }
-        }
-      }
-    }
-    closeModal();render();
-    if(nextDueMsg)alert('✓ Bon de travaux terminé !'+nextDueMsg);
-    return;
-  }
-
-  if(m.type==='done-mt'){
-    const mt=m.mt;if(!mt)return;
-    const dateRealise=q('m-done-date')?.value||NOW;
-    const nextDueSaisi=q('m-done-next')?.value||null;
-    const note=q('m-done-note')?.value?.trim()||'';
-    // Calculer la nouvelle échéance
-    let nextDue=nextDueSaisi;
-    if(!nextDue&&mt.type==='periodic'&&mt.period_days){
-      const nd=new Date(dateRealise);nd.setDate(nd.getDate()+mt.period_days);
-      nextDue=nd.toISOString().slice(0,10);
-    }
-    const upd={last_done:dateRealise};
-    if(nextDue){
-      if(mt.type==='periodic')upd.next_due=nextDue;
-      else upd.due_date=nextDue;
-    }
-    const {error:mtErr}=await sb.from('maintenance_templates').update(upd).eq('id',mt.id);
-    if(mtErr){alert('Erreur : '+mtErr.message);return;}
-    Object.assign(mt,upd);
-    // Ajouter à l'historique de l'équipement
-    if(mt.asset_id){
-      const asset=S.assets.find(a=>a.id===mt.asset_id);
-      if(asset){
-        const h={id:'x'+Math.random().toString(36).slice(2,9),type:'Entretien',date:dateRealise,
-          desc:mt.name+(note?' — '+note:'')+(mt.description?' — '+mt.description:''),cost:0,by:S.currentUser?.name||'—'};
-        asset.history=[...(asset.history||[]),h];
-        await sb.from('assets').update({history:asset.history}).eq('id',asset.id);
-      }
-    }
-    // Clore le BT ouvert lié à cette gamme
-    const linkedBT=S.workOrders.find(w=>w.status==='open'&&w.source==='gamme'&&w.gamme_id===mt.id);
-    if(linkedBT){
-      const jouEntry={id:uid(),date:new Date(dateRealise).toLocaleDateString('fr-FR'),by:S.currentUser?.name||'—',
-        note:'✓ Gamme réalisée'+(note?' — '+note:'')+(nextDue?' | Prochaine échéance : '+new Date(nextDue).toLocaleDateString('fr-FR'):'')};
-      linkedBT.journal=[...(linkedBT.journal||[]),jouEntry];
-      await sb.from('work_orders').update({status:'done',journal:linkedBT.journal}).eq('id',linkedBT.id);
-      linkedBT.status='done';
-    }
-    let alertMsg='✓ Gamme réalisée !';
-    if(nextDue)alertMsg+='\n📅 Prochaine échéance : '+new Date(nextDue).toLocaleDateString('fr-FR');
-    if(linkedBT)alertMsg+='\n📋 Bon de travaux lié clôturé.';
-    alert(alertMsg);
-    closeModal();render();
-    return;
-  }
-
   closeModal();
   render();
 }
 
 
 
-function updateTenantZones(existingZoneName){
+function _updateLogementPreview(){
+  const propVal=document.getElementById('m-tprop')?.value||'';
+  const zoneVal=document.getElementById('m-tzone')?.value||'';
+  const subVal=document.getElementById('m-tsub')?.value||'';
+  const libreVal=(document.getElementById('m-tlogement-libre')?.value||'').trim();
+  let preview=propVal;
+  if(zoneVal)preview+=' — '+zoneVal;
+  if(subVal)preview+=' — '+subVal;
+  if(libreVal)preview+=' — '+libreVal;
+  const el=document.getElementById('m-tlogement-preview-val');
+  if(el)el.textContent=preview||'—';
+}
+function updateTenantSubZones(){
+  const pname=document.getElementById('m-tprop')?.value||'';
+  const zname=document.getElementById('m-tzone')?.value||'';
+  const p=S.topology.properties.find(x=>x.name===pname);
+  const z=p?.zones?.find(x=>x.name===zname);
+  const subs=z?(z.subZones||[]):[];
+  const wrap=document.getElementById('m-tsub-wrap');
+  const ssel=document.getElementById('m-tsub');
+  if(wrap&&ssel){
+    if(subs.length){
+      ssel.innerHTML='<option value="">— Aucune sous-zone —</option>'+
+        subs.map(s=>'<option value="'+s.name+'">'+s.name+'</option>').join('');
+      wrap.style.display='';
+    }else{
+      wrap.style.display='none';
+      ssel.innerHTML='';
+    }
+  }
+  _updateLogementPreview();
+}
+function updateTenantZonesFull(existingZone,existingSub){
   const sel=document.getElementById('m-tprop');
   const wrap=document.getElementById('m-tzone-wrap');
   const zsel=document.getElementById('m-tzone');
+  const swrap=document.getElementById('m-tsub-wrap');
+  const ssel=document.getElementById('m-tsub');
   if(!sel||!wrap||!zsel)return;
-  
-  // If no property selected, pick first one with zones
-  if(!sel.value){
-    const withZones=S.topology.properties.find(p=>(p.zones||[]).length>0);
-    if(withZones){
-      for(let i=0;i<sel.options.length;i++){
-        if(sel.options[i].value===withZones.name){sel.selectedIndex=i;break;}
-      }
-    } else if(sel.options.length>1){sel.selectedIndex=1;}
-  }
-  
   const pname=sel.value;
-  if(!pname){wrap.style.display='none';return;}
-  
+  if(!pname){wrap.style.display='none';if(swrap)swrap.style.display='none';_updateLogementPreview();return;}
   const p=S.topology.properties.find(x=>x.name===pname)||
           S.topology.properties.find(x=>x.name.toLowerCase()===pname.toLowerCase().trim());
   const zones=p?(p.zones||[]):[];
-  
   if(zones.length){
     zsel.innerHTML='<option value="">— Aucune zone —</option>'+
-      zones.map(z=>'<option value="'+z.name+'" '+(z.name===existingZoneName?'selected':'')+'>'+z.name+'</option>').join('');
+      zones.map(z=>'<option value="'+z.name+'" '+(z.name===existingZone?'selected':'')+'>'+z.name+'</option>').join('');
     wrap.style.display='';
-  } else {
+  }else{
     wrap.style.display='none';
     zsel.innerHTML='';
   }
+  // Sous-zones
+  const selectedZone=existingZone||'';
+  const z=p?.zones?.find(x=>x.name===selectedZone);
+  const subs=z?(z.subZones||[]):[];
+  if(ssel&&swrap){
+    if(subs.length){
+      ssel.innerHTML='<option value="">— Aucune sous-zone —</option>'+
+        subs.map(s=>'<option value="'+s.name+'" '+(s.name===existingSub?'selected':'')+'>'+s.name+'</option>').join('');
+      swrap.style.display='';
+    }else{
+      swrap.style.display='none';
+      ssel.innerHTML='';
+    }
+  }
+  _updateLogementPreview();
+}
+// Alias pour compatibilité avec les appels existants
+function updateTenantZones(existingZoneName){
+  updateTenantZonesFull(existingZoneName,'');
 }
 
 
 function genQuittancePDF(tenant, payment, mois, annee){
-  const fmt=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR',minimumFractionDigits:2}).format(n||0);
-  const loyerRef=parseFloat(tenant.loyer_ref||0);
-  const chargesRef=parseFloat(tenant.charges||0);
-  const totalRecu=parseFloat((payment.locataire_part||0)+(payment.caf||0));
-  const datePaiement=payment.date_loc?new Date(payment.date_loc).toLocaleDateString('fr-FR'):new Date().toLocaleDateString('fr-FR');
-  const moisNum=String(['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'].indexOf(mois)+1).padStart(2,'0');
-  const invoiceNum=annee+'-'+moisNum+'-'+(tenant.logement||'').replace(/[^A-Z0-9]/gi,'').toUpperCase().slice(0,6);
-  const isComm=tenant.type_bail==='commercial';
-  let html='';
-  try{
-    html=isComm
-      ?buildFactureHtml(tenant,payment,mois,annee,loyerRef,chargesRef,totalRecu||loyerRef,datePaiement,invoiceNum,fmt,payment.commentaire||'',true)
-      :buildQuittanceHtml(tenant,payment,mois,annee,loyerRef,chargesRef,totalRecu||loyerRef,datePaiement,fmt,payment.commentaire||'',true);
-  }catch(e){
-    console.error('genQuittancePDF error:',e);
-    // Fallback sans détail dette
-    html=isComm
-      ?buildFactureHtml(tenant,{...payment,_skipDette:true},mois,annee,loyerRef,chargesRef,totalRecu||loyerRef,datePaiement,invoiceNum,fmt,payment.commentaire||'',true)
-      :buildQuittanceHtml(tenant,{...payment,_skipDette:true},mois,annee,loyerRef,chargesRef,totalRecu||loyerRef,datePaiement,fmt,payment.commentaire||'',true);
-  }
-  try{
-    const blob=new Blob([html],{type:'text/html;charset=utf-8'});
-    const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.target='_blank';a.rel='noopener';
-    document.body.appendChild(a);a.click();document.body.removeChild(a);
-    setTimeout(()=>URL.revokeObjectURL(a.href),30000);
-  }catch(e){
-    const url='data:text/html;charset=utf-8,'+encodeURIComponent(html);
-    const a=document.createElement('a');a.href=url;a.target='_blank';a.click();
-  }
+  const recu=(payment.locataire_part||0)+(payment.caf||0);
+  const loyer=payment.loyer||tenant.loyer_ref||0;
+  const charges=tenant.charges||0;
+  const solde=Math.round((loyer-recu)*100)/100;
+  const fmt=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(n||0);
+  const today=new Date().toLocaleDateString('fr-FR');
+  const isDubailT=dubailFilter(tenant.logement||'');
+  const bailleurName=isDubailT?'J\u0026A SAVADUR':'Antoine JOSSE';
+  const bailleurAddr=isDubailT?'26 RUE G\u00c9N\u00c9RAL DUBAIL':'5 RUE DE CALVIN';
+  const html=`<!DOCTYPE html><html><head><meta charset="utf-8">
+  <title>Quittance ${mois} ${annee}</title>
+  <style>
+    body{font-family:Arial,sans-serif;margin:0;padding:30px;color:#222;font-size:13px}
+    .header{display:flex;justify-content:space-between;margin-bottom:30px}
+    .bailleur{font-size:12px;line-height:1.6}
+    .title{text-align:center;font-size:20px;font-weight:700;text-transform:uppercase;letter-spacing:2px;margin:20px 0;padding:12px;border-top:2px solid #222;border-bottom:2px solid #222}
+    .section{margin-bottom:16px}
+    .label{font-weight:600;color:#555;font-size:11px;text-transform:uppercase;letter-spacing:0.5px}
+    table{width:100%;border-collapse:collapse;margin:12px 0}
+    td,th{padding:8px 12px;border:1px solid #ddd;font-size:12px}
+    th{background:#f5f5f5;font-weight:600;text-align:left}
+    .total{font-weight:700;font-size:14px;background:#f0f0f0}
+    .footer{margin-top:40px;font-size:11px;color:#888;border-top:1px solid #ddd;padding-top:12px}
+    .signature{margin-top:50px;display:flex;justify-content:space-between}
+    .solde-ok{color:#1D9E75;font-weight:700}
+    .solde-bad{color:#E74C3C;font-weight:700}
+    @media print{body{padding:15px}}
+  </style></head><body>
+  <div class="header">
+    <div class="bailleur">
+      <strong>${bailleurName}</strong><br>
+      ${bailleurAddr}<br>
+      56100 LORIENT<br>
+    </div>
+    <div style="text-align:right;font-size:12px">
+      <strong>${tenant.nom||''}</strong><br>
+      ${tenant.logement||''}<br>
+      Date d'émission : ${today}
+    </div>
+  </div>
+  <div class="title">Quittance de loyer — ${mois} ${annee}</div>
+  <div class="section">
+    <div class="label">Logement</div>
+    <div>${tenant.logement||''}</div>
+  </div>
+  <table>
+    <tr><th>Désignation</th><th style="text-align:right">Montant</th></tr>
+    <tr><td>Loyer nu</td><td style="text-align:right">${fmt(loyer-charges)}</td></tr>
+    ${charges?`<tr><td>Charges</td><td style="text-align:right">${fmt(charges)}</td></tr>`:''}
+    <tr class="total"><td><strong>Total appelé</strong></td><td style="text-align:right"><strong>${fmt(loyer)}</strong></td></tr>
+    ${payment.caf?`<tr><td style="color:#888">dont CAF (${fmt(payment.caf)})</td><td style="text-align:right;color:#888">${fmt(payment.locataire_part||0)} locataire</td></tr>`:''}
+    <tr class="total"><td><strong>Total reçu</strong></td><td style="text-align:right" class="${solde<=0?'solde-ok':'solde-bad'}"><strong>${fmt(recu)}</strong></td></tr>
+    ${solde>0?`<tr><td style="color:#E74C3C">Solde restant dû</td><td style="text-align:right;color:#E74C3C">${fmt(solde)}</td></tr>`:''}
+  </table>
+  ${payment.commentaire?`<div style="margin:12px 0;padding:10px;background:#FFF9E6;border-left:3px solid #F39C12;font-size:12px">${payment.commentaire}</div>`:''}
+  <div class="footer">
+    Quittance générée le ${today} — Je soussigné, bailleur, déclare avoir reçu la somme de ${fmt(recu)} 
+    au titre du loyer et des charges du logement désigné ci-dessus pour la période de ${mois} ${annee}.
+  </div>
+  <div class="signature">
+    <div style="font-size:12px">Le locataire<br><br><br>Signature :</div>
+    <div style="font-size:12px;text-align:right">Le bailleur<br><br><br>Signature :</div>
+  </div>
+  </body></html>`;
+  const w=window.open('','_blank','width=800,height=900');
+  w.document.write(html);
+  w.document.close();
+  setTimeout(()=>w.print(),500);
 }
 
 function genFactureEauPDF(tenant, releves, mois, annee){
@@ -7172,11 +6929,11 @@ function bindAll(){
     }
     if(tenant.email&&payment){
       try{
-        await autoSendQuittance(tenant,payment,mois,annee,payment.commentaire||'');
-        // Le message de confirmation est affiché dans autoSendQuittance
+        const r = await autoSendQuittance(tenant,payment,mois,annee,payment.commentaire||'');
+        alert('✓ Loyer validé !\n\n📄 Document ouvert pour impression/PDF.\n📧 Copie envoyée sur '+ALERT_EMAIL+' (à transférer à '+tenant.email+')');
       }catch(e){
         console.error('Email err:',e);
-        alert('✓ Loyer validé\n⚠ Email non envoyé : '+e.message);
+        alert('✓ Loyer validé\n\n📄 '+e.message);
       }
     }else{
       alert('✓ Loyer validé'+(tenant.email?'':' — aucun email renseigné pour ce locataire.'));
@@ -7191,124 +6948,17 @@ function bindAll(){
     const existing=S.rentPayments.find(p=>p.tenant_id===tId&&p.mois===mois&&p.annee===annee);
     S.modal={type:'saisie-loyer',tenantId:tId,mois,annee,existing,tenant};render();
   });
-  document.querySelectorAll('[data-remb-dette]').forEach(el=>el.onclick=()=>{
-    const tenant=S.tenants.find(t=>t.id===el.dataset.rembDette);
-    if(!tenant)return;
-    S.modal={type:'remb-dette',tenant};render();
-  });
-  // Générer toutes les quittances/paiements manquants (0€) pour tous les locataires actifs
-  async function genererQuittancesManquantes(envoyerEmails){
-    const MOIS_LIST=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
-    const now=new Date();
-    const nowY=now.getFullYear(),nowM=now.getMonth();
-    const DETTE_DEPUIS=new Date(2026,0,1);
-    const tenantsConcernes=S.tenants.filter(t=>t.actif!==false);
-    let nbCrees=0,nbEnvoyes=0,erreurs=[];
-    for(const t of tenantsConcernes){
-      const isComm=t.type_bail==='commercial';
-      const loyerHT=parseFloat(t.loyer_ref||0);
-      const chargesHT=parseFloat(t.charges||0);
-      const loyerTTC=isComm?Math.round((loyerHT+chargesHT)*1.2*100)/100:Math.round((loyerHT+chargesHT)*100)/100;
-      if(!loyerTTC)continue;
-      const entree=t.date_entree?new Date(t.date_entree):null;
-      const debut=entree&&entree>DETTE_DEPUIS?entree:DETTE_DEPUIS;
-      let y=debut.getFullYear(),m=debut.getMonth();
-      while(y<nowY||(y===nowY&&m<=nowM)){
-        const moisNom=MOIS_LIST[m];
-        const moisNum=m+1;
-        const existing=S.rentPayments.find(p=>p.tenant_id===t.id&&p.annee===y&&p.mois===moisNom);
-        if(!existing){
-          // Créer paiement 0€
-          try{
-            const rec={tenant_id:t.id,mois:moisNom,annee:y,mois_num:moisNum,loyer:loyerTTC,locataire_part:0,caf:0,paye:false,commentaire:'Loyer non perçu'};
-            const {data,error}=await sb.from('rent_payments').insert(rec).select().single();
-            if(error){erreurs.push(`${t.nom} ${moisNom} ${y}: ${error.message}`);}
-            else{S.rentPayments.push(data);nbCrees++;
-              // Envoyer email si demandé et locataire a un email
-              if(envoyerEmails&&t.email){
-                try{await autoSendQuittance(t,data,moisNom,y,'Loyer non perçu — dette reportée',true);nbEnvoyes++;}
-                catch(e){erreurs.push(`Email ${t.nom} ${moisNom}: ${e.message}`);}
-              }
-            }
-          }catch(e){erreurs.push(`${t.nom} ${moisNom} ${y}: ${e.message}`);}
-        }
-        m++;if(m>11){m=0;y++;}
-      }
-    }
-    render();
-    let msg=`✓ ${nbCrees} quittance(s) créée(s)`;
-    if(envoyerEmails)msg+=`, ${nbEnvoyes} email(s) envoyé(s)`;
-    if(erreurs.length)msg+=`\n⚠ ${erreurs.length} erreur(s):\n`+erreurs.slice(0,5).join('\n');
-    if(nbCrees>0||erreurs.length)alert(msg);
-    return nbCrees;
-  }
-
-  const btnGenQtt=document.getElementById('btn-gen-qtt-manquantes');
-  if(btnGenQtt)btnGenQtt.onclick=async()=>{
-    btnGenQtt.disabled=true;btnGenQtt.textContent='⏳ Génération...';
-    await genererQuittancesManquantes(false);
-    btnGenQtt.disabled=false;btnGenQtt.textContent='📄 Générer quittances manquantes';
-  };
-
-  document.querySelectorAll('[data-qtt-send]').forEach(el=>el.onclick=async(e)=>{
-    e.stopPropagation();
-    const payment=S.rentPayments.find(p=>p.id===el.dataset.qttSend);
-    if(!payment)return;
-    const tenant=S.tenants.find(t=>t.id===payment.tenant_id);
-    if(!tenant)return;
-    if(!tenant.email){alert('Pas d\'email pour ce locataire.');return;}
-    try{
-      await autoSendQuittance(tenant,payment,payment.mois,payment.annee,'Loyer non perçu — dette reportée',true);
-      await sb.from('rent_payments').update({quittance_envoyee:true}).eq('id',payment.id);
-      payment.quittance_envoyee=true;
-      render();
-    }catch(e){alert('Erreur envoi : '+e.message);}
-  });
-
-  document.querySelectorAll('[data-qtt-zero]').forEach(el=>el.onclick=async(e)=>{
-    e.stopPropagation();
-    const tenant=S.tenants.find(t=>t.id===el.dataset.qttZero);
-    if(!tenant)return;
-    const mois=el.dataset.qttMois;
-    const annee=parseInt(el.dataset.qttAnnee);
-    const isComm=tenant.type_bail==='commercial';
-    const loyerHT=parseFloat(tenant.loyer_ref||0);
-    const chargesHT=parseFloat(tenant.charges||0);
-    const loyerTTC=isComm?Math.round((loyerHT+chargesHT)*1.2*100)/100:Math.round((loyerHT+chargesHT)*100)/100;
-    const MOIS_LIST=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
-    const moisNum=MOIS_LIST.indexOf(mois)+1;
-    const existing=S.rentPayments.find(p=>p.tenant_id===tenant.id&&p.annee===annee&&p.mois===mois);
-    let payment;
-    if(!existing){
-      const rec={tenant_id:tenant.id,mois,annee,mois_num:moisNum,loyer:loyerTTC,locataire_part:0,caf:0,paye:false,commentaire:'Loyer non perçu — dette reportée'};
-      const {data,error}=await sb.from('rent_payments').insert(rec).select().single();
-      if(error){alert('Erreur création paiement : '+error.message);return;}
-      S.rentPayments.push(data);
-      payment=data;
-    } else {
-      payment=existing;
-    }
-    // Envoyer email si locataire a un email
-    if(tenant.email){
-      try{
-        await autoSendQuittance(tenant,payment,mois,annee,'Loyer non perçu — dette reportée au mois suivant',true);
-        // Marquer quittance comme envoyée en BDD
-        await sb.from('rent_payments').update({quittance_envoyee:true}).eq('id',payment.id);
-        payment.quittance_envoyee=true;
-      }catch(e){
-        genQuittancePDF(tenant,payment,mois,annee);
-        alert('✓ Paiement créé\n⚠ Email non envoyé : '+e.message);
-      }
-    } else {
-      genQuittancePDF(tenant,payment,mois,annee);
-      alert('✓ Paiement 0€ créé — pas d\'email. Document ouvert.');
-    }
-    render();
-  });
   document.querySelectorAll('[data-loc-annee]').forEach(el=>el.onclick=()=>{S.locAnnee=parseInt(el.dataset.locAnnee);render();});
 
   const btnAddTenant=q('btn-add-tenant');
-  if(btnAddTenant)  btnAddTenant.onclick=()=>{S.modal={type:'add-tenant'};render();setTimeout(()=>updateTenantZones(''),200);};
+  if(btnAddTenant)btnAddTenant.onclick=()=>{S.modal={type:'add-tenant'};render();setTimeout(()=>{updateTenantZonesFull('','');},200);};
+  // Live preview for logement fields
+  ['m-tprop','m-tzone','m-tsub','m-tlogement-libre'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el)el.addEventListener('change',_updateLogementPreview);
+    if(el&&id==='m-tlogement-libre')el.addEventListener('input',_updateLogementPreview);
+  });
+  setTimeout(_updateLogementPreview,300);
 
   const btnOpenEdl=document.getElementById('btn-open-edl-form');
   if(btnOpenEdl)btnOpenEdl.onclick=()=>{
@@ -7361,9 +7011,11 @@ function bindAll(){
     if(t){
       const logStr=t.logement||'';
       const sep=logStr.includes(' — ')?' — ':' - ';
-      const existingZone=logStr.includes(sep)?logStr.split(sep)[1]||'':'';
+      const parts=logStr.split(sep);
+      const existingZone=parts[1]||'';
+      const existingSub=parts[2]||'';
       S.modal={type:'edit-tenant',tenant:t};render();
-      setTimeout(()=>updateTenantZones(existingZone),200);
+      setTimeout(()=>updateTenantZonesFull(existingZone,existingSub),200);
     }});
   document.querySelectorAll('[data-del-tenant]').forEach(el=>el.onclick=async()=>{
     if(!confirm('Supprimer ce locataire ?'))return;
@@ -7620,23 +7272,6 @@ function bindAll(){
     if(!tenant)return;
     genQuittancePDF(tenant,rp,rp.mois,rp.annee);
   });
-  document.querySelectorAll('[data-resend-qtt]').forEach(el=>el.onclick=async()=>{
-    const rp=S.rentPayments.find(r=>r.id===el.dataset.resendQtt);
-    if(!rp)return;
-    const tenant=S.tenants.find(t=>t.id===rp.tenant_id);
-    if(!tenant||!tenant.email)return alert('Pas d\'email pour ce locataire');
-    const isPartial=!rp.paye&&((rp.locataire_part||0)+(rp.caf||0))>0;
-    const recu=(rp.locataire_part||0)+(rp.caf||0);
-    const solde=Math.round(((rp.loyer||0)-recu)*100)/100;
-    const fmt=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(n||0);
-    const partialComment=isPartial
-      ?('[Règlement partiel — Reçu : '+fmt(recu)+' — Solde restant : '+fmt(solde)+']'+(rp.commentaire?' '+rp.commentaire:''))
-      :(rp.commentaire||'');
-    if(!confirm('Renvoyer le document par email à '+tenant.email+' ?'))return;
-    try{
-      await autoSendQuittance(tenant,rp,rp.mois,rp.annee,partialComment,isPartial);
-    }catch(e){alert('Erreur envoi : '+e.message);}
-  });
   document.querySelectorAll('[data-del-rp]').forEach(el=>el.onclick=async()=>{
     if(!confirm('Supprimer ce paiement ?'))return;
     const id=el.dataset.delRp;
@@ -7662,12 +7297,12 @@ function bindAll(){
   const wfa=document.getElementById('wo-filter-asset');
   const wfst=document.getElementById('wo-filter-status');
   const wfr=document.getElementById('wo-reset-filters');
-  if(!S.woSearch)S.woSearch={prop:'',zone:'',sub:'',asset:'',status:localStorage.getItem('gmao_wo_status_filter')||'open'};
+  if(!S.woSearch)S.woSearch={prop:'',zone:'',sub:'',asset:'',status:'all'};
   if(wfp)wfp.onchange=()=>{S.woSearch.prop=wfp.value;S.woSearch.zone='';S.woSearch.sub='';render();};
   if(wfz)wfz.onchange=()=>{S.woSearch.zone=wfz.value;S.woSearch.sub='';render();};
   if(wfs)wfs.onchange=()=>{S.woSearch.sub=wfs.value;render();};
   if(wfa)wfa.onchange=()=>{S.woSearch.asset=wfa.value;render();};
-  if(wfst)wfst.onchange=()=>{S.woSearch.status=wfst.value;localStorage.setItem('gmao_wo_status_filter',wfst.value);render()};
+  if(wfst)wfst.onchange=()=>{S.woSearch.status=wfst.value;render();};
   if(wfr)wfr.onclick=()=>{S.woSearch={prop:'',zone:'',sub:'',asset:'',status:'all'};S.filter.cat='all';render();};
 
   // Checklist toggle
@@ -7743,7 +7378,46 @@ function bindAll(){
     S.tools=S.tools.filter(t=>t.id!==el.dataset.delTool);render();});
   document.querySelectorAll('[data-done-mt]').forEach(el=>el.onclick=async()=>{
     const mt=S.maintenanceTemplates.find(x=>x.id===el.dataset.doneMt);if(!mt)return;
-    S.modal={type:'done-mt',mt};render();
+    const today=new Date();
+    const upd={last_done:NOW};
+    let nextDue=null;
+    if(mt.type==='periodic'){
+      const nd=new Date();nd.setDate(nd.getDate()+mt.period_days);
+      nextDue=nd.toISOString().split('T')[0];
+      upd.next_due=nextDue;
+    }
+    await sb.from('maintenance_templates').update(upd).eq('id',mt.id);
+    Object.assign(mt,upd);
+
+    // Add to asset history
+    if(mt.asset_id){
+      const asset=S.assets.find(a=>a.id===mt.asset_id);
+      if(asset){
+        const h={id:'x'+Math.random().toString(36).slice(2,9),type:'Entretien',date:NOW,desc:mt.name+(mt.description?' — '+mt.description:''),cost:0,by:S.currentUser?.name||'—'};
+        asset.history=[...(asset.history||[]),h];
+        await sb.from('assets').update({history:asset.history}).eq('id',asset.id);
+      }
+    }
+
+    // Auto-create work order if enabled
+    if(mt.auto_bt && mt.asset_id && nextDue){
+      const asset=S.assets.find(a=>a.id===mt.asset_id);
+      const woTitle=mt.name+' (auto)';
+      const woDesc=(mt.description?mt.description+' — ':'')+'Généré auto. Prochaine échéance : '+nextDue;
+      const {data:woData}=await sb.from('work_orders').insert({
+        title:woTitle,description:woDesc,asset_id:mt.asset_id,
+        category:mt.bt_category||'Entretien',date:nextDue,
+        status:'open',cost:0,by_user:''
+      }).select().single();
+      if(woData){
+        S.workOrders.push(woData);
+        alert('✓ Gamme réalisée ! Un bon de travaux a été créé pour le '+new Date(nextDue).toLocaleDateString('fr-FR'));
+      }
+    } else {
+      const msg=mt.type==='periodic'?'Gamme réalisée. Prochaine échéance : '+new Date(nextDue||mt.next_due).toLocaleDateString('fr-FR'):'Gamme marquée comme réalisée.';
+      alert('✓ '+msg);
+    }
+    render();
   });
   document.querySelectorAll('[data-del-mt]').forEach(el=>el.onclick=async()=>{
     if(!confirm('Supprimer ?'))return;await sb.from('maintenance_templates').delete().eq('id',el.dataset.delMt);
@@ -7840,9 +7514,20 @@ function bindAll(){
   // ============================================================
   // WORK ORDERS
   // ============================================================
-  document.querySelectorAll('[data-close-wo]').forEach(el=>el.onclick=()=>{
+  document.querySelectorAll('[data-close-wo]').forEach(el=>el.onclick=async()=>{
     const w=S.workOrders.find(x=>x.id===el.dataset.closeWo);if(!w)return;
-    S.modal={type:'close-wo',wo:w};render();
+    const csoItems=(w.checklist||[]).filter(i=>i.type==='cso'&&!i.done);
+    if(csoItems.length>0){
+      const deduct=confirm('Déduire les consommables utilisés du stock ?\n'+csoItems.map(i=>`- ${i.nom} × ${i.quantite}`).join('\n'));
+      if(deduct){
+        for(const item of csoItems){
+          const cso=S.consommables.find(c=>c.id===item.id);
+          if(cso){const ns=Math.max(0,(cso.stock||0)-item.quantite);await sb.from('consommables').update({stock:ns}).eq('id',cso.id);cso.stock=ns;}
+        }
+      }
+    }
+    await sb.from('work_orders').update({status:'done'}).eq('id',w.id);
+    w.status='done';render();
   });
   document.querySelectorAll('[data-edit-wo]').forEach(el=>el.onclick=()=>{
     const w=S.workOrders.find(x=>x.id===el.dataset.editWo);
@@ -8012,8 +7697,19 @@ function bindAll(){
   });
   document.querySelectorAll('[data-done-mt]').forEach(el=>el.onclick=async()=>{
     const mt=S.maintenanceTemplates.find(x=>x.id===el.dataset.doneMt);if(!mt)return;
-    // Ouvrir le modal de validation
-    S.modal={type:'done-mt',mt};render();
+    const now=new Date().toISOString().slice(0,10);
+    mt.last_done=now;
+    if(mt.type==='periodic'&&mt.period_days){
+      const nd=new Date();nd.setDate(nd.getDate()+mt.period_days);
+      mt.next_due=nd.toISOString().slice(0,10);
+    }
+    await sb.from('maintenance_templates').update({last_done:mt.last_done,next_due:mt.next_due}).eq('id',mt.id);
+    if(mt.auto_bt){
+      const {data}=await sb.from('work_orders').insert({title:mt.name,description:mt.description,asset_id:mt.asset_id,category:mt.bt_category||'Entretien',date:now,status:'open',cost:0,by_user:'',docs:[],journal:[],checklist:[]}).select().single();
+      if(data)S.workOrders.push(data);
+      alert('✓ Gamme réalisée — BT créé automatiquement !');
+    } else {alert('✓ Gamme marquée réalisée !');}
+    render();
   });
 
   // ============================================================
@@ -8532,51 +8228,8 @@ function bindAll(){
 }
 
 // ============================================================
-// GÉNÉRATION AUTOMATIQUE DE BT DEPUIS LES GAMMES
+// ALERTE EMAIL BON DE TRAVAUX
 // ============================================================
-async function checkAutoGenerateBTs(){
-  if(!isAdmin())return;
-  const today=new Date();
-  const generated=[];
-  for(const mt of S.maintenanceTemplates){
-    if(!mt.auto_bt||!mt.bt_jours_avant)continue;
-    const echeance=mt.type==='periodic'?mt.next_due:mt.due_date;
-    if(!echeance)continue;
-    const daysLeft=Math.ceil((new Date(echeance)-today)/86400000);
-    // Déclencher si on est dans la fenêtre (entre 0 et bt_jours_avant jours avant)
-    if(daysLeft>mt.bt_jours_avant||daysLeft<-(mt.bt_jours_avant||30))continue; // grace period = périodicité
-    // Vérifier qu'il n'y a pas déjà un BT ouvert issu de cette gamme
-    const existingOpenBT=S.workOrders.find(w=>
-      w.status==='open'&&w.source==='gamme'&&w.gamme_id===mt.id
-    );
-    if(existingOpenBT)continue;
-    // Créer le BT
-    const asset=S.assets.find(a=>a.id===mt.asset_id);
-    const topoRef=mt.bien?{propName:mt.bien,zoneName:mt.zone_nom||'',subName:mt.sub_nom||''}:null;
-    const rec={
-      title:mt.name,
-      description:(mt.description||'')+(mt.description?' — ':'')+
-        'BT auto-généré — Échéance : '+new Date(echeance).toLocaleDateString('fr-FR'),
-      asset_id:mt.asset_id||null,
-      topo_ref:topoRef,
-      category:mt.bt_category||'Entretien',
-      date:today.toISOString().split('T')[0],
-      status:'open',cost:0,by_user:'',docs:[],journal:[],checklist:[],
-      source:'gamme',gamme_id:mt.id
-    };
-    const {data,error}=await sb.from('work_orders').insert(rec).select().single();
-    if(!error&&data){
-      S.workOrders.push(data);
-      generated.push(mt.name);
-    }
-  }
-  if(generated.length>0){
-    console.log('Auto-BT générés :',generated);
-    // Re-render si on est sur la vue maintenance ou workorders
-    if(S.view==='maintenance'||S.view==='workorders'||S.view==='dashboard')render();
-  }
-}
-
 async function sendWOAlert(wo, byUser, byEmail){
   if(!byEmail) return;
   const asset = S.assets.find(a=>a.id===wo.asset_id);
@@ -8915,92 +8568,65 @@ function _openPicker(callback){
 // QUITTANCES & FACTURES
 // ============================================================
 async function autoSendQuittance(tenant,payment,mois,annee,commentaire='',isPartial=false){
+  // Sender depends on property type
   const isDubailQ = dubailFilter(tenant.logement||'');
-  const SEND_FROM_EMAIL = isDubailQ ? 'savadur56@gmail.com' : 'antoinejosse56@gmail.com';
-  const SEND_FROM_NAME  = isDubailQ ? 'J&A SAVADUR'        : 'Antoine JOSSE';
-  // Copies : toujours antoinejosse56, + savadur56 si bien Dubail
-  const COPY_TO = isDubailQ
-    ? [{email:'savadur56@gmail.com',name:'J&A SAVADUR'},{email:'antoinejosse56@gmail.com',name:'Antoine JOSSE'}]
-    : [{email:'antoinejosse56@gmail.com',name:'Antoine JOSSE'}];
-
+  const SEND_FROM_EMAIL = isDubailQ ? 'savadur56@gmail.com'   : 'antoinejosse56@gmail.com';
+  const SEND_FROM_NAME  = isDubailQ ? 'J&A SAVADUR'           : 'Antoine JOSSE';
   if(!tenant.email)return;
   const fmt=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR',minimumFractionDigits:2}).format(n||0);
   const isCommercial=tenant.type_bail==='commercial';
+  const charges=parseFloat(tenant.charges||0);
+  // Quittance shows: loyer ref + charges (expected base), total RECU = locataire_part + caf
   const loyerRef=parseFloat(tenant.loyer_ref||0);
   const chargesRef=parseFloat(tenant.charges||0);
   const totalRecu=parseFloat((payment.locataire_part||0)+(payment.caf||0));
-  const total=totalRecu||loyerRef;
+  const total=totalRecu||loyerRef; // show what was received, fallback to ref
   const datePaiement=payment.date_loc?new Date(payment.date_loc).toLocaleDateString('fr-FR'):new Date().toLocaleDateString('fr-FR');
   const moisNum=String(['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'].indexOf(mois)+1).padStart(2,'0');
   const invoiceNum=annee+'-'+moisNum+'-'+tenant.logement.replace(/[^A-Z0-9]/gi,'').toUpperCase().slice(0,6);
   const emailHtml=isCommercial
-    ?buildFactureHtml(tenant,payment,mois,annee,loyerRef,chargesRef,total,datePaiement,invoiceNum,fmt,commentaire,true)
-    :buildQuittanceHtml(tenant,payment,mois,annee,loyerRef,chargesRef,total,datePaiement,fmt,commentaire,true);
+    ?buildFactureHtml(tenant,payment,mois,annee,loyerRef,chargesRef,totalRecu,datePaiement,invoiceNum,fmt,commentaire,true)
+    :buildQuittanceHtml(tenant,payment,mois,annee,loyerRef,chargesRef,totalRecu,datePaiement,fmt,commentaire,true);
   const docLabel=isPartial?'Règlement partiel':'Quittance de loyer';
   const subject=isCommercial
     ?docLabel+' — '+mois+' '+annee+' — '+tenant.logement+' — N°'+invoiceNum
     :docLabel+' — '+mois+' '+annee+' — '+tenant.logement;
+  // Copie savadur56 uniquement pour biens Dubail
+  const isDubailTenant = dubailFilter(tenant.logement||'');
+  const copyBcc = isDubailTenant ? [{email:'savadur56@gmail.com'}] : [];
+  // Envoi Brevo
   if(!BREVO_API_KEY)BREVO_API_KEY=ensureBrevoKey();
   if(!BREVO_API_KEY)throw new Error('Clé Brevo manquante');
-
-  // 1. Envoi au locataire
+  // Envoi au locataire
   const resp=await fetch('https://api.brevo.com/v3/smtp/email',{
     method:'POST',
     headers:{'api-key':BREVO_API_KEY,'Content-Type':'application/json','Accept':'application/json'},
     body:JSON.stringify({sender:{name:SEND_FROM_NAME,email:SEND_FROM_EMAIL},to:[{email:tenant.email,name:tenant.nom}],subject,htmlContent:emailHtml})
   });
-  if(!resp.ok){
-    const t=await resp.text();
-    // Ouvrir quand même le document même si l'email a échoué
-    const blob=new Blob([emailHtml],{type:'text/html;charset=utf-8'});
-    const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.target='_blank';a.rel='noopener';
+  if(!resp.ok){const t=await resp.text();const w=window.open('','_blank');if(w){w.document.write(emailHtml);w.document.close();}throw new Error(t);}
+  // Copie séparée à savadur56 et admin
+  const copySubject='[COPIE] '+subject+' — '+tenant.nom;
+  fetch('https://api.brevo.com/v3/smtp/email',{
+    method:'POST',
+    headers:{'api-key':BREVO_API_KEY,'Content-Type':'application/json','Accept':'application/json'},
+    body:JSON.stringify({sender:{name:FROM_NAME,email:FROM_EMAIL},to:isDubailQ?[{email:'savadur56@gmail.com',name:'J&A SAVADUR'},{email:ALERT_EMAIL,name:'Antoine JOSSE'}]:[{email:ALERT_EMAIL,name:'Antoine JOSSE'}],subject:copySubject,htmlContent:emailHtml})
+  }).catch(e=>console.warn('Copie archive failed:',e.message));
+  // Open print preview (with print button enabled)
+  try{
+    const previewHtml=isCommercial
+      ?buildFactureHtml(tenant,payment,mois,annee,loyerRef,chargesRef,totalRecu,datePaiement,invoiceNum,fmt,commentaire,false)
+      :buildQuittanceHtml(tenant,payment,mois,annee,loyerRef,chargesRef,totalRecu,datePaiement,fmt,commentaire,false);
+    const blob=new Blob([previewHtml],{type:'text/html;charset=utf-8'});
+    const blobUrl=URL.createObjectURL(blob);
+    // Use <a> click instead of window.open to bypass popup blocker
+    const a=document.createElement('a');
+    a.href=blobUrl;a.target='_blank';a.rel='noopener';
     document.body.appendChild(a);a.click();document.body.removeChild(a);
-    throw new Error('Email locataire échoué : '+t);
-  }
-
-  // 2. Copie aux gérants (même expéditeur dynamique)
-  let copyOk=false;
-  try{
-    const copyResp=await fetch('https://api.brevo.com/v3/smtp/email',{
-      method:'POST',
-      headers:{'api-key':BREVO_API_KEY,'Content-Type':'application/json','Accept':'application/json'},
-      body:JSON.stringify({sender:{name:SEND_FROM_NAME,email:SEND_FROM_EMAIL},to:COPY_TO,subject:'[COPIE] '+subject+' — '+tenant.nom,htmlContent:emailHtml})
-    });
-    copyOk=copyResp.ok;
-    if(!copyResp.ok)console.warn('Copie failed:',await copyResp.text());
-  }catch(e){console.warn('Copie failed:',e.message);}
-
-  // 3. Ouvrir le document en popup
-  let previewHtml='';
-  try{
-    previewHtml=isCommercial
-      ?buildFactureHtml(tenant,payment,mois,annee,loyerRef,chargesRef,total,datePaiement,invoiceNum,fmt,commentaire,false)
-      :buildQuittanceHtml(tenant,payment,mois,annee,loyerRef,chargesRef,total,datePaiement,fmt,commentaire,false);
+    setTimeout(()=>URL.revokeObjectURL(blobUrl),30000);
   }catch(e){
-    console.error('Erreur génération document:',e);
-    // Fallback sans détail dette
-    previewHtml=isCommercial
-      ?buildFactureHtml(tenant,payment,mois,annee,loyerRef,chargesRef,total,datePaiement,invoiceNum,fmt,commentaire,false)
-      :buildQuittanceHtml(tenant,{...payment,_skipDette:true},mois,annee,loyerRef,chargesRef,total,datePaiement,fmt,commentaire,false);
-  }
-  try{
-    const blob=new Blob([previewHtml||emailHtml],{type:'text/html;charset=utf-8'});
-    const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.target='_blank';a.rel='noopener';
-    document.body.appendChild(a);a.click();document.body.removeChild(a);
-    setTimeout(()=>URL.revokeObjectURL(a.href),30000);
-  }catch(e){
-    const url='data:text/html;charset=utf-8,'+encodeURIComponent(previewHtml||emailHtml);
+    const url='data:text/html;charset=utf-8,'+encodeURIComponent(emailHtml);
     const a=document.createElement('a');a.href=url;a.target='_blank';a.click();
   }
-
-  // 4. Message de confirmation clair
-  const copyDests=COPY_TO.map(x=>x.email).join(', ');
-  alert('✅ Email envoyé avec succès !\n\n'
-    +'📧 Destinataire : '+tenant.email+'\n'
-    +'📤 Expéditeur : '+SEND_FROM_EMAIL+'\n'
-    +'📋 Objet : '+subject+'\n'
-    +(copyOk?'📎 Copie envoyée à : '+copyDests:'⚠ Copie non envoyée (vérifier les logs)')
-  );
   return true;
 }
 
@@ -9083,208 +8709,122 @@ async function sendAccuseEau(releve,cpt,tenant,montant){
   return true;
 }
 
-// ============================================================
-// Calcul de la situation locative mois par mois
-// Retourne un tableau de lignes avec : mois, annee, attendu, recu, solde (peut être négatif = crédit)
-// Seuls les mois à solde non nul sont retournés (ou tous si includeAll=true)
-function calcDetteLigne(tenant, moisCourant, anneeCourante, includeAll){
-  const MOIS_LIST=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
-  const isComm=tenant.type_bail==='commercial';
-  const loyerHT=parseFloat(tenant.loyer_ref||0);
-  const chargesHT=parseFloat(tenant.charges||0);
-  const loyerMensuel=isComm
-    ?Math.round((loyerHT*1.2+chargesHT*1.2)*100)/100
-    :Math.round((loyerHT+chargesHT)*100)/100;
-  if(!loyerMensuel||typeof S==='undefined')return{lignes:[],detteFinale:0};
-
-  const DETTE_DEPUIS=new Date(2026,0,1);
-  const entree=tenant.date_entree?new Date(tenant.date_entree):null;
-  const debut=entree&&entree>DETTE_DEPUIS?entree:DETTE_DEPUIS;
-
-  // Solde au 1er janvier 2026 (ou date d'entrée si après) saisi manuellement
-  let solde=Math.round((parseFloat(tenant.dette||0))*100)/100;
-  const lignes=[];
-
-  let y=debut.getFullYear(),m=debut.getMonth();
-  // On s'arrête au mois courant INCLUS (ou mois précédent si moisCourant défini)
-  const moisCourantNum=moisCourant?MOIS_LIST.indexOf(moisCourant):-1;
-  const stopY=anneeCourante||new Date().getFullYear();
-  const stopM=moisCourantNum>=0?moisCourantNum:(new Date().getMonth());
-
-  while(y<stopY||(y===stopY&&m<=stopM)){
-    const moisNom=MOIS_LIST[m];
-    const moisNum=m+1;
-    // Exclure le mois du document courant (sera traité séparément)
-    if(moisCourant&&moisNom===moisCourant&&y===anneeCourante){m++;if(m>11){m=0;y++;}continue;}
-    const p=S.rentPayments.find(x=>x.tenant_id===tenant.id&&x.annee===y&&x.mois===moisNom);
-    const recu=p?Math.round(((p.locataire_part||0)+(p.caf||0))*100)/100:0;
-    const remise=p?Math.round((p.remise||0)*100)/100:0;
-    // Loyer attendu ce mois = loyer mensuel référence - remise éventuelle
-    const attenduCeMois=Math.max(0,Math.round((loyerMensuel-remise)*100)/100);
-    const soldePrecedent=solde;
-    solde=Math.round((solde+attenduCeMois-recu)*100)/100;
-    if(includeAll||Math.abs(solde)>0.01){
-      lignes.push({
-        mois:moisNom,annee:y,mois_num:moisNum,
-        attendu:attenduCeMois,recu,remise,remise_motif:p?.remise_motif||'',
-        soldePrecedent:Math.round(soldePrecedent*100)/100,
-        solde:Math.round(solde*100)/100,
-        saisi:!!p,
-        estCredit:solde<-0.01,
-        estSolde:Math.abs(solde)<0.01
-      });
-    }
-    m++;if(m>11){m=0;y++;}
-  }
-  return{lignes,detteFinale:Math.round(solde*100)/100};
-}
-
-function buildDocumentLoyer(tenant,payment,mois,annee,loyer,charges,total,datePaiement,fmt,commentaire,showPrintBar){
-  const isDubail=dubailFilter(tenant.logement||'');
-  const isComm=tenant.type_bail==='commercial';
-  const tvaTaux=isComm?0.20:0;
-  const bailNom=isDubail?'J&A SAVADUR':'Antoine JOSSE';
-  const bailAddr=isDubail?'26 RUE GÉNÉRAL DUBAIL':'5 RUE DE CALVIN';
-  const bailCP='56100 LORIENT';
-  const bailEmail=isDubail?'savadur56@gmail.com':'antoinejosse56@gmail.com';
-  const bailTel=isDubail?'06.30.37.06.88':'';
-  const sigNom=isDubail?'JOSSE Antoine':'Antoine JOSSE';
-  const sigQualite=isDubail?'GÉRANT J&A SAVADUR':'Bailleur';
-  const propName=(tenant.logement||'').split(' — ')[0].split(' - ')[0].trim();
-  const adresseLogement=isDubail?'26 RUE GÉNÉRAL DUBAIL, 56100 LORIENT':(bailAddr+', '+bailCP);
-  const loyerRef=parseFloat(tenant.loyer_ref||0);
-  const chargesRef=parseFloat(tenant.charges||0);
+function buildQuittanceHtml(tenant,payment,mois,annee,loyer,charges,total,datePaiement,fmt,commentaire='',showPrintBar=true){
+  const isDubail = dubailFilter(tenant.logement||'');
+  const bailNom   = isDubail ? 'J&A SAVADUR'               : 'Antoine JOSSE';
+  const bailAddr  = isDubail ? '26 RUE G\u00c9N\u00c9RAL DUBAIL' : '5 RUE DE CALVIN';
+  const bailCP    = '56100 LORIENT';
+  const bailEmail = isDubail ? 'savadur56@gmail.com'        : 'antoinejosse56@gmail.com';
+  const bailTel   = isDubail ? '06.30.37.06.88'             : '';
   const caf=parseFloat(payment.caf||0);
   const locPart=parseFloat(payment.locataire_part||0);
-  const recu=Math.round((locPart+caf)*100)/100;
-  const remisePaiement=Math.round((payment.remise||0)*100)/100;
-  // Utiliser calcDetteLigne pour obtenir la dette en entrée du mois courant
-  // puis calculer le solde du mois = dette_entree + loyer_attendu - remise - recu
-  const loyerMensuelRef=isComm
-    ?Math.round((loyerRef+chargesRef)*1.2*100)/100
-    :Math.round((loyerRef+chargesRef)*100)/100;
-  const attenduCeMois=Math.max(0,Math.round((loyerMensuelRef-remisePaiement)*100)/100);
-  const detteEntreeMois=(()=>{
-    try{
-      if(typeof S==='undefined'||!S.rentPayments)return Math.max(0,parseFloat(tenant.dette||0));
-      const {detteFinale}=calcDetteLigne(tenant,mois,parseInt(annee),false);
-      return detteFinale;
-    }catch(e){return Math.max(0,parseFloat(tenant.dette||0));}
-  })();
-  const soldeMois=Math.max(0,Math.round((detteEntreeMois+attenduCeMois-recu)*100)/100);
   const dateLoc=payment.date_loc?new Date(payment.date_loc).toLocaleDateString('fr-FR'):datePaiement;
-  const moisNum=String(['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'].indexOf(mois)+1).padStart(2,'0');
-  const invoiceNum=annee+'-'+moisNum+'-'+(tenant.logement||'').replace(/[^A-Z0-9]/gi,'').toUpperCase().slice(0,6);
-  // Lignes HT/TVA
-  const loyerHT=loyerRef;
-  const loyerTVA=Math.round(loyerHT*tvaTaux*100)/100;
-  const loyerTTC=loyerHT+loyerTVA;
-  const chargesHT=chargesRef;
-  const chargesTVA=Math.round(chargesHT*tvaTaux*100)/100;
-  const chargesTTC=chargesHT+chargesTVA;
-  const totalTTC=loyerTTC+chargesTTC; // total brut avant remise
-  const totalAppele=attenduCeMois; // total net après remise = ce que le locataire doit ce mois
-  const isPartialDoc=recu>0&&recu<totalAppele;
-  const docTitle=isPartialDoc?'Reçu de paiement':(recu===0?'Appel de loyer':'Quittance de loyer');
-  // Détail dette mois précédents
-  const detteBlock=(()=>{try{
-    if(payment._skipDette||typeof S==='undefined'||!S.rentPayments)return'';
-    // calcDetteLigne exclut le mois courant → detteFinale = solde début du mois courant
-    const {lignes,detteFinale}=calcDetteLigne(tenant,mois,parseInt(annee),false);
-    const recuCourant=Math.round((locPart+caf)*100)/100;
-    const remiseCourante=Math.round((payment.remise||0)*100)/100;
-    const attenduCourant=Math.max(0,Math.round((totalTTC-remiseCourante)*100)/100);
-    // solde fin mois courant = dette début mois + loyer attendu - reçu
-    const soldeCourant=Math.round((detteFinale+attenduCourant-recuCourant)*100)/100;
-    // Construire toutes les lignes à afficher (mois précédents + mois courant)
-    const toutesLignes=[...lignes];
-    // Ajouter le mois courant seulement s'il a un solde non nul
-    if(Math.abs(soldeCourant)>0.01||recuCourant>0||attenduCourant>0){
-      toutesLignes.push({
-        mois,annee:parseInt(annee),attendu:attenduCourant,recu:recuCourant,
-        solde:soldeCourant,estCredit:soldeCourant<-0.01,estSolde:Math.abs(soldeCourant)<0.01,enCours:true
-      });
-    }
-    if(toutesLignes.length===0||soldeCourant<=0.01)return'';
-    return '<div style="border:2px solid #E24B4A;border-radius:6px;padding:14px 16px;margin:16px 0;background:#FFF5F5">'
-      +'<div style="font-size:14px;font-weight:700;color:#E24B4A;margin-bottom:10px">&#9888; Situation locative depuis le 1er janvier 2026</div>'
-      +'<table style="width:100%;border-collapse:collapse;font-size:12px;margin:0">'
-      +'<thead><tr style="background:#FCEBEB">'
-        +'<th style="padding:6px 8px;text-align:left;border:1px solid #ddd">Mois</th>'
-        +'<th style="padding:6px 8px;text-align:right;border:1px solid #ddd">Attendu</th>'
-        +'<th style="padding:6px 8px;text-align:right;border:1px solid #ddd">Re&#231;u</th>'
-        +'<th style="padding:6px 8px;text-align:right;border:1px solid #ddd">Solde</th>'
-      +'</tr></thead><tbody>'
-      +toutesLignes.map(function(l){
-        const sColor=l.estCredit?'#1D9E75':l.estSolde?'#888':'#E24B4A';
-        const sLabel=(l.estCredit?'Crédit : -':'')+fmt(Math.abs(l.solde));
-        return '<tr style="'+(l.enCours?'background:#FFF8E6':'')+(l.estCredit?'background:#F0FFF4':'')+'">'
-          +'<td style="padding:5px 8px;border:1px solid #ddd">'+l.mois+' '+l.annee+(l.enCours?' <span style="font-size:10px;color:#888">(en cours)</span>':'')+'</td>'
-          +'<td style="padding:5px 8px;text-align:right;border:1px solid #ddd">'+fmt(l.attendu)+'</td>'
-          +'<td style="padding:5px 8px;text-align:right;border:1px solid #ddd;color:#1D9E75">'+fmt(l.recu)+'</td>'
-          +'<td style="padding:5px 8px;text-align:right;border:1px solid #ddd;font-weight:600;color:'+sColor+'">'+sLabel+'</td>'
-        +'</tr>';
-      }).join('')
-      +'<tr style="background:#FCEBEB;font-weight:700">'
-        +'<td style="padding:6px 8px;border:1px solid #ddd" colspan="3">SOLDE TOTAL</td>'
-        +'<td style="padding:6px 8px;text-align:right;border:1px solid #ddd;color:#E24B4A;font-size:14px">'+fmt(Math.max(0,soldeCourant))+'</td>'
-      +'</tr>'
-      +'</tbody></table>'
-      +'<div style="font-size:11px;color:#888;margin-top:8px">Merci de r&#233;gulariser cette situation dans les meilleurs d&#233;lais.</div>'
-      +'</div>';
-  }catch(e){console.error('detteBlock:',e);return'';}})();
-  const css='@media print{.pb{display:none!important}body{margin:0;padding:20px}}'
-    +'body{font-family:Arial,sans-serif;max-width:700px;margin:0 auto;padding:0 30px 30px;color:#222;font-size:14px}'
-    +'.hdr{display:flex;justify-content:space-between;margin-bottom:24px;padding:20px 0;border-bottom:2px solid #222}'
-    +'.title{text-align:center;font-size:20px;font-weight:bold;margin:16px 0;text-transform:uppercase;letter-spacing:1px}'
-    +'.sub{text-align:center;font-size:13px;margin-bottom:20px;color:#555}'
-    +'.box{border:2px solid #222;padding:16px 20px;text-align:center;margin:20px 0;border-radius:4px}'
-    +'.somme{font-size:28px;font-weight:bold;margin:8px 0}'
-    +'table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13px}'
-    +'th{background:#222;color:#fff;padding:8px 10px;text-align:left;-webkit-print-color-adjust:exact;print-color-adjust:exact}'
-    +'td{padding:7px 10px;border:1px solid #ddd}'
-    +'.tr{font-weight:700;background:#f0f0f0;border-top:2px solid #222}'
-    +'.sig{margin-top:50px;display:flex;justify-content:space-between;align-items:flex-end}'
-    +'.mention{font-size:10px;color:#aaa;margin-top:20px;padding-top:10px;border-top:1px solid #eee}';
-  const pb='<div class="pb" style="position:sticky;top:0;background:#1D9E75;color:#fff;display:flex;align-items:center;justify-content:space-between;padding:10px 20px;margin-bottom:16px">'
-    +'<div><strong>&#128196; '+docTitle+'</strong><div style="font-size:11px;opacity:.8">Ctrl+P pour imprimer / sauvegarder en PDF</div></div>'
-    +'<button onclick="window.print()" style="background:#fff;color:#1D9E75;border:none;padding:8px 18px;border-radius:6px;font-weight:700;cursor:pointer">&#128424; Imprimer</button>'
-    +'</div>';
-  return '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>'+css+'</style></head><body>'+(showPrintBar?pb:'')
-    +'<div class="hdr">'
-      +'<div><strong>'+bailNom+'</strong><br>'+bailAddr+'<br>'+bailCP+'<br>'+bailEmail+(bailTel?'<br>'+bailTel:'')+'</div>'
-      +'<div style="text-align:right"><strong>'+tenant.nom+'</strong><br>'+tenant.logement+'<br>'+adresseLogement+'</div>'
+  const loyerRef=parseFloat(tenant.loyer_ref||0);
+  const chargesRef=parseFloat(tenant.charges||0);
+  const css=`
+    @media print{.print-bar{display:none!important}body{margin:0;padding:20px}}
+    .print-bar{background:#1D9E75;color:#fff;padding:10px 20px;display:flex;align-items:center;justify-content:space-between;font-family:Arial,sans-serif;font-size:13px}
+    .print-bar strong{font-size:14px}.print-bar .hint{font-size:11px;opacity:.85}
+    .print-btn{background:#fff;color:#1D9E75;border:none;padding:7px 18px;border-radius:6px;font-weight:700;font-size:13px;cursor:pointer}
+    body{font-family:Arial,sans-serif;max-width:680px;margin:0 auto;padding:0 30px 30px;color:#222;font-size:14px}
+    .header{display:flex;justify-content:space-between;margin-bottom:30px;padding-bottom:20px;border-top:40px solid #fff;border-bottom:2px solid #222}
+    .title{text-align:center;font-size:20px;font-weight:bold;margin:20px 0;text-transform:uppercase;letter-spacing:1px}
+    .subtitle{text-align:center;font-size:14px;margin-bottom:24px;color:#444}
+    .montant-box{border:2px solid #222;padding:20px;text-align:center;margin:24px 0;border-radius:4px}
+    .montant-box .somme{font-size:26px;font-weight:bold;margin:8px 0}
+    table{width:100%;border-collapse:collapse;margin:20px 0;font-size:13px}
+    td{padding:6px 0;vertical-align:top}
+    .mention{font-size:11px;color:#888;margin-top:24px;padding-top:12px;border-top:1px solid #ddd;line-height:1.6}
+    .sig-block{margin-top:40px;display:flex;justify-content:space-between;align-items:flex-end}
+    .sig-right{text-align:right;font-size:13px}
+    .sig-right .name{font-weight:bold;margin-top:50px;border-top:1px solid #222;padding-top:6px}`;
+  const printBar='<div style=\'position:sticky;top:0;z-index:999;background:#1D9E75;color:#fff;display:flex;align-items:center;justify-content:space-between;padding:10px 20px;margin-bottom:16px;font-family:Arial,sans-serif\'>'
+    +'<div><strong style=\'color:#fff;font-size:14px\'>📄 Quittance de loyer</strong><div style=\'font-size:11px;opacity:.8\'>Pour imprimer : utilisez Ctrl+P ou cliquez le bouton</div></div>'
+    +'<button onclick=\'window.print()\' style=\'background:#fff;color:#1D9E75;border:none;padding:8px 20px;border-radius:6px;font-weight:700;font-size:13px;cursor:pointer\'>🖨 Imprimer</button>'
     +'</div>'
-    +'<div class="title">'+docTitle+'</div>'
-    +'<div class="sub">'+mois+' '+annee+(isComm?' — N° '+invoiceNum:'')+'</div>'
-    +(recu>0?'<div class="box"><div>REÇU LA SOMME DE</div><div class="somme">'+fmt(recu)+'</div><div>LE '+dateLoc+'</div>'
-      +(caf>0?'<div style="font-size:12px;color:#555;margin-top:6px">dont CAF : '+fmt(caf)+' — locataire : '+fmt(locPart)+'</div>':'')
-      +(commentaire?'<div style="font-size:11px;color:#666;margin-top:6px;font-style:italic">'+commentaire+'</div>':'')
-    +'</div>':'')
-    +'<div style="font-size:13px;margin:16px 0"><strong>POUR LOYER DU LOGEMENT :</strong><br>'+tenant.logement+'<br>'+adresseLogement+'</div>'
-    +'<table><thead><tr><th>Description</th>'+(isComm?'<th style="text-align:right">HT</th><th style="text-align:right">TVA '+Math.round(tvaTaux*100)+'%</th>':'')+'<th style="text-align:right">TTC</th></tr></thead><tbody>'
-    +'<tr><td>Loyer mensuel</td>'+(isComm?'<td style="text-align:right">'+fmt(loyerHT)+'</td><td style="text-align:right;color:#E65C00">'+fmt(loyerTVA)+'</td>':'')+'<td style="text-align:right">'+fmt(loyerTTC)+'</td></tr>'
-    +(chargesRef>0?'<tr><td>Provisions sur charges</td>'+(isComm?'<td style="text-align:right">'+fmt(chargesHT)+'</td><td style="text-align:right;color:#E65C00">'+fmt(chargesTVA)+'</td>':'')+'<td style="text-align:right">'+fmt(chargesTTC)+'</td></tr>':'')
-    +((payment.remise&&payment.remise>0)?'<tr style="background:#F0FFF4"><td style="color:#1D9E75">Remise'+(payment.remise_motif?' — '+payment.remise_motif:'')+'</td>'+(isComm?'<td></td><td></td>':'')+'<td style="text-align:right;color:#1D9E75">- '+fmt(payment.remise)+'</td></tr>':'')
-    +'<tr class="tr"><td colspan="'+(isComm?'3':'1')+'">TOTAL TTC APPELÉ</td><td style="text-align:right">'+fmt(totalAppele)+'</td></tr>'
-    +'<tr style="background:#E8F5E9"><td colspan="'+(isComm?'3':'1')+'"><strong>MONTANT REÇU</strong></td><td style="text-align:right;font-weight:700;color:'+(recu>0?'#1D9E75':'#888')+'">'+fmt(recu)+'</td></tr>'
-    +(soldeMois>0.01?'<tr style="background:#FFEBEE"><td colspan="'+(isComm?'3':'1')+'"><strong>SOLDE RESTANT DÛ (ce mois)</strong></td><td style="text-align:right;font-weight:700;color:#E24B4A">'+fmt(soldeMois)+'</td></tr>':'')
-    +'</tbody></table>'
-    +detteBlock
-    +'<div class="sig">'
-      +'<div style="font-size:12px">Fait à Lorient, le '+new Date().toLocaleDateString('fr-FR')+'</div>'
-      +'<div style="text-align:right;font-size:13px"><div>'+sigQualite+'</div><div style="font-size:11px;color:#888;margin:4px 0">Signature électronique automatique</div><div style="font-weight:bold;margin-top:40px;border-top:1px solid #222;padding-top:6px;min-width:200px">'+sigNom+'</div></div>'
+    +'<script>try{setTimeout(function(){window.print();},800);}catch(e){}<\/script>';
+  return '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>'+css+'</style></head><body>'+(showPrintBar?printBar:'')
+    +'<div class="header">'
+    +'<div><strong>LE BAILLEUR</strong><br>'+bailNom+'<br>'+bailAddr+'<br>'+bailCP+'<br>'+bailEmail+(bailTel?'<br>'+bailTel:'')+'</div>'
+    +'<div style="text-align:right"><strong>LE LOCATAIRE</strong><br>'+tenant.nom+'<br>'+tenant.logement+'<br>26 Rue Général Dubail<br>56100 LORIENT</div>'
     +'</div>'
-    +'<p class="mention">'+(isComm?'TVA '+Math.round(tvaTaux*100)+'% applicable. Facture établie par '+bailNom+'. Conserver pour votre comptabilité.':'Ce document atteste du règlement du loyer pour la période indiquée. Ne vaut qu\'après encaissement effectif.')+'</p>'
+    +'<div class="title">Quittance de loyer</div>'
+    +'<div class="subtitle">LOYER '+mois.toUpperCase()+' '+annee+'</div>'
+    +'<div class="montant-box">'
+    +'<div>REÇU LA SOMME DE</div>'
+    +'<div class="somme">'+fmt(total||loyerRef+chargesRef)+'</div>'
+    +'<div>LE '+dateLoc+'</div>'
+    +(caf>0?'<div style="font-size:13px;color:#555;margin-top:8px">dont part CAF : '+fmt(caf)+' — part locataire : '+fmt(locPart)+'</div>':'')
+    +(commentaire?'<div style="font-size:12px;color:#666;margin-top:8px;font-style:italic">'+commentaire+'</div>':'')
+    +'</div>'
+    +'<div style="font-size:13px;margin:20px 0;line-height:1.7"><strong>POUR LOYER DU LOGEMENT SITUÉ :</strong><br>'
+    +tenant.logement+'<br>26 RUE GÉNÉRAL DUBAIL<br>56100 LORIENT</div>'
+    +(chargesRef>0?'<table><tr><td>Loyer nu :</td><td>'+fmt(loyerRef)+'</td></tr><tr><td>Charges :</td><td>'+fmt(chargesRef)+'</td></tr>'
+    +(payment.note_quittance?'<tr><td>'+payment.note_quittance+' :</td><td>'+fmt(payment.ajustement||0)+'</td></tr>':'')
+    +'<tr><td><strong>Total :</strong></td><td><strong>'+fmt(loyerRef+chargesRef+(payment.ajustement||0))+'</strong></td></tr></table>':
+    '<table>'
+    +'<tr><td>Loyer :</td><td>'+fmt(loyerRef)+'</td></tr>'
+    +(payment.note_quittance?'<tr><td>'+payment.note_quittance+' :</td><td>'+fmt(payment.ajustement||0)+'</td></tr>':'')
+    +(payment.note_quittance?'<tr><td><strong>Total :</strong></td><td><strong>'+fmt(loyerRef+(payment.ajustement||0))+'</strong></td></tr>':'')
+    +'</table>')
+    +(tenant.dette>0?'<div style="background:#FFF3CD;border:1.5px solid #F0AD4E;border-radius:6px;padding:10px 14px;margin:12px 0;font-size:13px">'+'<strong>&#9888; Votre dette à ce jour s\'elève à : '+fmt(tenant.dette)+'</strong>'+'<br><span style="font-size:11px;color:#555">Ce montant sera inclus dans votre prochain appel de loyer.</span>'+'</div>':'')
+    +'<div class="sig-block">'
+    +'<div style="font-size:13px">Fait à Lorient, le '+new Date().toLocaleDateString('fr-FR')+'</div>'
+    +'<div class="sig-right"><div>GÉRANT J&A SAVADUR</div><div class="name">JOSSE Antoine</div></div>'
+    +'</div>'
+    +'<p class="mention">Cette quittance annule tous reçus antérieurs pour les mêmes objets. Elle ne vaut qu\'après encaissement en cas de paiement par chèque.</p>'
     +'</body></html>';
 }
 
-// Aliases pour compatibilité avec les appels existants
-function buildQuittanceHtml(tenant,payment,mois,annee,loyer,charges,total,datePaiement,fmt,commentaire,showPrintBar){
-  return buildDocumentLoyer(tenant,payment,mois,annee,loyer,charges,total,datePaiement,fmt,commentaire,showPrintBar);
-}
-function buildFactureHtml(tenant,payment,mois,annee,loyer,charges,total,datePaiement,invoiceNum,fmt,commentaire,showPrintBar){
-  return buildDocumentLoyer(tenant,payment,mois,annee,loyer,charges,total,datePaiement,fmt,commentaire,showPrintBar);
+function buildFactureHtml(tenant,payment,mois,annee,loyer,charges,total,datePaiement,invoiceNum,fmt,commentaire='',showPrintBar=true){
+  const loyerHT=parseFloat(tenant.loyer_ref||0);
+  const loyerTVA=Math.round(loyerHT*0.2*100)/100;
+  const loyerTTC=Math.round((loyerHT+loyerTVA)*100)/100;
+  const chargesHT=parseFloat(tenant.charges||0);
+  const chargesTVA=chargesHT>0?Math.round(chargesHT*0.2*100)/100:0;
+  const chargesTTC=Math.round((chargesHT+chargesTVA)*100)/100;
+  const totalHT=loyerHT+chargesHT;
+  const totalTVA=loyerTVA+chargesTVA;
+  const totalTTC=loyerTTC+chargesTTC;
+  const dateLoc=payment.date_loc?new Date(payment.date_loc).toLocaleDateString('fr-FR'):datePaiement;
+  const css=`
+    @media print{.print-bar{display:none!important}body{margin:0;padding:20px}}
+    .print-bar{background:#1565C0;color:#fff;padding:10px 20px;display:flex;align-items:center;justify-content:space-between;font-family:Arial,sans-serif;font-size:13px}
+    .print-bar strong{font-size:14px}.print-bar .hint{font-size:11px;opacity:.85}
+    .print-btn{background:#fff;color:#1565C0;border:none;padding:7px 18px;border-radius:6px;font-weight:700;font-size:13px;cursor:pointer}
+    body{font-family:Arial,sans-serif;max-width:680px;margin:0 auto;padding:0 30px 30px;color:#222;font-size:14px}
+    .header{display:flex;justify-content:space-between;margin-bottom:24px;padding-top:20px}
+    .title{text-align:center;font-size:20px;font-weight:bold;margin:20px 0;text-decoration:underline}
+    .subtitle{text-align:center;font-size:14px;font-weight:bold;margin-bottom:20px}
+    table{width:100%;border-collapse:collapse;margin:16px 0;font-size:13px}
+    th{background:#222;color:#fff;padding:8px 10px;text-align:center;font-weight:500;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    td{padding:8px 10px;border:1px solid #ddd;text-align:center}
+    td:first-child{text-align:left}
+    .total-row td{font-weight:bold;font-size:15px;background:#f0f0f0;border-top:2px solid #222}
+    .sig-block{margin-top:40px;text-align:right;font-size:13px}`;
+  const printBar='<div style=\'position:sticky;top:0;z-index:999;background:#1D9E75;color:#fff;display:flex;align-items:center;justify-content:space-between;padding:10px 20px;margin-bottom:16px;font-family:Arial,sans-serif\'>'
+    +'<div><strong style=\'color:#fff;font-size:14px\'>📄 Facture de loyer</strong><div style=\'font-size:11px;opacity:.8\'>Pour imprimer : utilisez Ctrl+P ou cliquez le bouton</div></div>'
+    +'<button onclick=\'window.print()\' style=\'background:#fff;color:#1D9E75;border:none;padding:8px 20px;border-radius:6px;font-weight:700;font-size:13px;cursor:pointer\'>🖨 Imprimer</button>'
+    +'</div>'
+    +'<script>try{setTimeout(function(){window.print();},800);}catch(e){}<\/script>';
+  return '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>'+css+'</style></head><body>'+(showPrintBar?printBar:'')
+    +'<div class="header">'
+    +'<div><strong>J&A SAVADUR</strong><br>26 RUE GÉNÉRAL DUBAIL<br>56100 LORIENT<br>savadur56@gmail.com<br>06.30.37.06.88</div>'
+    +'<div style="text-align:right"><strong>'+tenant.nom+'</strong><br>'+tenant.logement+'<br>26 rue général Dubail<br>56100 Lorient</div>'
+    +'</div>'
+    +'<div class="title">Facture de loyer</div>'
+    +'<div class="subtitle">'+mois+' '+annee+' — N° '+invoiceNum+'</div>'
+    +'<table><thead><tr><th>Description</th><th>Prix HT</th><th>TVA 20%</th><th>Prix TTC</th></tr></thead><tbody>'
+    +'<tr><td>Loyer mensuel</td><td>'+fmt(loyerHT)+'</td><td>'+fmt(loyerTVA)+'</td><td>'+fmt(loyerTTC)+'</td></tr>'
+    +(chargesHT>0?'<tr><td>Provisions sur charges</td><td>'+fmt(chargesHT)+'</td><td>'+fmt(chargesTVA)+'</td><td>'+fmt(chargesTTC)+'</td></tr>':'')
+    +'<tr class="total-row"><td colspan="3">TOTAL TTC</td><td>'+fmt(totalTTC)+'</td></tr>'
+    +'</tbody></table>'
+    +'<p style="font-size:13px">Date de paiement : '+dateLoc+'</p>'
+    +(commentaire?'<div style="background:#f5f5f5;border-left:3px solid #185FA5;padding:8px 12px;margin:12px 0;font-size:13px;font-style:italic;color:#444">'+commentaire+'</div>':'')
++(tenant.dette>0?'<div style="background:#FFF3CD;border:1.5px solid #F0AD4E;border-radius:6px;padding:10px 14px;margin:12px 0;font-size:13px">'+'<strong>&#9888; Votre dette à ce jour s\'elève à : '+fmt(tenant.dette)+'</strong>'+'<br><span style="font-size:11px;color:#555">Ce montant sera inclus dans votre prochain appel de loyer.</span>'+'</div>':'')
+        +'<div class="sig-block">SCI J&A SAVADUR<br>savadur56@gmail.com<br><br><strong>JOSSE Antoine — Gérant</strong></div>'
+    +'<p style="font-size:11px;color:#888;margin-top:24px">Facture établie par J&A SAVADUR. TVA 20% appliquée. Conserver ce document pour votre comptabilité.</p>'
+    +'</body></html>';
 }
 
 function buildFactureEauHtml(tenant,cpt,conso,montant,montantHT,montantTVA,prix,dateReleve,invoiceNum,releve,fmt){
@@ -9756,7 +9296,6 @@ loadAll().then(async()=>{
   });
   render();
   setTimeout(()=>checkAndSendAlerts(),3000);
-  setTimeout(()=>checkAutoGenerateBTs(),4000);
 });
 
 // PWA Service Worker — only on GitHub Pages
