@@ -1991,13 +1991,21 @@ function renderLocatif(){
       // Loyers perçus = tous les montants réellement versés (y compris paiements partiels),
       // pas seulement les mois soldés intégralement (paye=true).
       const percu=pmtList.filter(p=>p.annee===year).reduce((s,p)=>s+(p.locataire_part||0)+(p.caf||0),0);
-      // Loyer attendu par locataire = loyer réf. × nb de mois réellement facturés cette année
-      // (et non un forfait ×12, ce qui éviterait de doubler l'attendu en cas de changement
-      // de locataire en cours d'année sur le même local).
-      const attendu=tList.reduce((s,t)=>{
-        const nbMois=pmtList.filter(p=>p.tenant_id===t.id&&p.annee===year).length;
-        return s+(t.loyer_ref||0)*(nbMois||(t.actif!==false?new Date().getMonth()+1:0));
-      },0);
+      // Loyer attendu par locataire, sur la même base TTC que le perçu (loyer HT + charges,
+      // +20% TVA si bail commercial) — cohérent avec calcDetteLigne — × nb de mois réellement
+      // facturés cette année (et non un forfait ×12, ce qui éviterait de doubler l'attendu en
+      // cas de changement de locataire en cours d'année sur le même local).
+      let attHT=0,attCharges=0,attTVA=0;
+      tList.forEach(t=>{
+        const nbMois=pmtList.filter(p=>p.tenant_id===t.id&&p.annee===year).length||(t.actif!==false?new Date().getMonth()+1:0);
+        const isComm=t.type_bail==='commercial';
+        const lHT=parseFloat(t.loyer_ref||0)*nbMois;
+        const cHT=parseFloat(t.charges||0)*nbMois;
+        attHT+=lHT;attCharges+=cHT;
+        if(isComm)attTVA+=Math.round((lHT+cHT)*0.2*100)/100;
+      });
+      const attendu=Math.round((attHT+attCharges+attTVA)*100)/100;
+      const hasComm=tList.some(t=>t.type_bail==='commercial');
       // En retard = dette réelle cumulée par locataire (cf. calcDetteLigne, cohérent avec l'onglet Dettes),
       // et non le loyer attendu du mois entier dès qu'il manque un centime.
       const dettes=tList.reduce((s,t)=>{
@@ -2008,12 +2016,16 @@ function renderLocatif(){
         <div style="font-size:13px;font-weight:600;color:${color};margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid ${color}">${label} — ${tList.length} locataire(s)</div>
         <div class="g4">
           <div class="stat"><div class="stat-l">Loyers perçus ${year}</div><div class="stat-v" style="color:var(--green)">${fmt(percu)}</div></div>
-          <div class="stat"><div class="stat-l">Loyers attendus</div><div class="stat-v">${fmt(attendu)}</div></div>
+          <div class="stat">
+            <div class="stat-l">Loyers attendus</div>
+            <div class="stat-v">${fmt(attendu)}</div>
+            <div style="font-size:10px;color:var(--text2);margin-top:2px">dont HT : ${fmt(attHT)} · Charges : ${fmt(attCharges)}${hasComm?' · TVA : '+fmt(attTVA):''}</div>
+          </div>
           <div class="stat"><div class="stat-l">En retard</div><div class="stat-v" style="color:var(--red)">${fmt(dettes)}</div></div>
           <div class="stat"><div class="stat-l">Taux encaissement</div><div class="stat-v" style="color:${attendu>0?'var(--blue)':'var(--text2)'}">${attendu>0?Math.round(percu/attendu*100)+'%':'—'}</div></div>
         </div>
         ${tList.length>0?`<div style="overflow-x:auto;margin-top:10px"><table>
-          <thead><tr><th>Locataire</th><th>Logement</th><th>Loyer réf.</th>${MONTHS.filter((_,i)=>i<new Date().getMonth()+2).map(m=>`<th style="font-size:10px">${m.slice(0,3)}</th>`).join('')}<th>Total</th></tr></thead>
+          <thead><tr><th>Locataire</th><th>Logement</th><th>Loyer HT</th>${MONTHS.filter((_,i)=>i<new Date().getMonth()+2).map(m=>`<th style="font-size:10px">${m.slice(0,3)}</th>`).join('')}<th>Total</th></tr></thead>
           <tbody>${tList.map(t=>{
             const tPmts=pmtList.filter(p=>p.tenant_id===t.id&&p.annee===year);
             const total=tPmts.reduce((s,p)=>s+(p.locataire_part||0)+(p.caf||0),0);
