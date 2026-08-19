@@ -1987,32 +1987,49 @@ function renderLocatif(){
     const dubailPmts=filteredPayments.filter(p=>dubailIds.has(p.tenant_id));
     const persoPmts=filteredPayments.filter(p=>persoIds.has(p.tenant_id));
 
+    function getZoneS(t){
+      if(!t||!t.logement)return '';
+      const sep=t.logement.includes(' — ')?' — ':' - ';
+      return t.logement.includes(sep)?t.logement.split(sep).slice(1).join(sep):'';
+    }
+
     function statsBlock(label,tList,pmtList,color){
       // Loyer attendu / perçu recalculés à partir du même parcours mois-par-mois que
       // calcDetteLigne (includeAll=true), pour que "Loyers attendus" et "Taux d'encaissement"
       // comptent bien TOUS les mois dus depuis le 1er janvier 2026 (ou l'entrée du locataire),
       // y compris les mois où aucune saisie n'a été faite (auparavant ignorés — c'est ce qui
       // faisait apparaître un taux d'encaissement artificiellement élevé face à la vraie dette).
-      let attHT=0,attCharges=0,attTVA=0,percu=0;
-      tList.forEach(t=>{
+      const tenantStats=tList.map(t=>{
         const isComm=t.type_bail==='commercial';
         let lignesAnnee=[];
         try{const{lignes}=calcDetteLigne(t,null,null,true);lignesAnnee=lignes.filter(l=>l.annee===year);}catch(e){}
         const nbMois=lignesAnnee.length;
         const lHT=parseFloat(t.loyer_ref||0)*nbMois;
         const cHT=parseFloat(t.charges||0)*nbMois;
-        attHT+=lHT;attCharges+=cHT;
-        if(isComm)attTVA+=Math.round((lHT+cHT)*0.2*100)/100;
-        percu+=lignesAnnee.reduce((s,l)=>s+(l.recu||0),0);
+        const tva=isComm?Math.round((lHT+cHT)*0.2*100)/100:0;
+        const rec=lignesAnnee.reduce((s,l)=>s+(l.recu||0),0);
+        const zone=getZoneS(t)||t.nom||'';
+        return{t,isComm,lHT,cHT,tva,rec,zone,attTotal:Math.round((lHT+cHT+tva)*100)/100};
       });
+      let attHT=0,attCharges=0,attTVA=0,percu=0;
+      tenantStats.forEach(ts=>{attHT+=ts.lHT;attCharges+=ts.cHT;attTVA+=ts.tva;percu+=ts.rec;});
       const attendu=Math.round((attHT+attCharges+attTVA)*100)/100;
-      const hasComm=tList.some(t=>t.type_bail==='commercial');
+      const hasComm=tenantStats.some(ts=>ts.isComm);
       // En retard = dette réelle cumulée par locataire (total à date, y compris solde de départ
       // et mois antérieurs à l'année sélectionnée si non soldés) — cohérent avec l'onglet Dettes.
       const dettes=tList.reduce((s,t)=>{
         try{const{detteFinale}=calcDetteLigne(t,null,null,false);return s+Math.max(0,detteFinale);}
         catch(e){return s;}
       },0);
+      // Regroupement par local (zone) : un local ayant eu 2 locataires dans l'année
+      // (ex: changement de locataire) est fusionné en une seule ligne, loyer+charges+TVA compris.
+      const byZone={};
+      tenantStats.forEach(ts=>{
+        if(!byZone[ts.zone])byZone[ts.zone]={zone:ts.zone,attTotal:0,percu:0};
+        byZone[ts.zone].attTotal+=ts.attTotal;
+        byZone[ts.zone].percu+=ts.rec;
+      });
+      const zoneRows=Object.values(byZone).sort((a,b)=>a.zone.localeCompare(b.zone,'fr'));
       return `<div class="card" style="margin-bottom:14px">
         <div style="font-size:13px;font-weight:600;color:${color};margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid ${color}">${label} — ${tList.length} locataire(s)</div>
         <div class="g4">
@@ -2025,7 +2042,18 @@ function renderLocatif(){
           <div class="stat"><div class="stat-l">En retard</div><div class="stat-v" style="color:var(--red)">${fmt(dettes)}</div></div>
           <div class="stat"><div class="stat-l">Taux encaissement</div><div class="stat-v" style="color:${attendu>0?'var(--blue)':'var(--text2)'}">${attendu>0?Math.round(percu/attendu*100)+'%':'—'}</div></div>
         </div>
-        ${tList.length>0?`<div style="overflow-x:auto;margin-top:10px"><table>
+        ${zoneRows.length>0?`<div style="margin-top:14px">
+          <div style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Taux d'encaissement par local (loyer + charges${hasComm?' + TVA':''})</div>
+          <div style="overflow-x:auto"><table>
+            <thead><tr><th style="font-size:10px">Local</th><th style="font-size:10px;text-align:right">Attendu TTC</th><th style="font-size:10px;text-align:right">Perçu</th><th style="font-size:10px;text-align:right">Taux</th></tr></thead>
+            <tbody>${zoneRows.map(z=>{
+              const taux=z.attTotal>0?Math.round(z.percu/z.attTotal*100):null;
+              const tauxColor=taux===null?'var(--text2)':taux>=95?'var(--green)':taux>=70?'var(--amber)':'var(--red)';
+              return '<tr><td style="font-size:12px;font-weight:500">'+z.zone+'</td><td style="text-align:right;font-size:12px">'+fmt(z.attTotal)+'</td><td style="text-align:right;font-size:12px;color:var(--green)">'+fmt(z.percu)+'</td><td style="text-align:right;font-size:12px;font-weight:700;color:'+tauxColor+'">'+(taux===null?'—':taux+'%')+'</td></tr>';
+            }).join('')}</tbody>
+          </table></div>
+        </div>`:''}
+        ${tList.length>0?`<div style="overflow-x:auto;margin-top:14px"><table>
           <thead><tr><th>Locataire</th><th>Logement</th><th>Loyer HT</th>${MONTHS.filter((_,i)=>i<new Date().getMonth()+2).map(m=>`<th style="font-size:10px">${m.slice(0,3)}</th>`).join('')}<th>Total</th></tr></thead>
           <tbody>${tList.map(t=>{
             const tPmts=pmtList.filter(p=>p.tenant_id===t.id&&p.annee===year);
