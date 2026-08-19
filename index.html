@@ -1972,11 +1972,16 @@ function renderLocatif(){
 
   // ====== SYNTHESE ======
   if(tab==='synthese'){
-    const allowedTenantIds=new Set(tenants.map(t=>t.id));
+    // On inclut les locataires actifs, PLUS les locataires partis en cours d'année
+    // (ex: changement de locataire) dès lors qu'ils ont des loyers enregistrés sur l'année
+    // sélectionnée — sinon leurs mois payés avant leur départ disparaissent du tableau.
+    const scopedTenants=getFilteredTenants();
+    const synthTenants=scopedTenants.filter(t=>t.actif!==false||S.rentPayments.some(p=>p.tenant_id===t.id&&p.annee===year));
+    const allowedTenantIds=new Set(synthTenants.map(t=>t.id));
     const filteredPayments=S.rentPayments.filter(p=>allowedTenantIds.has(p.tenant_id));
     // Split Dubail vs perso
-    const dubailTenants=tenants.filter(t=>dubailFilter(t.logement||''));
-    const persoTenants=tenants.filter(t=>!dubailFilter(t.logement||''));
+    const dubailTenants=synthTenants.filter(t=>dubailFilter(t.logement||''));
+    const persoTenants=synthTenants.filter(t=>!dubailFilter(t.logement||''));
     const dubailIds=new Set(dubailTenants.map(t=>t.id));
     const persoIds=new Set(persoTenants.map(t=>t.id));
     const dubailPmts=filteredPayments.filter(p=>dubailIds.has(p.tenant_id));
@@ -1984,7 +1989,13 @@ function renderLocatif(){
 
     function statsBlock(label,tList,pmtList,color){
       const percu=pmtList.filter(p=>p.paye&&p.annee===year).reduce((s,p)=>s+(p.loyer||0),0);
-      const attendu=tList.reduce((s,t)=>s+(t.loyer_ref||0)*12,0);
+      // Loyer attendu par locataire = loyer réf. × nb de mois réellement facturés cette année
+      // (et non un forfait ×12, ce qui éviterait de doubler l'attendu en cas de changement
+      // de locataire en cours d'année sur le même local).
+      const attendu=tList.reduce((s,t)=>{
+        const nbMois=pmtList.filter(p=>p.tenant_id===t.id&&p.annee===year).length;
+        return s+(t.loyer_ref||0)*(nbMois||(t.actif!==false?new Date().getMonth()+1:0));
+      },0);
       const dettes=pmtList.filter(p=>!p.paye&&p.loyer>0&&p.annee===year).reduce((s,p)=>s+(p.loyer||0),0);
       return `<div class="card" style="margin-bottom:14px">
         <div style="font-size:13px;font-weight:600;color:${color};margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid ${color}">${label} — ${tList.length} locataire(s)</div>
@@ -1999,7 +2010,8 @@ function renderLocatif(){
           <tbody>${tList.map(t=>{
             const tPmts=pmtList.filter(p=>p.tenant_id===t.id&&p.annee===year);
             const total=tPmts.filter(p=>p.paye).reduce((s,p)=>s+(p.loyer||0),0);
-            return '<tr><td style="font-weight:500;font-size:12px">'+t.nom+'</td><td style="font-size:11px;color:var(--text2)">'+t.logement+'</td><td style="font-size:12px">'+fmt(t.loyer_ref||0)+'</td>'+MONTHS.filter((_,i)=>i<new Date().getMonth()+2).map(m=>{const p=tPmts.find(x=>x.mois===m);return '<td style="font-size:11px;text-align:center">'+(p?p.paye?'<span style="color:var(--green)">✓</span>':'<span style="color:var(--amber)">…</span>':'<span style="color:var(--text3)">—</span>')+'</td>';}).join('')+'<td style="font-weight:600;font-size:12px">'+fmt(total)+'</td></tr>';
+            const partiTag=t.actif===false?' <span style="font-size:9px;color:var(--text2);font-weight:400">(parti)</span>':'';
+            return '<tr><td style="font-weight:500;font-size:12px">'+t.nom+partiTag+'</td><td style="font-size:11px;color:var(--text2)">'+t.logement+'</td><td style="font-size:12px">'+fmt(t.loyer_ref||0)+'</td>'+MONTHS.filter((_,i)=>i<new Date().getMonth()+2).map(m=>{const p=tPmts.find(x=>x.mois===m);return '<td style="font-size:11px;text-align:center">'+(p?p.paye?'<span style="color:var(--green)">✓</span>':'<span style="color:var(--amber)">…</span>':'<span style="color:var(--text3)">—</span>')+'</td>';}).join('')+'<td style="font-weight:600;font-size:12px">'+fmt(total)+'</td></tr>';
           }).join('')}</tbody>
         </table></div>`:''}
       </div>`;
@@ -2013,14 +2025,14 @@ function renderLocatif(){
     const allProps=[];
     // First: topology properties
     S.topology.properties.forEach(p=>{
-      const propTenants=tenants.filter(t=>(t.logement||'').startsWith(p.name));
+      const propTenants=synthTenants.filter(t=>(t.logement||'').startsWith(p.name));
       if(propTenants.length>0){
         allProps.push({name:p.name,tenants:propTenants});
       }
     });
     // Then: tenants not matched by topology (edge case)
     const matchedIds=new Set(allProps.flatMap(p=>p.tenants.map(t=>t.id)));
-    const unmatched=tenants.filter(t=>!matchedIds.has(t.id));
+    const unmatched=synthTenants.filter(t=>!matchedIds.has(t.id));
     if(unmatched.length>0) allProps.push({name:'Autres',tenants:unmatched});
     
     const propBlocks=allProps.map((prop,i)=>{
