@@ -1988,26 +1988,27 @@ function renderLocatif(){
     const persoPmts=filteredPayments.filter(p=>persoIds.has(p.tenant_id));
 
     function statsBlock(label,tList,pmtList,color){
-      // Loyers perçus = tous les montants réellement versés (y compris paiements partiels),
-      // pas seulement les mois soldés intégralement (paye=true).
-      const percu=pmtList.filter(p=>p.annee===year).reduce((s,p)=>s+(p.locataire_part||0)+(p.caf||0),0);
-      // Loyer attendu par locataire, sur la même base TTC que le perçu (loyer HT + charges,
-      // +20% TVA si bail commercial) — cohérent avec calcDetteLigne — × nb de mois réellement
-      // facturés cette année (et non un forfait ×12, ce qui éviterait de doubler l'attendu en
-      // cas de changement de locataire en cours d'année sur le même local).
-      let attHT=0,attCharges=0,attTVA=0;
+      // Loyer attendu / perçu recalculés à partir du même parcours mois-par-mois que
+      // calcDetteLigne (includeAll=true), pour que "Loyers attendus" et "Taux d'encaissement"
+      // comptent bien TOUS les mois dus depuis le 1er janvier 2026 (ou l'entrée du locataire),
+      // y compris les mois où aucune saisie n'a été faite (auparavant ignorés — c'est ce qui
+      // faisait apparaître un taux d'encaissement artificiellement élevé face à la vraie dette).
+      let attHT=0,attCharges=0,attTVA=0,percu=0;
       tList.forEach(t=>{
-        const nbMois=pmtList.filter(p=>p.tenant_id===t.id&&p.annee===year).length||(t.actif!==false?new Date().getMonth()+1:0);
         const isComm=t.type_bail==='commercial';
+        let lignesAnnee=[];
+        try{const{lignes}=calcDetteLigne(t,null,null,true);lignesAnnee=lignes.filter(l=>l.annee===year);}catch(e){}
+        const nbMois=lignesAnnee.length;
         const lHT=parseFloat(t.loyer_ref||0)*nbMois;
         const cHT=parseFloat(t.charges||0)*nbMois;
         attHT+=lHT;attCharges+=cHT;
         if(isComm)attTVA+=Math.round((lHT+cHT)*0.2*100)/100;
+        percu+=lignesAnnee.reduce((s,l)=>s+(l.recu||0),0);
       });
       const attendu=Math.round((attHT+attCharges+attTVA)*100)/100;
       const hasComm=tList.some(t=>t.type_bail==='commercial');
-      // En retard = dette réelle cumulée par locataire (cf. calcDetteLigne, cohérent avec l'onglet Dettes),
-      // et non le loyer attendu du mois entier dès qu'il manque un centime.
+      // En retard = dette réelle cumulée par locataire (total à date, y compris solde de départ
+      // et mois antérieurs à l'année sélectionnée si non soldés) — cohérent avec l'onglet Dettes.
       const dettes=tList.reduce((s,t)=>{
         try{const{detteFinale}=calcDetteLigne(t,null,null,false);return s+Math.max(0,detteFinale);}
         catch(e){return s;}
@@ -8956,10 +8957,17 @@ function calcDetteLigne(tenant, moisCourant, anneeCourante, includeAll){
   const lignes=[];
 
   let y=debut.getFullYear(),m=debut.getMonth();
-  // On s'arrête au mois courant INCLUS (ou mois précédent si moisCourant défini)
+  // On s'arrête au mois courant INCLUS (ou mois précédent si moisCourant défini),
+  // sans dépasser la date de sortie du locataire si elle est renseignée (un locataire
+  // parti ne doit plus accumuler de loyer dû après son départ).
   const moisCourantNum=moisCourant?MOIS_LIST.indexOf(moisCourant):-1;
-  const stopY=anneeCourante||new Date().getFullYear();
-  const stopM=moisCourantNum>=0?moisCourantNum:(new Date().getMonth());
+  let stopY=anneeCourante||new Date().getFullYear();
+  let stopM=moisCourantNum>=0?moisCourantNum:(new Date().getMonth());
+  const sortie=tenant.date_sortie?new Date(tenant.date_sortie):null;
+  if(sortie){
+    const sortieY=sortie.getFullYear(),sortieM=sortie.getMonth();
+    if(sortieY<stopY||(sortieY===stopY&&sortieM<stopM)){stopY=sortieY;stopM=sortieM;}
+  }
 
   while(y<stopY||(y===stopY&&m<=stopM)){
     const moisNom=MOIS_LIST[m];
