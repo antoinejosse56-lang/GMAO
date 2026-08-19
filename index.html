@@ -1988,7 +1988,9 @@ function renderLocatif(){
     const persoPmts=filteredPayments.filter(p=>persoIds.has(p.tenant_id));
 
     function statsBlock(label,tList,pmtList,color){
-      const percu=pmtList.filter(p=>p.paye&&p.annee===year).reduce((s,p)=>s+(p.loyer||0),0);
+      // Loyers perçus = tous les montants réellement versés (y compris paiements partiels),
+      // pas seulement les mois soldés intégralement (paye=true).
+      const percu=pmtList.filter(p=>p.annee===year).reduce((s,p)=>s+(p.locataire_part||0)+(p.caf||0),0);
       // Loyer attendu par locataire = loyer réf. × nb de mois réellement facturés cette année
       // (et non un forfait ×12, ce qui éviterait de doubler l'attendu en cas de changement
       // de locataire en cours d'année sur le même local).
@@ -1996,7 +1998,12 @@ function renderLocatif(){
         const nbMois=pmtList.filter(p=>p.tenant_id===t.id&&p.annee===year).length;
         return s+(t.loyer_ref||0)*(nbMois||(t.actif!==false?new Date().getMonth()+1:0));
       },0);
-      const dettes=pmtList.filter(p=>!p.paye&&p.loyer>0&&p.annee===year).reduce((s,p)=>s+(p.loyer||0),0);
+      // En retard = dette réelle cumulée par locataire (cf. calcDetteLigne, cohérent avec l'onglet Dettes),
+      // et non le loyer attendu du mois entier dès qu'il manque un centime.
+      const dettes=tList.reduce((s,t)=>{
+        try{const{detteFinale}=calcDetteLigne(t,null,null,false);return s+Math.max(0,detteFinale);}
+        catch(e){return s;}
+      },0);
       return `<div class="card" style="margin-bottom:14px">
         <div style="font-size:13px;font-weight:600;color:${color};margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid ${color}">${label} — ${tList.length} locataire(s)</div>
         <div class="g4">
@@ -2009,7 +2016,7 @@ function renderLocatif(){
           <thead><tr><th>Locataire</th><th>Logement</th><th>Loyer réf.</th>${MONTHS.filter((_,i)=>i<new Date().getMonth()+2).map(m=>`<th style="font-size:10px">${m.slice(0,3)}</th>`).join('')}<th>Total</th></tr></thead>
           <tbody>${tList.map(t=>{
             const tPmts=pmtList.filter(p=>p.tenant_id===t.id&&p.annee===year);
-            const total=tPmts.filter(p=>p.paye).reduce((s,p)=>s+(p.loyer||0),0);
+            const total=tPmts.reduce((s,p)=>s+(p.locataire_part||0)+(p.caf||0),0);
             const partiTag=t.actif===false?' <span style="font-size:9px;color:var(--text2);font-weight:400">(parti)</span>':'';
             return '<tr><td style="font-weight:500;font-size:12px">'+t.nom+partiTag+'</td><td style="font-size:11px;color:var(--text2)">'+t.logement+'</td><td style="font-size:12px">'+fmt(t.loyer_ref||0)+'</td>'+MONTHS.filter((_,i)=>i<new Date().getMonth()+2).map(m=>{const p=tPmts.find(x=>x.mois===m);return '<td style="font-size:11px;text-align:center">'+(p?p.paye?'<span style="color:var(--green)">✓</span>':'<span style="color:var(--amber)">…</span>':'<span style="color:var(--text3)">—</span>')+'</td>';}).join('')+'<td style="font-weight:600;font-size:12px">'+fmt(total)+'</td></tr>';
           }).join('')}</tbody>
