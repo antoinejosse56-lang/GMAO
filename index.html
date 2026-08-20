@@ -2149,6 +2149,22 @@ function renderLocatif(){
     if(tab==='emises'){
     const dubailTenantIds=isDubail?S.tenants.filter(t=>dubailFilter(t.logement||'')).map(t=>t.id):null;
     const allRp=S.rentPayments.filter(p=>p.annee===year&&(p.paye||(p.locataire_part>0||p.caf>0)||p.remise>0||p.loyer>0)&&(!dubailTenantIds||dubailTenantIds.includes(p.tenant_id)));
+    // Cache calcDetteLigne (solde cumulé, report des mois précédents inclus) par locataire,
+    // pour éviter de recalculer tout l'historique à chaque ligne de quittance affichée.
+    // calcDetteLigne ne couvre que la fenêtre 01/01/2026 -> mois réel courant : en dehors
+    // (années 2024/2025, ou mois 2026/2027 pas encore atteints), getLigneDette renvoie null
+    // et la ligne retombe sur le calcul isolé du mois seul (comportement actuel).
+    const detteCache=new Map();
+    function getLigneDette(t,annee,mois){
+      if(!t)return null;
+      if(!detteCache.has(t.id)){
+        const{lignes}=calcDetteLigne(t,null,null,true);
+        const byKey={};
+        lignes.forEach(l=>{byKey[l.annee+'|'+l.mois]=l;});
+        detteCache.set(t.id,byKey);
+      }
+      return detteCache.get(t.id)[annee+'|'+mois]||null;
+    }
     // Releves linked to tenants (water/charges invoices)
     const allRel=S.releves.filter(r=>{
       const cpt=S.compteurs.find(c=>c.id===r.compteur_id);
@@ -2189,15 +2205,23 @@ function renderLocatif(){
             const loyerRef=parseFloat(t?.loyer_ref||0);
             const chargesRef=parseFloat(t?.charges||0);
             const remiseF=parseFloat(f.remise||0);
+            const ligneDette=getLigneDette(t,f.annee,f.mois);
             // Loyer attendu = loyer_ref TTC - remise (cohérent avec calcDetteLigne, indépendant du champ f.loyer)
-            const loyerAttenduF=Math.max(0,Math.round(((isComm?(loyerRef+chargesRef)*1.2:(loyerRef+chargesRef))-remiseF)*100)/100);
+            const loyerAttenduF=ligneDette?ligneDette.attendu:Math.max(0,Math.round(((isComm?(loyerRef+chargesRef)*1.2:(loyerRef+chargesRef))-remiseF)*100)/100);
             const recu=Math.round(((f.locataire_part||0)+(f.caf||0))*100)/100;
-            const sol=Math.round((loyerAttenduF-recu)*100)/100;
-            const isPartial=!f.paye&&recu>0&&sol>0.01;
+            // Solde cumulé (avec report) issu de calcDetteLigne quand ce mois est dans sa
+            // fenêtre de calcul, sinon solde isolé du mois seul en repli.
+            const sol=ligneDette?ligneDette.solde:Math.round((loyerAttenduF-recu)*100)/100;
+            // "Partiel" reste un statut MOIS SEUL (indépendant du cumulé) : ce mois précis
+            // n'a pas été intégralement couvert par ce qui a été reçu ce mois-là.
+            const solMoisSeul=Math.round((loyerAttenduF-recu)*100)/100;
+            const isPartial=!f.paye&&recu>0&&solMoisSeul>0.01;
             const hasRemise=remiseF>0&&recu===0;
+            const hasDetteAnt=!!ligneDette&&ligneDette.soldePrecedent>0.01;
             return '<tr style="'+(isPartial?'background:#FFF9E6':hasRemise?'background:#F0FFF4':'')+'">'
               +'<td style="font-size:11px">'+(f.mois||'')+' '+(f.annee||'')
                 +(isPartial?' <span class="badge bamber" style="font-size:9px">Partiel</span>':'')
+                +(hasDetteAnt?' <span class="badge bred" style="font-size:9px">Dette antérieure</span>':'')
                 +(hasRemise?' <span class="badge bgreen" style="font-size:9px">Remise</span>':'')
               +'</td>'
               +'<td>'+(t?.nom||'')+'</td>'
