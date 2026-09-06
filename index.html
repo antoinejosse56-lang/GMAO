@@ -2562,8 +2562,12 @@ function renderFactures(){
     <div class="card">
       <div class="sec" style="margin-bottom:8px">📥 Factures détectées automatiquement, en attente de validation</div>
       ${pending.length===0?'<div style="text-align:center;padding:20px;color:var(--text2)">Rien à valider — tout est à jour.</div>':''}
+      ${pending.length>0?`<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+        <button class="btn btn-sm btn-d" id="btn-fav-reject-selected">🚫 Rejeter la sélection</button>
+        <span id="fav-selected-count" style="font-size:12px;color:var(--text2)"></span>
+      </div>` :''}
       ${pending.length>0?`<div style="overflow-x:auto"><table>
-        <thead><tr><th>Date facture</th><th>Fichier</th><th>Entreprise</th><th>Description</th><th>Montant TTC</th><th>Bien / Local</th><th>Équipement</th><th>Personne</th><th>Compte</th><th>Date paiement</th><th>Actions</th></tr></thead>
+        <thead><tr><th><input type="checkbox" id="fav-select-all"></th><th>Date facture</th><th>Fichier</th><th>Entreprise</th><th>Description</th><th>Montant TTC</th><th>Bien / Local</th><th>Équipement</th><th>Personne</th><th>Compte</th><th>Date paiement</th><th>Actions</th></tr></thead>
         <tbody>
         ${pending.map(f=>{
           const fileUrl=f.storage_path?`${SUPABASE_URL}/storage/v1/object/public/factures-a-valider/${f.storage_path}`:null;
@@ -2571,6 +2575,7 @@ function renderFactures(){
           const moisAnnee=dateRef?dateRef.slice(0,7):null;
           const doublon=f.entreprise&&moisAnnee&&S.factures.some(ex=>(ex.fournisseur||'').trim().toLowerCase()===f.entreprise.trim().toLowerCase()&&(ex.date||'').startsWith(moisAnnee));
           return `<tr>
+            <td style="vertical-align:top;padding-top:8px"><input type="checkbox" class="fav-select" data-fav-id="${f.id}"></td>
             <td style="vertical-align:top;padding-top:8px"><input type="date" class="fav-date" data-fav-id="${f.id}" value="${dateRef}" style="width:130px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px"></td>
             <td style="font-size:11px;vertical-align:top;padding-top:10px;max-width:160px;word-break:break-word">
               ${f.fichier_nom||'—'}
@@ -7600,6 +7605,28 @@ function bindAll(){
     S.facturesAValider=(S.facturesAValider||[]).filter(x=>x.id!==id);
     render();
   });
+  const favSelectAll=document.getElementById('fav-select-all');
+  const favCountEl=document.getElementById('fav-selected-count');
+  const updateFavCount=()=>{
+    if(!favCountEl)return;
+    const n=document.querySelectorAll('.fav-select:checked').length;
+    favCountEl.textContent=n>0?`${n} sélectionnée(s)`:'';
+  };
+  if(favSelectAll)favSelectAll.onchange=()=>{
+    document.querySelectorAll('.fav-select').forEach(cb=>cb.checked=favSelectAll.checked);
+    updateFavCount();
+  };
+  document.querySelectorAll('.fav-select').forEach(cb=>cb.onchange=updateFavCount);
+  const btnFavRejectSel=document.getElementById('btn-fav-reject-selected');
+  if(btnFavRejectSel)btnFavRejectSel.onclick=async()=>{
+    const ids=[...document.querySelectorAll('.fav-select:checked')].map(cb=>cb.dataset.favId);
+    if(ids.length===0){alert('Aucune facture sélectionnée.');return;}
+    if(!confirm(`Rejeter ${ids.length} facture(s) sélectionnée(s) ? Elles ne seront plus proposées et rien ne sera enregistré dans les factures.`))return;
+    const{error}=await sb.from('factures_a_valider').update({statut:'rejete',traite_at:new Date().toISOString()}).in('id',ids);
+    if(error){alert('Erreur : '+error.message);return;}
+    S.facturesAValider=(S.facturesAValider||[]).filter(x=>!ids.includes(x.id));
+    render();
+  };
   const btnAddFact=document.getElementById('btn-add-facture');
   if(btnAddFact)btnAddFact.onclick=()=>{S.modal={type:'add-facture'};render();};
   document.querySelectorAll('[data-edit-fact]').forEach(el=>el.onclick=()=>{
