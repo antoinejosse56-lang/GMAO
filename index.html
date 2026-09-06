@@ -2492,11 +2492,12 @@ function renderFactures(){
     <div class="card">
       <div class="sec">⚠ ${nonRappr} facture(s) non rapprochée(s) — à vérifier sur votre relevé bancaire</div>
       <div style="overflow-x:auto"><table>
-        <thead><tr><th>Date</th><th>Fournisseur</th><th>Description</th><th>Catégorie</th><th>Bien</th><th>Équipement</th><th>Montant TTC</th><th>Compte</th><th>BT lié</th><th>✓</th></tr></thead>
+        <thead><tr><th>Date</th><th>Fournisseur</th><th>Description</th><th>Catégorie</th><th>Bien</th><th>Équipement</th><th>Personne</th><th>Montant TTC</th><th>Compte</th><th>BT lié</th><th>✓</th></tr></thead>
         <tbody>
         ${facts.map(f=>{
           const wo=f.wo_id?S.workOrders.find(w=>w.id===f.wo_id):null;
           const asset=f.asset_id?S.assets.find(a=>a.id===f.asset_id):null;
+          const personne=f.famille_id?S.famille.find(p=>p.id===f.famille_id):null;
           return `<tr style="background:var(--red-bg)">
             <td style="font-size:12px;white-space:nowrap">${dateLabel(f.date)}</td>
             <td style="font-weight:500;font-size:13px">${f.fournisseur||'—'} ${(f.drive_url||f.document_url)?`<a href="${f.drive_url||f.document_url}" target="_blank" style="font-size:10px;text-decoration:none;background:var(--bg2);border:0.5px solid var(--border);border-radius:4px;padding:1px 5px">📄 PJ</a>`:''}</td>
@@ -2504,6 +2505,7 @@ function renderFactures(){
             <td><span class="badge bblue" style="font-size:10px">${f.categorie||'—'}</span></td>
             <td style="font-size:11px;color:var(--text2)">${f.bien||'—'}</td>
             <td style="font-size:11px;color:var(--text2)">${asset?asset.name:'—'}</td>
+            <td style="font-size:11px;color:var(--text2)">${personne?personne.prenom:'—'}</td>
             <td style="font-weight:700;color:var(--red)">${fmt(f.montant_ttc)}</td>
             <td style="font-size:11px">${f.compte==='savadur'?'🏢 SAVADUR':'🏠 Perso'}</td>
             <td style="font-size:11px;color:var(--blue)">${wo?wo.title:'—'}</td>
@@ -2536,6 +2538,12 @@ function renderFactures(){
       S.assets.forEach(a=>{opts.push(opt(a.id,a.name+(a.location?' — '+a.location:'')));});
       return opts.join('');
     };
+    const personneOptsFor=(sel)=>{
+      const opt=(val,label)=>'<option value="'+val+'"'+(val===(sel||'')?' selected':'')+'>'+label+'</option>';
+      const opts=[opt('','— Aucune personne —')];
+      S.famille.forEach(p=>{opts.push(opt(p.id,p.prenom+(p.nom?' '+p.nom:'')));});
+      return opts.join('');
+    };
     // Devine savadur/perso : d'abord via le bien choisi, sinon via le compte explicite
     // de l'equipement lie (champ assets.compte, renseigne dans sa fiche), sinon via une
     // heuristique sur son nom/emplacement (dubailFilter) - reste modifiable a la main
@@ -2555,7 +2563,7 @@ function renderFactures(){
       <div class="sec" style="margin-bottom:8px">📥 Factures détectées automatiquement, en attente de validation</div>
       ${pending.length===0?'<div style="text-align:center;padding:20px;color:var(--text2)">Rien à valider — tout est à jour.</div>':''}
       ${pending.length>0?`<div style="overflow-x:auto"><table>
-        <thead><tr><th>Date facture</th><th>Fichier</th><th>Entreprise</th><th>Montant TTC</th><th>Bien / Local</th><th>Équipement</th><th>Compte</th><th>Date paiement</th><th>Actions</th></tr></thead>
+        <thead><tr><th>Date facture</th><th>Fichier</th><th>Entreprise</th><th>Description</th><th>Montant TTC</th><th>Bien / Local</th><th>Équipement</th><th>Personne</th><th>Compte</th><th>Date paiement</th><th>Actions</th></tr></thead>
         <tbody>
         ${pending.map(f=>{
           const fileUrl=f.storage_path?`${SUPABASE_URL}/storage/v1/object/public/factures-a-valider/${f.storage_path}`:null;
@@ -2572,9 +2580,11 @@ function renderFactures(){
             <td style="vertical-align:top"><input class="fav-entreprise" data-fav-id="${f.id}" value="${(f.entreprise||'').replace(/"/g,'&quot;')}" placeholder="Entreprise / artisan" style="width:150px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">
               ${doublon?'<div class="badge bamber" style="font-size:9px;margin-top:3px">⚠ Facture similaire déjà enregistrée</div>':''}
             </td>
+            <td style="vertical-align:top"><input class="fav-desc" data-fav-id="${f.id}" value="${(f.description||'').replace(/"/g,'&quot;')}" placeholder="Description / N° facture" style="width:140px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px"></td>
             <td style="vertical-align:top"><input type="number" step="0.01" class="fav-montant" data-fav-id="${f.id}" value="${f.montant_ttc!=null?f.montant_ttc:''}" placeholder="0.00" style="width:90px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px"></td>
             <td style="vertical-align:top"><select class="fav-bien" data-fav-id="${f.id}" style="width:180px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">${bienOptsFor(f.bien||'')}</select></td>
             <td style="vertical-align:top"><select class="fav-asset" data-fav-id="${f.id}" style="width:160px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">${assetOptsFor(f.asset_id||'')}</select></td>
+            <td style="vertical-align:top"><select class="fav-personne" data-fav-id="${f.id}" style="width:140px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">${personneOptsFor(f.famille_id||'')}</select></td>
             <td style="vertical-align:top"><select class="fav-compte" data-fav-id="${f.id}" style="width:110px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">${compteOptsFor(compteGuess(f))}</select></td>
             <td style="vertical-align:top"><input type="date" class="fav-date-paiement" data-fav-id="${f.id}" style="width:130px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px"></td>
             <td style="white-space:nowrap;vertical-align:top;padding-top:8px">
@@ -4684,11 +4694,19 @@ function renderModal(){
         </select>
       </div>
     </div>
-    <div class="form-group"><label>Équipement lié (optionnel)</label>
-      <select id="fac-asset">
-        <option value="">— Aucun équipement —</option>
-        ${S.assets.map(a=>`<option value="${a.id}" ${f.asset_id===a.id?'selected':''}>${a.name}${a.location?' — '+a.location:''}</option>`).join('')}
-      </select>
+    <div class="g2c">
+      <div class="form-group"><label>Équipement lié (optionnel)</label>
+        <select id="fac-asset">
+          <option value="">— Aucun équipement —</option>
+          ${S.assets.map(a=>`<option value="${a.id}" ${f.asset_id===a.id?'selected':''}>${a.name}${a.location?' — '+a.location:''}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group"><label>Personne liée (optionnel)</label>
+        <select id="fac-personne">
+          <option value="">— Aucune personne —</option>
+          ${S.famille.map(p=>`<option value="${p.id}" ${f.famille_id===p.id?'selected':''}>${p.prenom}${p.nom?' '+p.nom:''}</option>`).join('')}
+        </select>
+      </div>
     </div>
     <div class="g2c">
       <div class="form-group"><label>Montant HT (€)</label><input id="fac-ht" type="number" step="0.01" value="${f.montant_ht||0}" oninput="(function(){const ht=parseFloat(document.getElementById('fac-ht').value)||0;const tva=parseFloat(document.getElementById('fac-tva').value)||0;document.getElementById('fac-ttc').value=Math.round((ht*(1+tva/100))*100)/100;})()"></div>
@@ -6383,7 +6401,7 @@ async function saveModal(){
     const rec={fournisseur:fourn,date:q('fac-date')?.value||null,
       categorie:q('fac-cat')?.value||null,compte:q('fac-compte')?.value||'savadur',
       bien:q('fac-bien')?.value||null,wo_id:q('fac-wo')?.value||null,
-      asset_id:q('fac-asset')?.value||null,
+      asset_id:q('fac-asset')?.value||null,famille_id:q('fac-personne')?.value||null,
       montant_ht:parseFloat(q('fac-ht')?.value)||0,
       tva_pct:parseFloat(q('fac-tva')?.value)||0,
       montant_ttc:ttc,description:q('fac-desc')?.value||null,
@@ -7550,6 +7568,8 @@ function bindAll(){
     const montant=parseFloat(document.querySelector('.fav-montant[data-fav-id="'+id+'"]')?.value);
     const bien=document.querySelector('.fav-bien[data-fav-id="'+id+'"]')?.value||'';
     const assetId=document.querySelector('.fav-asset[data-fav-id="'+id+'"]')?.value||'';
+    const familleId=document.querySelector('.fav-personne[data-fav-id="'+id+'"]')?.value||'';
+    const description=(document.querySelector('.fav-desc[data-fav-id="'+id+'"]')?.value||'').trim();
     const dateFacture=document.querySelector('.fav-date[data-fav-id="'+id+'"]')?.value||'';
     const datePaiement=document.querySelector('.fav-date-paiement[data-fav-id="'+id+'"]')?.value||'';
     const compteFav=document.querySelector('.fav-compte[data-fav-id="'+id+'"]')?.value||'savadur';
@@ -7557,14 +7577,16 @@ function bindAll(){
     if(!montant||montant<=0){alert('Montant TTC requis avant validation');return;}
     const documentUrl=fav.storage_path?`${SUPABASE_URL}/storage/v1/object/public/factures-a-valider/${fav.storage_path}`:null;
     const rec={fournisseur:entreprise,date:dateFacture||new Date().toISOString().slice(0,10),montant_ttc:montant,
-      bien:bien||null,asset_id:assetId||null,document_url:documentUrl,compte:compteFav,rapproche:false,
+      bien:bien||null,asset_id:assetId||null,famille_id:familleId||null,description:description||null,
+      document_url:documentUrl,compte:compteFav,rapproche:false,
       date_paiement:datePaiement||null};
     const{data,error}=await sb.from('factures').insert(rec).select().single();
     if(error){alert('Erreur enregistrement facture : '+error.message);return;}
     S.factures=[data,...(S.factures||[])];
     const{error:updErr}=await sb.from('factures_a_valider').update({
       statut:'valide',facture_id:data.id,traite_at:new Date().toISOString(),
-      entreprise,montant_ttc:montant,bien:bien||null,asset_id:assetId||null,date_facture:dateFacture||null
+      entreprise,montant_ttc:montant,bien:bien||null,asset_id:assetId||null,famille_id:familleId||null,
+      description:description||null,date_facture:dateFacture||null
     }).eq('id',id);
     if(updErr){alert('Facture enregistrée, mais erreur de mise à jour du suivi : '+updErr.message);}
     S.facturesAValider=(S.facturesAValider||[]).filter(x=>x.id!==id);

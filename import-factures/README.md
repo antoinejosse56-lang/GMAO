@@ -112,6 +112,8 @@ est déjà créé.)
 - Pas d'OCR : une facture scannée en image ou une photo de ticket n'aura pas
   d'entreprise/montant extraits automatiquement — à saisir manuellement dans
   le GMAO. Ce n'est pas un bug, c'est le choix fait pour la v1.
+- Formats acceptés : PDF, JPG/PNG, et Word (.docx uniquement — le vieux format
+  binaire .doc n'est pas lisible automatiquement, saisie manuelle nécessaire).
 - Le dossier est scanné à plat (pas de sous-dossiers).
 - L'extraction de montant/entreprise reste une estimation — toujours vérifier
   avant validation dans le GMAO, surtout pour les factures aux formats

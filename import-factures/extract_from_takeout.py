@@ -16,10 +16,11 @@ import mailbox
 import re
 import unicodedata
 from datetime import datetime, timezone
+from email.header import decode_header
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 
-ALLOWED_EXTENSIONS = {".pdf", ".jpg", ".jpeg", ".png"}
+ALLOWED_EXTENSIONS = {".pdf", ".jpg", ".jpeg", ".png", ".doc", ".docx", ".odt"}
 
 # Mots-cles facture en plusieurs langues (memes que l'automatisation mail existante)
 KEYWORD_RE = re.compile(
@@ -37,6 +38,24 @@ def sanitize(name: str) -> str:
     ascii_name = nfkd.encode("ascii", "ignore").decode("ascii")
     ascii_name = re.sub(r"[^A-Za-z0-9._-]+", "_", ascii_name)
     return ascii_name.strip("_") or "inconnu"
+
+
+def decode_filename(raw):
+    """part.get_filename() ne decode PAS les noms de pieces jointes encodes
+    RFC 2047 (ex: '=?iso-8859-1?Q?facture_n=B0628.odt?=') - il renvoie la
+    chaine brute telle quelle. Sans ce decodage, l'extension se retrouve
+    corrompue (".odt?=" au lieu de ".odt") et le fichier est silencieusement
+    ignore par le filtre ALLOWED_EXTENSIONS, meme si l'extension est autorisee."""
+    if not raw:
+        return raw
+    try:
+        parts = decode_header(raw)
+        return "".join(
+            p.decode(enc or "utf-8", errors="ignore") if isinstance(p, bytes) else p
+            for p, enc in parts
+        )
+    except Exception:
+        return raw
 
 
 def get_text_parts(message):
@@ -102,7 +121,7 @@ def extract(mbox_path: Path, output_dir: Path, depuis: datetime):
 
         has_attachment_match = False
         for part in message.walk():
-            filename = part.get_filename()
+            filename = decode_filename(part.get_filename())
             if not filename:
                 continue
             ext = Path(filename).suffix.lower()

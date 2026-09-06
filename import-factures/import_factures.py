@@ -33,6 +33,11 @@ try:
 except ImportError:
     pdfplumber = None
 
+try:
+    import docx as docx_lib
+except ImportError:
+    docx_lib = None
+
 load_dotenv()
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
@@ -45,7 +50,7 @@ ARCHIVE_DIR = os.environ.get("ARCHIVE_DIR", "")
 
 BUCKET = "factures-a-valider"
 TABLE = "factures_a_valider"
-ALLOWED_EXTENSIONS = {".pdf", ".jpg", ".jpeg", ".png"}
+ALLOWED_EXTENSIONS = {".pdf", ".jpg", ".jpeg", ".png", ".doc", ".docx", ".odt"}
 
 HEADERS = {
     "apikey": SERVICE_KEY,
@@ -164,15 +169,30 @@ def parse_filename_date(filename: str):
 
 def fetch_known_rows() -> dict:
     """Renvoie {chemin_relatif: {statut, bien}} pour toutes les lignes connues -
-    sert a la fois a la detection de doublons et a l'archivage post-validation."""
-    resp = requests.get(
-        f"{SUPABASE_URL}/rest/v1/{TABLE}",
-        params={"select": "chemin_relatif,statut,bien"},
-        headers=HEADERS,
-        timeout=30,
-    )
-    resp.raise_for_status()
-    return {row["chemin_relatif"]: row for row in resp.json()}
+    sert a la fois a la detection de doublons et a l'archivage post-validation.
+    Pagine par lots de 1000 : PostgREST plafonne chaque requete a son "Max Rows"
+    (1000 par defaut cote Supabase) quel que soit le Range demande - au-dela de
+    1000 lignes en base, un seul GET n'en ramenait qu'une partie, ce qui faisait
+    reessayer d'importer des fichiers deja connus (rejetes ensuite par la
+    contrainte d'unicite - pas de perte de donnees, juste du travail inutile)."""
+    known = {}
+    offset = 0
+    page_size = 1000
+    while True:
+        resp = requests.get(
+            f"{SUPABASE_URL}/rest/v1/{TABLE}",
+            params={"select": "chemin_relatif,statut,bien"},
+            headers={**HEADERS, "Range-Unit": "items", "Range": f"{offset}-{offset+page_size-1}"},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        page = resp.json()
+        for row in page:
+            known[row["chemin_relatif"]] = row
+        if len(page) < page_size:
+            break
+        offset += page_size
+    return known
 
 
 def sanitize_folder_name(name: str) -> str:
@@ -235,6 +255,35 @@ def extract_pdf_text(path: Path) -> str:
             t = pg.extract_text() or ""
             text_parts.append(t)
     return "\n".join(text_parts)
+
+
+def extract_odt_text(path: Path) -> str:
+    """Texte natif d'un .odt (OpenDocument, format zip/XML comme .docx) - pas de
+    dependance supplementaire, content.xml se parse avec la lib standard."""
+    import zipfile
+    import xml.etree.ElementTree as ET
+    with zipfile.ZipFile(str(path)) as z:
+        with z.open("content.xml") as f:
+            tree = ET.parse(f)
+    p_tag = "{urn:oasis:names:tc:opendocument:xmlns:text:1.0}p"
+    parts = ["".join(el.itertext()) for el in tree.iter(p_tag)]
+    return "\n".join(parts)
+
+
+def extract_docx_text(path: Path) -> str:
+    """Texte natif d'un .docx (Word 2007+, format zip/XML). Le vieux format
+    binaire .doc (Word 97-2003) n'est pas lisible par python-docx - trop rare
+    et trop complexe a parser pour la v1, traite comme les images (saisie
+    manuelle) plutot que d'ajouter une dependance lourde pour ce cas."""
+    if docx_lib is None:
+        raise RuntimeError("python-docx non installe (pip install -r requirements.txt)")
+    doc = docx_lib.Document(str(path))
+    parts = [p.text for p in doc.paragraphs]
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                parts.append(cell.text)
+    return "\n".join(parts)
 
 
 def guess_montant_ttc(text: str):
@@ -424,6 +473,31 @@ def process_file(path: Path, chemin_relatif: str):
                 )
         except Exception as e:
             row["erreur_extraction"] = f"Extraction du texte PDF echouee (fichier peut-etre corrompu) : {e}"
+    elif ext == ".docx":
+        try:
+            text = extract_docx_text(path)
+            row["montant_ttc"] = guess_montant_ttc(text)
+            row["entreprise"] = guess_entreprise(text)
+            row["date_facture"] = guess_date_facture(text)
+            if not text.strip():
+                row["erreur_extraction"] = "Document Word vide — saisie manuelle necessaire."
+        except Exception as e:
+            row["erreur_extraction"] = f"Extraction du texte Word echouee (fichier peut-etre corrompu) : {e}"
+    elif ext == ".odt":
+        try:
+            text = extract_odt_text(path)
+            row["montant_ttc"] = guess_montant_ttc(text)
+            row["entreprise"] = guess_entreprise(text)
+            row["date_facture"] = guess_date_facture(text)
+            if not text.strip():
+                row["erreur_extraction"] = "Document ODT vide — saisie manuelle necessaire."
+        except Exception as e:
+            row["erreur_extraction"] = f"Extraction du texte ODT echouee (fichier peut-etre corrompu) : {e}"
+    elif ext == ".doc":
+        row["erreur_extraction"] = (
+            "Format .doc (Word 97-2003) non pris en charge pour l'extraction automatique — "
+            "saisie manuelle necessaire."
+        )
     # Pour les images (.jpg/.jpeg/.png) : pas d'extraction en v1 (OCR reporte a la v2),
     # entreprise/montant_ttc restent vides pour saisie manuelle - ce n'est pas une erreur.
 
@@ -440,9 +514,15 @@ def inspect_file(filename: str):
     path = watch_path / filename
     if not path.is_file():
         sys.exit(f"Fichier introuvable : {path}")
-    if path.suffix.lower() != ".pdf":
-        sys.exit("--inspect ne fonctionne que sur des PDF (pas d'extraction pour les images en v1)")
-    text = extract_pdf_text(path)
+    ext = path.suffix.lower()
+    if ext not in (".pdf", ".docx", ".odt"):
+        sys.exit("--inspect ne fonctionne que sur des PDF, .docx ou .odt (pas d'extraction pour les images/.doc en v1)")
+    if ext == ".pdf":
+        text = extract_pdf_text(path)
+    elif ext == ".docx":
+        text = extract_docx_text(path)
+    else:
+        text = extract_odt_text(path)
     print("=" * 70)
     print("TEXTE EXTRAIT :")
     print("=" * 70)
