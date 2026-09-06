@@ -158,6 +158,20 @@ function dubailFilter(str){
   const s=(str||'').toLowerCase();
   return s.includes('dubail');
 }
+// PostgREST plafonne chaque requete a "Max Rows" (1000 par defaut cote Supabase),
+// meme si .range() en demande plus - il faut paginer cote client pour tout recuperer.
+async function fetchAllRows(table, orderCol, ascending){
+  let all=[], from=0;
+  const pageSize=1000;
+  while(true){
+    const {data,error}=await sb.from(table).select('*').order(orderCol,{ascending}).range(from, from+pageSize-1);
+    if(error) return {data: all.length?all:null, error};
+    all=all.concat(data||[]);
+    if(!data || data.length<pageSize) break;
+    from+=pageSize;
+  }
+  return {data:all, error:null};
+}
 function uid(){return 'x'+Math.random().toString(36).slice(2,9);}
 function daysUntil(d){if(!d)return null;return Math.ceil((new Date(d)-new Date())/86400000);}
 function dateLabel(d){if(!d)return '—';return new Date(d).toLocaleDateString('fr-FR');}
@@ -209,7 +223,7 @@ let S = {
   // data
   users: [], assets: [], tasks: [], tools: [], loans: [],
   workOrders: [], maintenanceTemplates: [], topology: {properties: []},
-  factures: [], revenues: [], finTab: 'overview', reservations: [], resaYear: new Date().getFullYear(), taxeSejourTaux: 5, taxeSejourPlafond: 4.60, compteurs: [], releves: [], rangements: [], famille: [], consommables: [], crecheSaisies: [], ecoleSaisies: [], familleTab: 'membres', finFactCpte: 'savadur', familleEnfant: null
+  factures: [], facturesAValider: [], revenues: [], finTab: 'overview', reservations: [], resaYear: new Date().getFullYear(), taxeSejourTaux: 5, taxeSejourPlafond: 4.60, compteurs: [], releves: [], rangements: [], famille: [], consommables: [], crecheSaisies: [], ecoleSaisies: [], familleTab: 'membres', finFactCpte: 'savadur', familleEnfant: null
 };
 
 async function loadAll() {
@@ -228,7 +242,7 @@ async function loadAll() {
     const test = await sb.from('users').select('count', {count:'exact',head:true});
     if (test.error) { showError(test.error.message || JSON.stringify(test.error)); return; }
 
-    const [u, a, t, tl, l, wo, mt, topo, rev, cpt, rel, ten, rp, wr, rng, fam, crecheRes, ecoleRes, conso, facturesRes, resaRes] = await Promise.all([
+    const [u, a, t, tl, l, wo, mt, topo, rev, cpt, rel, ten, rp, wr, rng, fam, crecheRes, ecoleRes, conso, facturesRes, resaRes, favRes] = await Promise.all([
       sb.from('users').select('*'),
       sb.from('assets').select('*'),
       sb.from('tasks').select('*'),
@@ -248,8 +262,9 @@ async function loadAll() {
       sb.from('creche_saisies').select('*').order('annee',{ascending:false}).order('mois',{ascending:false}).order('jour',{ascending:false}),
       sb.from('ecole_saisies').select('*').order('annee',{ascending:false}).order('mois',{ascending:false}).order('jour',{ascending:false}),
       sb.from('consommables').select('*').order('nom'),
-      sb.from('factures').select('*').order('date',{ascending:false}),
-      sb.from('reservations').select('*').order('date_arrivee',{ascending:false})
+      fetchAllRows('factures','date',false),
+      sb.from('reservations').select('*').order('date_arrivee',{ascending:false}),
+      fetchAllRows('factures_a_valider','created_at',false)
     ]);
 
     // Only block on critical tables
@@ -283,6 +298,8 @@ async function loadAll() {
     S.consommables = conso.error ? [] : (conso.data || []);
     S.factures = facturesRes?.error ? [] : (facturesRes?.data || []);
     S.reservations = resaRes?.error ? [] : (resaRes?.data || []);
+    if (favRes?.error) console.warn('Table factures_a_valider non disponible:', favRes.error.message);
+    S.facturesAValider = favRes?.error ? [] : (favRes?.data || []);
     const loadedTopo = topo.data?.[0]?.data;
     S.topoId = topo.data?.[0]?.id;
     if(loadedTopo?.properties?.length){
@@ -2439,11 +2456,13 @@ function renderFactures(){
   const year = S.factYear||(new Date().getFullYear());
   const YEARS = [year-1, year, year+1];
 
+  const nAValider = (S.facturesAValider||[]).filter(f=>f.statut==='en_attente').length;
   const tabBar = `<div class="tab-bar">
     <div class="tab ${fTab==='liste'?'active':''}" data-fact-tab="liste">📋 Toutes</div>
     <div class="tab ${fTab==='savadur'?'active':''}" data-fact-tab="savadur">🏢 SAVADUR</div>
     <div class="tab ${fTab==='perso'?'active':''}" data-fact-tab="perso">🏠 Perso</div>
     <div class="tab ${fTab==='rapproch'?'active':''}" data-fact-tab="rapproch">🔍 Rapprochement</div>
+    <div class="tab ${fTab==='a_valider'?'active':''}" data-fact-tab="a_valider">📥 À valider${nAValider>0?` <span class="badge bamber" style="font-size:10px">${nAValider}</span>`:''}</div>
   </div>`;
 
   const yearBar = `<div style="display:flex;gap:6px;margin-bottom:12px;align-items:center;flex-wrap:wrap">
@@ -2473,16 +2492,18 @@ function renderFactures(){
     <div class="card">
       <div class="sec">⚠ ${nonRappr} facture(s) non rapprochée(s) — à vérifier sur votre relevé bancaire</div>
       <div style="overflow-x:auto"><table>
-        <thead><tr><th>Date</th><th>Fournisseur</th><th>Description</th><th>Catégorie</th><th>Bien</th><th>Montant TTC</th><th>Compte</th><th>BT lié</th><th>✓</th></tr></thead>
+        <thead><tr><th>Date</th><th>Fournisseur</th><th>Description</th><th>Catégorie</th><th>Bien</th><th>Équipement</th><th>Montant TTC</th><th>Compte</th><th>BT lié</th><th>✓</th></tr></thead>
         <tbody>
         ${facts.map(f=>{
           const wo=f.wo_id?S.workOrders.find(w=>w.id===f.wo_id):null;
+          const asset=f.asset_id?S.assets.find(a=>a.id===f.asset_id):null;
           return `<tr style="background:var(--red-bg)">
             <td style="font-size:12px;white-space:nowrap">${dateLabel(f.date)}</td>
-            <td style="font-weight:500;font-size:13px">${f.fournisseur||'—'} ${f.drive_url?`<a href="${f.drive_url}" target="_blank" style="font-size:10px;text-decoration:none;background:var(--bg2);border:0.5px solid var(--border);border-radius:4px;padding:1px 5px">📄 PJ</a>`:''}</td>
+            <td style="font-weight:500;font-size:13px">${f.fournisseur||'—'} ${(f.drive_url||f.document_url)?`<a href="${f.drive_url||f.document_url}" target="_blank" style="font-size:10px;text-decoration:none;background:var(--bg2);border:0.5px solid var(--border);border-radius:4px;padding:1px 5px">📄 PJ</a>`:''}</td>
             <td style="font-size:12px;color:var(--text2)">${f.description||'—'}</td>
             <td><span class="badge bblue" style="font-size:10px">${f.categorie||'—'}</span></td>
             <td style="font-size:11px;color:var(--text2)">${f.bien||'—'}</td>
+            <td style="font-size:11px;color:var(--text2)">${asset?asset.name:'—'}</td>
             <td style="font-weight:700;color:var(--red)">${fmt(f.montant_ttc)}</td>
             <td style="font-size:11px">${f.compte==='savadur'?'🏢 SAVADUR':'🏠 Perso'}</td>
             <td style="font-size:11px;color:var(--blue)">${wo?wo.title:'—'}</td>
@@ -2492,6 +2513,79 @@ function renderFactures(){
         </tbody>
       </table></div>
     </div>`}`;
+  }
+
+  if(fTab==='a_valider'){
+    const bienOptsFor=(sel)=>{
+      const opt=(val,label)=>'<option value="'+val+'"'+(val===(sel||'')?' selected':'')+'>'+label+'</option>';
+      const opts=[opt('','— Général / Non lié —')];
+      S.topology.properties.forEach(p=>{
+        opts.push(opt(p.name,p.name));
+        (p.zones||[]).forEach(z=>{
+          opts.push(opt(p.name+' - '+z.name,'&nbsp;&nbsp;'+p.name+' &rsaquo; '+z.name));
+          (z.subZones||[]).forEach(s=>{
+            opts.push(opt(p.name+' - '+z.name+' - '+s.name,'&nbsp;&nbsp;&nbsp;&nbsp;'+p.name+' &rsaquo; '+z.name+' &rsaquo; '+s.name));
+          });
+        });
+      });
+      return opts.join('');
+    };
+    const assetOptsFor=(sel)=>{
+      const opt=(val,label)=>'<option value="'+val+'"'+(val===(sel||'')?' selected':'')+'>'+label+'</option>';
+      const opts=[opt('','— Aucun équipement —')];
+      S.assets.forEach(a=>{opts.push(opt(a.id,a.name+(a.location?' — '+a.location:'')));});
+      return opts.join('');
+    };
+    // Devine savadur/perso : d'abord via le bien choisi, sinon via le compte explicite
+    // de l'equipement lie (champ assets.compte, renseigne dans sa fiche), sinon via une
+    // heuristique sur son nom/emplacement (dubailFilter) - reste modifiable a la main
+    // juste apres de toute facon.
+    const compteGuess=(f)=>{
+      if(f.bien) return dubailFilter(f.bien)?'savadur':'perso';
+      if(f.asset_id){
+        const a=S.assets.find(x=>x.id===f.asset_id);
+        if(a) return a.compte||((dubailFilter(a.name)||dubailFilter(a.location||''))?'savadur':'perso');
+      }
+      return 'savadur';
+    };
+    const compteOptsFor=(sel)=>`<option value="savadur" ${sel==='savadur'?'selected':''}>🏢 SAVADUR</option><option value="perso" ${sel==='perso'?'selected':''}>🏠 Perso</option>`;
+    const pending=(S.facturesAValider||[]).filter(f=>f.statut==='en_attente').sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
+    return `${tabBar}
+    <div class="card">
+      <div class="sec" style="margin-bottom:8px">📥 Factures détectées automatiquement, en attente de validation</div>
+      ${pending.length===0?'<div style="text-align:center;padding:20px;color:var(--text2)">Rien à valider — tout est à jour.</div>':''}
+      ${pending.length>0?`<div style="overflow-x:auto"><table>
+        <thead><tr><th>Date facture</th><th>Fichier</th><th>Entreprise</th><th>Montant TTC</th><th>Bien / Local</th><th>Équipement</th><th>Compte</th><th>Date paiement</th><th>Actions</th></tr></thead>
+        <tbody>
+        ${pending.map(f=>{
+          const fileUrl=f.storage_path?`${SUPABASE_URL}/storage/v1/object/public/factures-a-valider/${f.storage_path}`:null;
+          const dateRef=f.date_facture||f.fichier_date||'';
+          const moisAnnee=dateRef?dateRef.slice(0,7):null;
+          const doublon=f.entreprise&&moisAnnee&&S.factures.some(ex=>(ex.fournisseur||'').trim().toLowerCase()===f.entreprise.trim().toLowerCase()&&(ex.date||'').startsWith(moisAnnee));
+          return `<tr>
+            <td style="vertical-align:top;padding-top:8px"><input type="date" class="fav-date" data-fav-id="${f.id}" value="${dateRef}" style="width:130px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px"></td>
+            <td style="font-size:11px;vertical-align:top;padding-top:10px;max-width:160px;word-break:break-word">
+              ${f.fichier_nom||'—'}
+              ${fileUrl?`<br><a href="${fileUrl}" target="_blank" style="font-size:10px">📄 Ouvrir le fichier</a>`:'<br><span style="color:var(--red);font-size:10px">Fichier indisponible</span>'}
+              ${f.erreur_extraction?`<div class="badge bamber" style="font-size:9px;margin-top:4px;white-space:normal" title="${f.erreur_extraction.replace(/"/g,'&quot;')}">⚠ ${f.erreur_extraction}</div>`:''}
+            </td>
+            <td style="vertical-align:top"><input class="fav-entreprise" data-fav-id="${f.id}" value="${(f.entreprise||'').replace(/"/g,'&quot;')}" placeholder="Entreprise / artisan" style="width:150px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">
+              ${doublon?'<div class="badge bamber" style="font-size:9px;margin-top:3px">⚠ Facture similaire déjà enregistrée</div>':''}
+            </td>
+            <td style="vertical-align:top"><input type="number" step="0.01" class="fav-montant" data-fav-id="${f.id}" value="${f.montant_ttc!=null?f.montant_ttc:''}" placeholder="0.00" style="width:90px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px"></td>
+            <td style="vertical-align:top"><select class="fav-bien" data-fav-id="${f.id}" style="width:180px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">${bienOptsFor(f.bien||'')}</select></td>
+            <td style="vertical-align:top"><select class="fav-asset" data-fav-id="${f.id}" style="width:160px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">${assetOptsFor(f.asset_id||'')}</select></td>
+            <td style="vertical-align:top"><select class="fav-compte" data-fav-id="${f.id}" style="width:110px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">${compteOptsFor(compteGuess(f))}</select></td>
+            <td style="vertical-align:top"><input type="date" class="fav-date-paiement" data-fav-id="${f.id}" style="width:130px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px"></td>
+            <td style="white-space:nowrap;vertical-align:top;padding-top:8px">
+              <button class="btn btn-sm btn-p" data-fav-valider="${f.id}" title="Valider et enregistrer dans les factures">✅</button>
+              <button class="btn btn-sm btn-d" data-fav-rejeter="${f.id}" title="Rejeter (n'est pas une facture)" style="margin-left:3px">🚫</button>
+            </td>
+          </tr>`;
+        }).join('')}
+        </tbody>
+      </table></div>`:''}
+    </div>`;
   }
 
   return `${tabBar}${yearBar}
@@ -2511,7 +2605,7 @@ function renderFactures(){
       ${facts.map(f=>{
         const wo=f.wo_id?S.workOrders.find(w=>w.id===f.wo_id):null;
         const rapBg=f.rapproche?'':'background:var(--amber-bg)';
-        const driveIcon=f.drive_url?`<a href="${f.drive_url}" target="_blank" title="Voir la pièce jointe" style="text-decoration:none;background:var(--bg2);border:0.5px solid var(--border);border-radius:4px;padding:2px 6px;font-size:11px">📄 PJ</a>`:'';
+        const driveIcon=(f.drive_url||f.document_url)?`<a href="${f.drive_url||f.document_url}" target="_blank" title="Voir la pièce jointe" style="text-decoration:none;background:var(--bg2);border:0.5px solid var(--border);border-radius:4px;padding:2px 6px;font-size:11px">📄 PJ</a>`:'';
         return `<tr style="${rapBg}">
           <td style="font-size:12px;white-space:nowrap">${dateLabel(f.date)}</td>
           <td style="font-weight:500;font-size:13px">${f.fournisseur||'—'} ${driveIcon}</td>
@@ -4208,6 +4302,13 @@ function renderModal(){
     <div class="g2c">
       <div class="form-group"><label>Statut</label><select id="m-status"><option value="ok" ${a.status==='ok'?'selected':''}>En service</option><option value="attention" ${a.status==='attention'?'selected':''}>Attention</option><option value="urgent" ${a.status==='urgent'?'selected':''}>Urgent</option></select></div>
       <div class="form-group"><label>Prochain entretien</label><input id="m-maint" type="date" value="${a.next_maint||''}"></div>
+    </div>
+    <div class="form-group"><label>Compte (pour les factures liées à cet équipement)</label>
+      <select id="m-compte">
+        <option value="" ${!a.compte?'selected':''}>— Auto (déduit du nom / emplacement) —</option>
+        <option value="savadur" ${a.compte==='savadur'?'selected':''}>🏢 SAVADUR</option>
+        <option value="perso" ${a.compte==='perso'?'selected':''}>🏠 Perso</option>
+      </select>
     </div>${mf}`;}
 
   if(m.type==='edit-wo'){
@@ -4583,6 +4684,12 @@ function renderModal(){
         </select>
       </div>
     </div>
+    <div class="form-group"><label>Équipement lié (optionnel)</label>
+      <select id="fac-asset">
+        <option value="">— Aucun équipement —</option>
+        ${S.assets.map(a=>`<option value="${a.id}" ${f.asset_id===a.id?'selected':''}>${a.name}${a.location?' — '+a.location:''}</option>`).join('')}
+      </select>
+    </div>
     <div class="g2c">
       <div class="form-group"><label>Montant HT (€)</label><input id="fac-ht" type="number" step="0.01" value="${f.montant_ht||0}" oninput="(function(){const ht=parseFloat(document.getElementById('fac-ht').value)||0;const tva=parseFloat(document.getElementById('fac-tva').value)||0;document.getElementById('fac-ttc').value=Math.round((ht*(1+tva/100))*100)/100;})()"></div>
       <div class="form-group"><label>TVA (%)</label>
@@ -4602,6 +4709,7 @@ function renderModal(){
         <button type="button" class="btn btn-sm" onclick="openDrivePicker(f=>{document.getElementById('fac-url').value=f.url;},(document.getElementById('fac-bien')?.value||document.getElementById('fac-compte')?.value==='savadur'?'dubail':''))">📁</button>
       </div>
     </div>
+    <div class="form-group"><label>Date de paiement</label><input id="fac-date-paiement" type="date" value="${f.date_paiement||''}"></div>
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
       <input type="checkbox" id="fac-rapproche" ${f.rapproche?'checked':''}>
       <label for="fac-rapproche" style="font-size:13px;cursor:pointer">✅ Rapprochée (correspond à un débit bancaire)</label>
@@ -6214,7 +6322,8 @@ async function saveModal(){
       status:q('m-status')?.value||'ok',
       location:q('m-loc')?.value||null,
       description:q('m-desc')?.value||null,
-      next_maint:q('m-maint')?.value||null
+      next_maint:q('m-maint')?.value||null,
+      compte:q('m-compte')?.value||null
     };
     if(m.type==='add-asset'){
       const {data,error}=await sb.from('assets').insert(rec).select().single();
@@ -6274,10 +6383,12 @@ async function saveModal(){
     const rec={fournisseur:fourn,date:q('fac-date')?.value||null,
       categorie:q('fac-cat')?.value||null,compte:q('fac-compte')?.value||'savadur',
       bien:q('fac-bien')?.value||null,wo_id:q('fac-wo')?.value||null,
+      asset_id:q('fac-asset')?.value||null,
       montant_ht:parseFloat(q('fac-ht')?.value)||0,
       tva_pct:parseFloat(q('fac-tva')?.value)||0,
       montant_ttc:ttc,description:q('fac-desc')?.value||null,
       numero:q('fac-num')?.value||null,drive_url:q('fac-url')?.value||null,
+      date_paiement:q('fac-date-paiement')?.value||null,
       rapproche:q('fac-rapproche')?.checked||false};
     if(m.type==='add-facture'){
       const {data,error}=await sb.from('factures').insert(rec).select().single();
@@ -7431,6 +7542,42 @@ function bindAll(){
   // FACTURES
   document.querySelectorAll('[data-fact-tab]').forEach(el=>el.onclick=()=>{S.factTab=el.dataset.factTab;render();});
   document.querySelectorAll('[data-fact-year]').forEach(el=>el.onclick=()=>{S.factYear=parseInt(el.dataset.factYear)||0;render();});
+  document.querySelectorAll('[data-fav-valider]').forEach(el=>el.onclick=async()=>{
+    const id=el.dataset.favValider;
+    const fav=(S.facturesAValider||[]).find(x=>x.id===id);
+    if(!fav)return;
+    const entreprise=(document.querySelector('.fav-entreprise[data-fav-id="'+id+'"]')?.value||'').trim();
+    const montant=parseFloat(document.querySelector('.fav-montant[data-fav-id="'+id+'"]')?.value);
+    const bien=document.querySelector('.fav-bien[data-fav-id="'+id+'"]')?.value||'';
+    const assetId=document.querySelector('.fav-asset[data-fav-id="'+id+'"]')?.value||'';
+    const dateFacture=document.querySelector('.fav-date[data-fav-id="'+id+'"]')?.value||'';
+    const datePaiement=document.querySelector('.fav-date-paiement[data-fav-id="'+id+'"]')?.value||'';
+    const compteFav=document.querySelector('.fav-compte[data-fav-id="'+id+'"]')?.value||'savadur';
+    if(!entreprise){alert('Entreprise requise avant validation');return;}
+    if(!montant||montant<=0){alert('Montant TTC requis avant validation');return;}
+    const documentUrl=fav.storage_path?`${SUPABASE_URL}/storage/v1/object/public/factures-a-valider/${fav.storage_path}`:null;
+    const rec={fournisseur:entreprise,date:dateFacture||new Date().toISOString().slice(0,10),montant_ttc:montant,
+      bien:bien||null,asset_id:assetId||null,document_url:documentUrl,compte:compteFav,rapproche:false,
+      date_paiement:datePaiement||null};
+    const{data,error}=await sb.from('factures').insert(rec).select().single();
+    if(error){alert('Erreur enregistrement facture : '+error.message);return;}
+    S.factures=[data,...(S.factures||[])];
+    const{error:updErr}=await sb.from('factures_a_valider').update({
+      statut:'valide',facture_id:data.id,traite_at:new Date().toISOString(),
+      entreprise,montant_ttc:montant,bien:bien||null,asset_id:assetId||null,date_facture:dateFacture||null
+    }).eq('id',id);
+    if(updErr){alert('Facture enregistrée, mais erreur de mise à jour du suivi : '+updErr.message);}
+    S.facturesAValider=(S.facturesAValider||[]).filter(x=>x.id!==id);
+    render();
+  });
+  document.querySelectorAll('[data-fav-rejeter]').forEach(el=>el.onclick=async()=>{
+    const id=el.dataset.favRejeter;
+    if(!confirm('Rejeter ce fichier ? Il ne sera plus proposé et rien ne sera enregistré dans les factures.'))return;
+    const{error}=await sb.from('factures_a_valider').update({statut:'rejete',traite_at:new Date().toISOString()}).eq('id',id);
+    if(error){alert('Erreur : '+error.message);return;}
+    S.facturesAValider=(S.facturesAValider||[]).filter(x=>x.id!==id);
+    render();
+  });
   const btnAddFact=document.getElementById('btn-add-facture');
   if(btnAddFact)btnAddFact.onclick=()=>{S.modal={type:'add-facture'};render();};
   document.querySelectorAll('[data-edit-fact]').forEach(el=>el.onclick=()=>{
