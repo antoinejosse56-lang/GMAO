@@ -112,9 +112,30 @@ est déjà créé.)
 - Pas d'OCR : une facture scannée en image ou une photo de ticket n'aura pas
   d'entreprise/montant extraits automatiquement — à saisir manuellement dans
   le GMAO. Ce n'est pas un bug, c'est le choix fait pour la v1.
-- Formats acceptés : PDF, JPG/PNG, et Word (.docx uniquement — le vieux format
-  binaire .doc n'est pas lisible automatiquement, saisie manuelle nécessaire).
+- Formats acceptés : PDF, JPG/PNG, et Word/OpenDocument (.doc, .docx, .odt).
+  Extraction du texte (entreprise/montant) disponible pour .docx et .odt,
+  pas pour .doc (vieux format binaire).
 - Le dossier est scanné à plat (pas de sous-dossiers).
 - L'extraction de montant/entreprise reste une estimation — toujours vérifier
   avant validation dans le GMAO, surtout pour les factures aux formats
   inhabituels.
+
+## Aperçu PDF pour les fichiers Word/ODT
+
+Ces formats ne s'ouvrent pas nativement dans un navigateur. Le script génère
+donc automatiquement une copie PDF (via Microsoft Word, qui doit être installé
+sur le PC qui exécute le script) et c'est cette copie que le lien "Ouvrir le
+fichier" affiche dans le GMAO — l'original reste stocké tel quel à côté.
+
+**Fragile en tâche planifiée sans session ouverte** : l'automatisation Word
+(COM) peut se bloquer sur un fichier corrompu ou une boîte de dialogue
+inattendue, sans timeout intégré. Une erreur sur un fichier n'empêche pas les
+suivants, mais un blocage complet de Word nécessite de tuer le processus
+manuellement (Gestionnaire des tâches → WINWORD.EXE) et de relancer le script
+(idempotent, rien n'est retraité en double).
+
+Pour générer l'aperçu des fichiers déjà importés avant l'ajout de cette
+fonctionnalité :
+```
+python backfill_pdf_previews.py "D:\chemin\vers\le\dossier\source"
+```

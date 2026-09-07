@@ -2570,7 +2570,7 @@ function renderFactures(){
         <thead><tr><th><input type="checkbox" id="fav-select-all"></th><th>Date facture</th><th>Fichier</th><th>Entreprise</th><th>Description</th><th>Montant TTC</th><th>Bien / Local</th><th>Équipement</th><th>Personne</th><th>Compte</th><th>Date paiement</th><th>Actions</th></tr></thead>
         <tbody>
         ${pending.map(f=>{
-          const fileUrl=f.storage_path?`${SUPABASE_URL}/storage/v1/object/public/factures-a-valider/${f.storage_path}`:null;
+          const fileUrl=(f.apercu_pdf_path||f.storage_path)?`${SUPABASE_URL}/storage/v1/object/public/factures-a-valider/${f.apercu_pdf_path||f.storage_path}`:null;
           const dateRef=f.date_facture||f.fichier_date||'';
           const moisAnnee=dateRef?dateRef.slice(0,7):null;
           const doublon=f.entreprise&&moisAnnee&&S.factures.some(ex=>(ex.fournisseur||'').trim().toLowerCase()===f.entreprise.trim().toLowerCase()&&(ex.date||'').startsWith(moisAnnee));
@@ -5893,6 +5893,62 @@ async function saveModal(){
   const m = S.modal;
   if(!m)return;
 
+  if(m.type==='add-prop'){
+    const name=q('m-pn')?.value.trim();if(!name)return alert('Nom requis');
+    const newProp={id:uid(),name,zones:[]};
+    S.topology.properties=[...(S.topology.properties||[]),newProp];
+    S.topoState.propId=newProp.id;S.topoState.zoneId=null;S.topoState.subZoneId=null;S.topoState.tradeId=null;
+    await saveTopoToDB();
+  }
+
+  if(m.type==='add-zone'){
+    const name=q('m-zn')?.value.trim();if(!name)return alert('Nom requis');
+    const prop=S.topology.properties.find(p=>p.id===m.propId);if(!prop)return alert('Bien introuvable');
+    const newZone={id:uid(),name,subZones:[],trades:[]};
+    prop.zones=[...(prop.zones||[]),newZone];
+    S.topoState.zoneId=newZone.id;S.topoState.subZoneId=null;S.topoState.tradeId=null;
+    await saveTopoToDB();
+  }
+
+  if(m.type==='add-subzone'){
+    const name=q('m-szn')?.value.trim();if(!name)return alert('Nom requis');
+    const prop=S.topology.properties.find(p=>p.zones?.some(z=>z.id===m.zoneId));
+    const zone=prop?.zones?.find(z=>z.id===m.zoneId);if(!zone)return alert('Zone introuvable');
+    const newSub={id:uid(),name,trades:[]};
+    zone.subZones=[...(zone.subZones||[]),newSub];
+    S.topoState.subZoneId=newSub.id;S.topoState.tradeId=null;
+    await saveTopoToDB();
+  }
+
+  if(m.type==='add-trade'){
+    const name=q('m-ttn')?.value.trim();if(!name)return alert('Nom requis');
+    const icon=q('m-tti')?.value.trim()||'';
+    const prop=S.topology.properties.find(p=>p.zones?.some(z=>z.id===m.zoneId));
+    const zone=prop?.zones?.find(z=>z.id===m.zoneId);if(!zone)return alert('Zone introuvable');
+    const newTrade={id:uid(),name,icon,items:[]};
+    if(m.subZoneId){
+      const sub=zone.subZones?.find(s=>s.id===m.subZoneId);if(!sub)return alert('Sous-zone introuvable');
+      sub.trades=[...(sub.trades||[]),newTrade];
+    }else{
+      zone.trades=[...(zone.trades||[]),newTrade];
+    }
+    S.topoState.tradeId=newTrade.id;
+    await saveTopoToDB();
+  }
+
+  if(m.type==='add-topo-item'){
+    const name=q('m-tin')?.value.trim();if(!name)return alert('Nom requis');
+    const notes=q('m-tinotes')?.value.trim()||'';
+    const ts=S.topoState;
+    const prop=S.topology.properties.find(p=>p.id===ts.propId);
+    const zone=prop?.zones?.find(z=>z.id===ts.zoneId);
+    let trade=null;
+    if(ts.subZoneId){const sub=zone?.subZones?.find(s=>s.id===ts.subZoneId);trade=sub?.trades?.find(t=>t.id===ts.tradeId);}
+    else{trade=zone?.trades?.find(t=>t.id===ts.tradeId);}
+    if(!trade)return alert('Corps de métier introuvable');
+    trade.items=[...(trade.items||[]),{id:uid(),name,notes}];
+    await saveTopoToDB();
+  }
 
   if(m.type==='edit-wo'){
     const w=m.wo;
@@ -7580,7 +7636,8 @@ function bindAll(){
     const compteFav=document.querySelector('.fav-compte[data-fav-id="'+id+'"]')?.value||'savadur';
     if(!entreprise){alert('Entreprise requise avant validation');return;}
     if(!montant||montant<=0){alert('Montant TTC requis avant validation');return;}
-    const documentUrl=fav.storage_path?`${SUPABASE_URL}/storage/v1/object/public/factures-a-valider/${fav.storage_path}`:null;
+    const facPreviewPath=fav.apercu_pdf_path||fav.storage_path;
+    const documentUrl=facPreviewPath?`${SUPABASE_URL}/storage/v1/object/public/factures-a-valider/${facPreviewPath}`:null;
     const rec={fournisseur:entreprise,date:dateFacture||new Date().toISOString().slice(0,10),montant_ttc:montant,
       bien:bien||null,asset_id:assetId||null,famille_id:familleId||null,description:description||null,
       document_url:documentUrl,compte:compteFav,rapproche:false,

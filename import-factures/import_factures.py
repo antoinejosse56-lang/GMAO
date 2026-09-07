@@ -38,6 +38,13 @@ try:
 except ImportError:
     docx_lib = None
 
+try:
+    import win32com.client as win32
+    import pythoncom
+except ImportError:
+    win32 = None
+    pythoncom = None
+
 load_dotenv()
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
@@ -246,6 +253,51 @@ def archive_validated_files(watch_path: Path, known_rows: dict):
         log(f"{moved} fichier(s) archive(s).")
 
 
+class LazyWordConverter:
+    """Convertit .doc/.docx/.odt en PDF via Microsoft Word (automatisation COM),
+    pour permettre de visualiser ces formats dans le navigateur (pas de lecteur
+    natif). Une seule instance Word est lancee, reutilisee pour tous les
+    fichiers du lot, et fermee explicitement a la fin (close()) - la lancer une
+    fois par fichier serait beaucoup trop lent sur des dizaines de documents.
+
+    Lancee "au besoin" (au premier appel a convert()) plutot qu'au demarrage,
+    pour ne pas ouvrir Word du tout quand le lot ne contient aucun doc/docx/odt.
+
+    Fragile en execution non-interactive (tache planifiee sans session ouverte) :
+    Word peut se bloquer sur un fichier corrompu ou une boite de dialogue - pas
+    de timeout cote COM. Une erreur sur un fichier ne bloque pas les suivants,
+    mais un blocage complet de Word, si, necessitant de tuer le processus."""
+
+    def __init__(self):
+        self._word = None
+
+    def _ensure(self):
+        if self._word is not None:
+            return
+        if win32 is None:
+            raise RuntimeError("pywin32 non installe (pip install -r requirements.txt) — Windows + Word requis")
+        pythoncom.CoInitialize()
+        self._word = win32.gencache.EnsureDispatch("Word.Application")
+        self._word.Visible = False
+        self._word.DisplayAlerts = 0
+
+    def convert(self, src_path: Path, dst_path: Path):
+        self._ensure()
+        doc = self._word.Documents.Open(str(src_path), ReadOnly=True, ConfirmConversions=False)
+        try:
+            doc.SaveAs(str(dst_path), FileFormat=17)  # wdFormatPDF
+        finally:
+            doc.Close(False)
+
+    def close(self):
+        if self._word is not None:
+            try:
+                self._word.Quit()
+            except Exception:
+                pass
+            self._word = None
+
+
 def extract_pdf_text(path: Path) -> str:
     if pdfplumber is None:
         raise RuntimeError("pdfplumber non installe (pip install -r requirements.txt)")
@@ -426,7 +478,24 @@ def insert_row(row: dict):
         raise RuntimeError(f"insert {TABLE} echoue ({resp.status_code}) : {resp.text[:300]}")
 
 
-def process_file(path: Path, chemin_relatif: str):
+def generate_pdf_preview(path: Path, storage_path: str, word_converter: "LazyWordConverter"):
+    """Convertit un .doc/.docx/.odt en PDF via Word et l'uploade a cote de
+    l'original, pour permettre de le visualiser dans le navigateur (pas de
+    lecteur natif pour ces formats). Retourne le storage_path du PDF genere,
+    ou leve une exception si la conversion/upload echoue."""
+    pdf_local = path.with_suffix(path.suffix + ".apercu.pdf")
+    try:
+        word_converter.convert(path, pdf_local)
+        pdf_bytes = pdf_local.read_bytes()
+    finally:
+        if pdf_local.exists():
+            pdf_local.unlink()
+    pdf_storage_path = storage_path.rsplit(".", 1)[0] + "_apercu.pdf"
+    upload_to_storage(pdf_storage_path, pdf_bytes, "application/pdf")
+    return pdf_storage_path
+
+
+def process_file(path: Path, chemin_relatif: str, word_converter: "LazyWordConverter" = None):
     log(f"Nouveau fichier : {chemin_relatif}")
     ext = path.suffix.lower()
     content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
@@ -439,6 +508,7 @@ def process_file(path: Path, chemin_relatif: str):
         "fichier_date": parse_filename_date(path.name).isoformat() if parse_filename_date(path.name) else None,
         "chemin_relatif": chemin_relatif,
         "storage_path": None,
+        "apercu_pdf_path": None,
         "entreprise": None,
         "montant_ttc": None,
         "date_facture": None,
@@ -500,6 +570,12 @@ def process_file(path: Path, chemin_relatif: str):
         )
     # Pour les images (.jpg/.jpeg/.png) : pas d'extraction en v1 (OCR reporte a la v2),
     # entreprise/montant_ttc restent vides pour saisie manuelle - ce n'est pas une erreur.
+
+    if ext in (".doc", ".docx", ".odt") and word_converter is not None:
+        try:
+            row["apercu_pdf_path"] = generate_pdf_preview(path, storage_path, word_converter)
+        except Exception as e:
+            log(f"  ATTENTION : conversion PDF echouee pour {chemin_relatif} : {e}")
 
     insert_row(row)
     log(f"  -> importee (entreprise={row['entreprise']!r}, montant_ttc={row['montant_ttc']!r}, date_facture={row['date_facture']!r})")
@@ -566,16 +642,20 @@ def main():
     ]
     log(f"{len(candidates)} fichier(s) eligible(s) trouve(s) dans {source_dir}")
 
+    word_converter = LazyWordConverter()
     nouveaux = 0
-    for p in candidates:
-        chemin_relatif = p.name  # dossier scanne a plat (pas de sous-dossiers)
-        if chemin_relatif in known_rows:
-            continue
-        nouveaux += 1
-        try:
-            process_file(p, chemin_relatif)
-        except Exception as e:
-            log(f"  ERREUR inattendue sur {p.name} : {e}")
+    try:
+        for p in candidates:
+            chemin_relatif = p.name  # dossier scanne a plat (pas de sous-dossiers)
+            if chemin_relatif in known_rows:
+                continue
+            nouveaux += 1
+            try:
+                process_file(p, chemin_relatif, word_converter)
+            except Exception as e:
+                log(f"  ERREUR inattendue sur {p.name} : {e}")
+    finally:
+        word_converter.close()
 
     log(f"Termine. {nouveaux} nouveau(x) fichier(s) traite(s).")
 
