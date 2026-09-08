@@ -2771,17 +2771,28 @@ function renderFactures(){
     </table></div>`;
 
   // Groupe par bien (1er segment du libelle "Bien - Zone - SousZone"), puis
-  // par zone/sous-zone (reste du libelle), puis par motif - evite de tout
-  // re-parcourir en vrac quand il y a des dizaines de factures sur plusieurs
-  // biens et plusieurs types de travaux.
-  const SANS_BIEN='— Sans bien lié —';
+  // par zone/sous-zone (reste du libelle), puis par motif. Une facture sans
+  // bien mais liee a un equipement ou une personne a droit a son propre
+  // groupe (ex: "EVOK", "Antoine") plutot que de finir dans un fourre-tout -
+  // evite de tout re-parcourir en vrac quand il y a des dizaines de factures
+  // sur plusieurs biens/equipements/personnes et plusieurs types de travaux.
+  const SANS_BIEN='— Sans bien / équipement / personne —';
   const SANS_MOTIF='Sans motif';
   const groups=new Map();
   facts.forEach(f=>{
     const bienStr=(f.bien||'').trim();
     let top,sub;
-    if(!bienStr){top=SANS_BIEN;sub='';}
-    else{const parts=bienStr.split(' - ');top=parts[0];sub=parts.slice(1).join(' › ');}
+    if(bienStr){
+      const parts=bienStr.split(' - ');top='🏠 '+parts[0];sub=parts.slice(1).join(' › ');
+    }else if(f.asset_id){
+      const asset=S.assets.find(a=>a.id===f.asset_id);
+      top=asset?'🔧 '+asset.name:SANS_BIEN;sub='';
+    }else if(f.famille_id){
+      const personne=S.famille.find(p=>p.id===f.famille_id);
+      top=personne?'👤 '+personne.prenom+(personne.nom?' '+personne.nom:''):SANS_BIEN;sub='';
+    }else{
+      top=SANS_BIEN;sub='';
+    }
     const motif=f.motif||SANS_MOTIF;
     if(!groups.has(top))groups.set(top,new Map());
     const subMap=groups.get(top);
@@ -2806,7 +2817,7 @@ function renderFactures(){
     const allRows=[...subMap.values()].flatMap(motifMap=>[...motifMap.values()].flat());
     const totalBien=allRows.reduce((s,f)=>s+parseFloat(f.montant_ttc||0),0);
     return `<div class="card" style="margin-bottom:14px">
-      <div class="sec" style="margin-bottom:8px">🏠 ${top} — ${allRows.length} facture(s), ${fmt(totalBien)}</div>
+      <div class="sec" style="margin-bottom:8px">${top} — ${allRows.length} facture(s), ${fmt(totalBien)}</div>
       ${subLabels.map(sub=>{
         const motifMap=subMap.get(sub);
         const motifLabels=sortMotifs([...motifMap.keys()]);
