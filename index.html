@@ -184,6 +184,29 @@ function bienForWorkOrder(wo){
   }
   return wo.topo_ref?[wo.topo_ref.propName,wo.topo_ref.zoneName,wo.topo_ref.subName].filter(Boolean).join(' - '):'';
 }
+// Options <option> pour un select "BT lie", filtrees par bien et/ou chantier
+// choisis (le BT selectionnable doit appartenir a ce chantier, et/ou son
+// chemin topologique doit correspondre au bien choisi ou etre plus precis) -
+// evite de proposer des BT sans rapport une fois qu'un bien/chantier est fixe.
+function computeFilteredWoOpts(bienStr, chantierId, selectedWoId){
+  const bien=(bienStr||'').trim();
+  let list=[...S.workOrders];
+  if(chantierId) list=list.filter(w=>w.chantier_id===chantierId);
+  if(bien){
+    list=list.filter(w=>{
+      const tr=w.topo_ref;
+      if(!tr)return false;
+      const full=[tr.propName,tr.zoneName,tr.subName].filter(Boolean).join(' - ');
+      return full===bien||full.startsWith(bien+' - ');
+    });
+  }
+  list.sort((a,b)=>new Date(b.date)-new Date(a.date));
+  let html='<option value="">— Aucun BT —</option>';
+  list.forEach(w=>{
+    html+='<option value="'+w.id+'"'+(w.id===selectedWoId?' selected':'')+'>'+w.title+(w.status==='done'?' (terminé)':'')+'</option>';
+  });
+  return html;
+}
 // PostgREST plafonne chaque requete a "Max Rows" (1000 par defaut cote Supabase),
 // meme si .range() en demande plus - il faut paginer cote client pour tout recuperer.
 async function fetchAllRows(table, orderCol, ascending){
@@ -1166,7 +1189,7 @@ function renderTasks(){
 
 function renderWorkOrders(){
   const assets = accessAssets(S.currentUser);
-  if(!S.woSearch) S.woSearch={prop:'',zone:'',sub:'',asset:'',status:'all'};
+  if(!S.woSearch) S.woSearch={prop:'',zone:'',sub:'',asset:'',status:'open'};
   const sf = S.woSearch;
 
   const wos = getFilteredWOs().filter(w=>isAdmin()||!w.asset_id||assets.map(a=>a.id).includes(w.asset_id)||isDubailProfile());
@@ -1227,7 +1250,7 @@ function renderWorkOrders(){
     </div>
     <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
       ${['Réparation','Urgence','Amélioration','Autre'].map(c=>`<span class="pill ${S.filter.cat===c?'active':''}" data-fcat="${c}">${c}</span>`).join('')}
-      ${sf.prop||sf.zone||sf.sub||sf.asset||sf.status!=='all'?`<button id="wo-reset-filters" class="btn btn-sm" style="margin-left:auto">✕ Réinitialiser</button>`:''}
+      ${sf.prop||sf.zone||sf.sub||sf.asset||sf.status!=='open'?`<button id="wo-reset-filters" class="btn btn-sm" style="margin-left:auto">✕ Réinitialiser</button>`:''}
       <span style="font-size:12px;color:var(--text2);margin-left:auto">${filtered.length} résultat(s)</span>
     </div>
   </div>
@@ -1272,6 +1295,7 @@ function renderWorkOrders(){
         ${w.cost>0?`<span class="badge bblue">${w.cost}€</span>`:''}
         ${w.by_user?`<span style="font-size:11px;color:var(--text3)">Par : ${w.by_user}</span>`:''}
         ${canEdit()?`<button class="btn btn-sm" data-add-wo-doc="${w.id}" style="margin-left:auto">📎 Joindre</button>`:''}
+        <button class="btn btn-sm" data-view-wo="${w.id}">👁 Consulter</button>
         ${(canEdit()||isAdmin())?`<button class="btn btn-sm" data-edit-wo="${w.id}">✎ Modifier</button>`:''}
         ${canEdit()&&(w.checklist||[]).length>0?`<button class="btn btn-sm" data-checklist-wo="${w.id}">📋 Check-list</button>`:''}
         ${canEdit()&&w.status==='open'?`<button class="btn btn-sm btn-p" data-close-wo="${w.id}">✓ Terminer</button>`:''}
@@ -1361,16 +1385,36 @@ function renderChantiers(){
   if(cTab==='devis'){
     return tabBar+renderDevisAValider();
   }
-  const chantiers=[...(S.chantiers||[])].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
+  if(!S.chantierFilter)S.chantierFilter={status:'ouvert',year:''};
+  const cf=S.chantierFilter;
+  const chantiersAll=[...(S.chantiers||[])].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
+  const chantierYears=[...new Set(chantiersAll.map(c=>c.date_debut?c.date_debut.slice(0,4):null).filter(Boolean))].sort().reverse();
+  const chantiers=chantiersAll.filter(c=>{
+    if(cf.status!=='all'&&(c.statut||'ouvert')!==cf.status)return false;
+    if(cf.year&&(!c.date_debut||!c.date_debut.startsWith(cf.year)))return false;
+    return true;
+  });
+  const filterBar=`<div style="display:flex;gap:6px;margin-bottom:12px;align-items:center;flex-wrap:wrap">
+    <span class="pill ${cf.status==='ouvert'?'active':''}" data-chantier-status="ouvert">Ouverts</span>
+    <span class="pill ${cf.status==='termine'?'active':''}" data-chantier-status="termine">Terminés</span>
+    <span class="pill ${cf.status==='all'?'active':''}" data-chantier-status="all">Tous</span>
+    ${chantierYears.length>0?'<span style="color:var(--text3)">|</span>':''}
+    ${chantierYears.map(y=>`<span class="pill ${cf.year===y?'active':''}" data-chantier-year="${y}">${y}</span>`).join('')}
+    ${cf.year?`<span class="pill" data-chantier-year="">Toutes années</span>`:''}
+  </div>`;
   const html=chantiers.map(c=>{
     const wos=S.workOrders.filter(w=>w.chantier_id===c.id);
+    const factsDirectes=S.factures.filter(f=>f.chantier_id===c.id&&!f.wo_id);
     const totalDevis=wos.reduce((s,w)=>s+parseFloat(w.devis_montant||0),0);
-    const totalReel=wos.reduce((s,w)=>s+S.factures.filter(f=>f.wo_id===w.id).reduce((ss,f)=>ss+parseFloat(f.montant_ttc||0),0),0);
+    const totalReel=wos.reduce((s,w)=>s+S.factures.filter(f=>f.wo_id===w.id).reduce((ss,f)=>ss+parseFloat(f.montant_ttc||0),0),0)
+      +factsDirectes.reduce((s,f)=>s+parseFloat(f.montant_ttc||0),0);
     const ecart=totalReel-totalDevis;
+    const periode=[c.date_debut?dateLabel(c.date_debut):'',c.date_fin?dateLabel(c.date_fin):''].filter(Boolean).join(' → ');
     return `<div class="card" style="margin-bottom:14px">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px">
         <div>
           <div style="font-size:15px;font-weight:600">🏗️ ${c.nom}</div>
+          ${periode?`<div style="font-size:11px;color:var(--text2);margin-top:1px">📅 ${periode}</div>`:''}
           ${c.description?`<div style="font-size:12px;color:var(--text2);margin-top:2px">${c.description}</div>`:''}
         </div>
         <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
@@ -1379,7 +1423,7 @@ function renderChantiers(){
           ${isAdmin()?`<button class="btn btn-d btn-sm" data-del-chantier="${c.id}">✕</button>`:''}
         </div>
       </div>
-      ${totalDevis>0?`<div style="display:flex;gap:16px;flex-wrap:wrap;padding:10px;background:var(--bg2);border-radius:var(--radius);margin-bottom:10px;font-size:12px">
+      ${(totalDevis>0||totalReel>0)?`<div style="display:flex;gap:16px;flex-wrap:wrap;padding:10px;background:var(--bg2);border-radius:var(--radius);margin-bottom:10px;font-size:12px">
         <div><span style="color:var(--text2)">Devis cumulé :</span> <b>${totalDevis.toFixed(2)} €</b></div>
         <div><span style="color:var(--text2)">Factures reçues :</span> <b>${totalReel.toFixed(2)} €</b></div>
         <div><span style="color:var(--text2)">Écart :</span> <b style="color:${ecart>0?'var(--red)':'var(--green)'}">${ecart>0?'+':''}${ecart.toFixed(2)} €</b></div>
@@ -1395,13 +1439,20 @@ function renderChantiers(){
             </div>
             <div class="fgsub">${w.devis_montant>0?`Devis ${parseFloat(w.devis_montant).toFixed(2)}€ · `:''}Reçu ${totalFactWo.toFixed(2)}€</div>
           </div>
+          <button class="btn btn-sm" data-view-wo="${w.id}">👁</button>
           ${(canEdit()||isAdmin())?`<button class="btn btn-sm" data-edit-wo="${w.id}">✎</button>`:''}
         </div>`;
       }).join('')}
       ${wos.length===0?`<div style="font-size:12px;color:var(--text2)">Aucun bon de travaux rattaché — depuis "Bons de travaux", associez-en un à ce chantier en le modifiant.</div>`:''}
+      ${factsDirectes.length>0?`<div class="sec" style="margin:10px 0 6px">Factures liées directement (${factsDirectes.length}, sans BT)</div>
+        ${factsDirectes.map(f=>`<div class="row">
+          <div class="fg"><div class="fgs">${f.fournisseur||'—'}</div><div class="fgsub">${parseFloat(f.montant_ttc||0).toFixed(2)}€${f.date?' · '+dateLabel(f.date):''}</div></div>
+          ${(f.drive_url||f.document_url)?`<a href="${f.drive_url||f.document_url}" target="_blank" class="btn btn-sm">👁 Voir</a>`:''}
+          <button class="btn btn-sm" data-edit-fact="${f.id}">✎</button>
+        </div>`).join('')}`:''}
     </div>`;
   }).join('');
-  return tabBar+html+(chantiers.length===0?'<div style="text-align:center;padding:30px;color:var(--text2)">Aucun chantier. Cliquez "+ Chantier" pour en créer un.</div>':'');
+  return tabBar+filterBar+html+(chantiers.length===0?'<div style="text-align:center;padding:30px;color:var(--text2)">Aucun chantier pour ce filtre.</div>':'');
 }
 
 function renderTools(){
@@ -2664,38 +2715,35 @@ function renderFactures(){
   const nonRappr = facts.filter(f=>!estPaye(f)).length;
 
   if(fTab==='a_valider'){
-    const bienOptsFor=(sel)=>{
-      const opt=(val,label)=>'<option value="'+val+'"'+(val===(sel||'')?' selected':'')+'>'+label+'</option>';
-      const opts=[opt('','— Général / Non lié —')];
+    // Les listes d'options (bien/equipement/personne/BT) sont identiques pour
+    // toutes les lignes en attente - ne les reconstruire qu'une seule fois ici
+    // (au lieu de re-parcourir topologie/assets/famille/BT pour CHAQUE ligne)
+    // sinon le rendu devient de plus en plus lent a mesure que le nombre de
+    // factures en attente grandit (le cout par ligne etait proportionnel a la
+    // taille de ces listes, pas juste au nombre de lignes).
+    const renderOpts=(base,sel)=>base.map(o=>'<option value="'+o.v+'"'+(o.v===(sel||'')?' selected':'')+'>'+o.l+'</option>').join('');
+    const bienOptsBase=(()=>{
+      const opts=[{v:'',l:'— Général / Non lié —'}];
       S.topology.properties.forEach(p=>{
-        opts.push(opt(p.name,p.name));
+        opts.push({v:p.name,l:p.name});
         (p.zones||[]).forEach(z=>{
-          opts.push(opt(p.name+' - '+z.name,'&nbsp;&nbsp;'+p.name+' &rsaquo; '+z.name));
+          opts.push({v:p.name+' - '+z.name,l:'&nbsp;&nbsp;'+p.name+' &rsaquo; '+z.name});
           (z.subZones||[]).forEach(s=>{
-            opts.push(opt(p.name+' - '+z.name+' - '+s.name,'&nbsp;&nbsp;&nbsp;&nbsp;'+p.name+' &rsaquo; '+z.name+' &rsaquo; '+s.name));
+            opts.push({v:p.name+' - '+z.name+' - '+s.name,l:'&nbsp;&nbsp;&nbsp;&nbsp;'+p.name+' &rsaquo; '+z.name+' &rsaquo; '+s.name});
           });
         });
       });
-      return opts.join('');
-    };
-    const assetOptsFor=(sel)=>{
-      const opt=(val,label)=>'<option value="'+val+'"'+(val===(sel||'')?' selected':'')+'>'+label+'</option>';
-      const opts=[opt('','— Aucun équipement —')];
-      S.assets.forEach(a=>{opts.push(opt(a.id,a.name+(a.location?' — '+a.location:'')));});
-      return opts.join('');
-    };
-    const personneOptsFor=(sel)=>{
-      const opt=(val,label)=>'<option value="'+val+'"'+(val===(sel||'')?' selected':'')+'>'+label+'</option>';
-      const opts=[opt('','— Aucune personne —')];
-      S.famille.forEach(p=>{opts.push(opt(p.id,p.prenom+(p.nom?' '+p.nom:'')));});
-      return opts.join('');
-    };
-    const woOptsFor=(sel)=>{
-      const opt=(val,label)=>'<option value="'+val+'"'+(val===(sel||'')?' selected':'')+'>'+label+'</option>';
-      const opts=[opt('','— Aucun BT —')];
-      [...S.workOrders].sort((a,b)=>new Date(b.date)-new Date(a.date)).forEach(w=>{opts.push(opt(w.id,w.title+(w.status==='done'?' (terminé)':'')));});
-      return opts.join('');
-    };
+      return opts;
+    })();
+    const assetOptsBase=[{v:'',l:'— Aucun équipement —'},...S.assets.map(a=>({v:a.id,l:a.name+(a.location?' — '+a.location:'')}))];
+    const personneOptsBase=[{v:'',l:'— Aucune personne —'},...S.famille.map(p=>({v:p.id,l:p.prenom+(p.nom?' '+p.nom:'')}))];
+    const woOptsBase=[{v:'',l:'— Aucun BT —'},...[...S.workOrders].sort((a,b)=>new Date(b.date)-new Date(a.date)).map(w=>({v:w.id,l:w.title+(w.status==='done'?' (terminé)':'')}))];
+    const bienOptsFor=(sel)=>renderOpts(bienOptsBase,sel);
+    const assetOptsFor=(sel)=>renderOpts(assetOptsBase,sel);
+    const personneOptsFor=(sel)=>renderOpts(personneOptsBase,sel);
+    const woOptsFor=(sel)=>renderOpts(woOptsBase,sel);
+    const chantierOptsBase=[{v:'',l:'— Aucun chantier —'},...[...S.chantiers].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at)).map(c=>({v:c.id,l:c.nom+(c.statut==='termine'?' (terminé)':'')}))];
+    const chantierOptsFor=(sel)=>renderOpts(chantierOptsBase,sel);
     // Devine savadur/perso : d'abord via le bien choisi, sinon via le compte explicite
     // de l'equipement lie (champ assets.compte, renseigne dans sa fiche), sinon via une
     // heuristique sur son nom/emplacement (dubailFilter) - reste modifiable a la main
@@ -2710,18 +2758,25 @@ function renderFactures(){
     };
     const compteOptsFor=(sel)=>`<option value="savadur" ${sel==='savadur'?'selected':''}>🏢 SAVADUR</option><option value="perso" ${sel==='perso'?'selected':''}>🏠 Perso</option>`;
     const pending=(S.facturesAValider||[]).filter(f=>f.statut==='en_attente').sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
+    // Le DOM devient tres lourd (plusieurs selects par ligne) au-dela de
+    // quelques centaines de lignes affichees d'un coup - on n'en rend qu'une
+    // partie par defaut, avec un bouton pour en charger davantage, plutot que
+    // de tout afficher meme quand il y a des milliers de factures en attente.
+    const favPageSize=S.favPageSize||100;
+    const pendingVisible=pending.slice(0,favPageSize);
     return `${tabBar}
     <div class="card">
       <div class="sec" style="margin-bottom:8px">📥 Factures détectées automatiquement, en attente de validation</div>
       ${pending.length===0?'<div style="text-align:center;padding:20px;color:var(--text2)">Rien à valider — tout est à jour.</div>':''}
-      ${pending.length>0?`<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+      ${pending.length>0?`<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap">
         <button class="btn btn-sm btn-d" id="btn-fav-reject-selected">🚫 Rejeter la sélection</button>
         <span id="fav-selected-count" style="font-size:12px;color:var(--text2)"></span>
+        <span style="font-size:12px;color:var(--text2);margin-left:auto">Affichage de ${pendingVisible.length} sur ${pending.length}</span>
       </div>` :''}
       ${pending.length>0?`<div style="overflow-x:auto"><table>
-        <thead><tr><th><input type="checkbox" id="fav-select-all"></th><th>Date facture</th><th>Fichier</th><th>Entreprise</th><th>Description</th><th>Montant TTC</th><th>Bien / Local</th><th>Équipement</th><th>Personne</th><th>BT lié</th><th>Motif</th><th>Compte</th><th>Date paiement</th><th>Actions</th></tr></thead>
+        <thead><tr><th><input type="checkbox" id="fav-select-all"></th><th>Date facture</th><th>Fichier</th><th>Entreprise</th><th>Description</th><th>Montant TTC</th><th>Bien / Local</th><th>Équipement</th><th>Personne</th><th>BT lié</th><th>Chantier</th><th>Motif</th><th>Compte</th><th>Date paiement</th><th>Actions</th></tr></thead>
         <tbody>
-        ${pending.map(f=>{
+        ${pendingVisible.map(f=>{
           const fileUrl=(f.apercu_pdf_path||f.storage_path)?`${SUPABASE_URL}/storage/v1/object/public/factures-a-valider/${f.apercu_pdf_path||f.storage_path}`:null;
           const dateRef=f.date_facture||f.fichier_date||'';
           const moisAnnee=dateRef?dateRef.slice(0,7):null;
@@ -2750,6 +2805,7 @@ function renderFactures(){
             <td style="vertical-align:top"><select class="fav-asset" data-fav-id="${f.id}" style="width:160px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">${assetOptsFor(f.asset_id||'')}</select></td>
             <td style="vertical-align:top"><select class="fav-personne" data-fav-id="${f.id}" style="width:140px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">${personneOptsFor(f.famille_id||'')}</select></td>
             <td style="vertical-align:top"><select class="fav-wo" data-fav-id="${f.id}" style="width:160px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">${woOptsFor(f.wo_id||'')}</select></td>
+            <td style="vertical-align:top"><select class="fav-chantier" data-fav-id="${f.id}" style="width:150px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">${chantierOptsFor(f.chantier_id||'')}</select></td>
             <td style="vertical-align:top">
               <select class="fav-motif" data-fav-id="${f.id}" style="width:110px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px;margin-bottom:3px">${motifOptsFor(MOTIFS.includes(f.motif)?f.motif:'')}</select>
               <input class="fav-motif-autre" data-fav-id="${f.id}" value="${(f.motif&&!MOTIFS.includes(f.motif))?f.motif.replace(/"/g,'&quot;'):''}" placeholder="Autre motif..." style="width:110px;padding:4px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:11px">
@@ -2763,7 +2819,8 @@ function renderFactures(){
           </tr>`;
         }).join('')}
         </tbody>
-      </table></div>`:''}
+      </table></div>
+      ${pending.length>pendingVisible.length?`<div style="text-align:center;margin-top:10px"><button class="btn btn-sm" id="btn-fav-load-more">Afficher ${Math.min(favPageSize,pending.length-pendingVisible.length)} de plus</button></div>`:''}`:''}
     </div>`;
   }
 
@@ -2808,12 +2865,14 @@ function renderFactures(){
     const bienStr=(f.bien||'').trim();
     let top,sub;
     const wo=f.wo_id?S.workOrders.find(w=>w.id===f.wo_id):null;
-    const chantier=wo?.chantier_id?S.chantiers.find(c=>c.id===wo.chantier_id):null;
+    const chantier=(wo?.chantier_id?S.chantiers.find(c=>c.id===wo.chantier_id):null)
+      ||(f.chantier_id?S.chantiers.find(c=>c.id===f.chantier_id):null);
     if(bienStr){
       const parts=bienStr.split(' - ');top='🏠 '+parts[0];sub=parts.slice(1).join(' › ');
     }else if(chantier){
-      // BT lie a un chantier (frequent pour une construction neuve, sans bien
-      // dans la topologie) - regroupe par chantier plutot que dans le vrac.
+      // BT lie a un chantier, ou facture liee directement a un chantier sans
+      // BT (ex: piscine avec plusieurs artisans, pas de decoupage par corps
+      // de metier) - regroupe par chantier plutot que dans le vrac.
       top='🏗️ '+chantier.nom;sub='';
     }else if(f.asset_id){
       const asset=S.assets.find(a=>a.id===f.asset_id);
@@ -4538,6 +4597,10 @@ function renderModal(){
     html=`${mhd(m.type==='add-chantier'?'Nouveau chantier':'Modifier — '+c.nom)}
     <div class="form-group"><label>Nom *</label><input id="m-chnom" value="${c.nom||''}" placeholder="Ex: Construction extension, Rénovation 3ème étage..."></div>
     <div class="form-group"><label>Description</label><textarea id="m-chdesc">${c.description||''}</textarea></div>
+    <div class="g2c">
+      <div class="form-group"><label>Date de début</label><input id="m-chdebut" type="date" value="${c.date_debut||''}"></div>
+      <div class="form-group"><label>Date de fin</label><input id="m-chfin" type="date" value="${c.date_fin||''}"></div>
+    </div>
     <div class="form-group"><label>Statut</label><select id="m-chstatut">
       <option value="ouvert" ${(c.statut||'ouvert')==='ouvert'?'selected':''}>Ouvert</option>
       <option value="termine" ${c.statut==='termine'?'selected':''}>Terminé</option>
@@ -4582,6 +4645,52 @@ function renderModal(){
         <option value="perso" ${a.compte==='perso'?'selected':''}>🏠 Perso</option>
       </select>
     </div>${mf}`;}
+
+  if(m.type==='view-wo'){
+    const w=m.wo;
+    const chantier=w.chantier_id?S.chantiers.find(c=>c.id===w.chantier_id):null;
+    const asset=w.asset_id?S.assets.find(a=>a.id===w.asset_id):null;
+    const tr=w.topo_ref;
+    const locationLabel=tr?[tr.propName,tr.zoneName,tr.subName].filter(Boolean).join(' › '):'';
+    const devisWo=(S.devis||[]).filter(d=>d.wo_id===w.id);
+    const factWo=S.factures.filter(fc=>fc.wo_id===w.id).sort((a,b)=>new Date(b.date)-new Date(a.date));
+    html=`${mhd(w.title)}
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
+      <span class="badge ${w.category==='Urgence'?'bred':w.category==='Réparation'?'bamber':'bblue'}">${w.category||''}</span>
+      <span class="badge ${w.status==='done'?'bgreen':'bamber'}">${w.status==='done'?'Terminé':'Ouvert'}</span>
+      ${chantier?`<span class="badge bgray">🏗️ ${chantier.nom}</span>`:''}
+    </div>
+    ${locationLabel?`<div style="font-size:12px;color:var(--blue);margin-bottom:6px">📍 ${locationLabel}</div>`:''}
+    ${asset?`<div style="font-size:12px;color:var(--text2);margin-bottom:6px">🔧 ${asset.name}</div>`:''}
+    ${w.description?`<div style="font-size:13px;color:var(--text2);margin-bottom:10px">${w.description}</div>`:''}
+    <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:12px;margin-bottom:10px">
+      <div><span style="color:var(--text2)">Date :</span> <b>${dateLabel(w.date)}</b></div>
+      ${w.cost>0?`<div><span style="color:var(--text2)">Coût :</span> <b>${parseFloat(w.cost).toFixed(2)} €</b></div>`:''}
+    </div>
+    ${w.devis_montant>0?(()=>{
+      const totalFact=factWo.reduce((s,fc)=>s+parseFloat(fc.montant_ttc||0),0);
+      const ecart=totalFact-w.devis_montant;
+      return `<div style="display:flex;gap:16px;flex-wrap:wrap;padding:10px;background:var(--bg2);border-radius:var(--radius);margin-bottom:10px;font-size:12px">
+        <div><span style="color:var(--text2)">Devis :</span> <b>${w.devis_montant.toFixed(2)} €</b></div>
+        <div><span style="color:var(--text2)">Factures reçues (${factWo.length}) :</span> <b>${totalFact.toFixed(2)} €</b></div>
+        <div><span style="color:var(--text2)">Écart :</span> <b style="color:${ecart>0?'var(--red)':'var(--green)'}">${ecart>0?'+':''}${ecart.toFixed(2)} €</b></div>
+      </div>`;
+    })():''}
+    <div style="font-size:12px;font-weight:500;color:var(--text2);margin-bottom:6px">📐 Devis (${devisWo.length})</div>
+    ${devisWo.map(d=>`<div class="row"><div class="fg"><div style="display:flex;align-items:center;gap:6px"><span class="fgs">${d.entreprise||'—'}</span>${d.retenu?'<span class="badge bgreen" style="font-size:10px">Retenu</span>':''}</div><div class="fgsub">${d.montant_ttc!=null?parseFloat(d.montant_ttc).toFixed(2)+' €':'—'}${d.date_devis?' · '+dateLabel(d.date_devis):''}</div></div>${d.document_url?`<a href="${d.document_url}" target="_blank" class="btn btn-sm">👁 Voir</a>`:''}</div>`).join('')}
+    ${devisWo.length===0?`<div style="font-size:12px;color:var(--text2);margin-bottom:8px">Aucun devis.</div>`:''}
+    <div style="font-size:12px;font-weight:500;color:var(--text2);margin:10px 0 6px">🧾 Factures (${factWo.length})</div>
+    ${factWo.map(fc=>`<div class="row"><div class="fg"><div class="fgs">${fc.fournisseur||'—'}</div><div class="fgsub">${fc.montant_ttc!=null?parseFloat(fc.montant_ttc).toFixed(2)+' €':'—'}${fc.date?' · '+dateLabel(fc.date):''}</div></div>${(fc.drive_url||fc.document_url)?`<a href="${fc.drive_url||fc.document_url}" target="_blank" class="btn btn-sm">👁 Voir</a>`:''}</div>`).join('')}
+    ${factWo.length===0?`<div style="font-size:12px;color:var(--text2);margin-bottom:8px">Aucune facture.</div>`:''}
+    ${(w.checklist||[]).length>0?`<div style="font-size:12px;font-weight:500;color:var(--text2);margin:10px 0 6px">🛠 Matériel (${(w.checklist||[]).filter(i=>i.fait).length}/${(w.checklist||[]).length})</div>
+      <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px">${w.checklist.map(item=>`<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:${item.fait?'var(--green)':'var(--bg2)'};color:${item.fait?'#fff':'var(--text2)'};text-decoration:${item.fait?'line-through':''}">${item.qte||1}× ${item.nom}</span>`).join('')}</div>`:''}
+    ${(w.journal||[]).length>0?`<div style="font-size:12px;font-weight:500;color:var(--text2);margin:10px 0 6px">📋 Journal (${w.journal.length})</div>
+      ${w.journal.slice().reverse().map(e=>`<div style="background:var(--bg2);border-radius:var(--radius);padding:6px 8px;margin-bottom:4px;font-size:11px"><span style="color:var(--text2)">${e.date}</span>${e.by?` — ${e.by}`:''}<div style="margin-top:2px;color:var(--text)">${(e.note||'').replace(/(https?:\/\/\S+)/g,'<a href="$1" target="_blank" rel="noopener" style="color:var(--blue)">Lien</a>')}</div></div>`).join('')}`:''}
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">
+      ${(canEdit()||isAdmin())?`<button type="button" class="btn btn-p" data-consult-to-edit="${w.id}">✎ Modifier</button>`:''}
+      <button type="button" class="btn" id="mc2">Fermer</button>
+    </div>`;
+  }
 
   if(m.type==='edit-wo'){
     const w=m.wo;
@@ -4676,8 +4785,9 @@ function renderModal(){
           <span class="fgs">${d.entreprise||'—'}</span>
           ${d.retenu?'<span class="badge bgreen" style="font-size:10px">Retenu</span>':''}
         </div>
-        <div class="fgsub">${d.montant_ttc!=null?parseFloat(d.montant_ttc).toFixed(2)+' €':'—'}${d.date_devis?' · '+dateLabel(d.date_devis):''}${d.document_url?` · <a href="${d.document_url}" target="_blank">Voir le document</a>`:''}</div>
+        <div class="fgsub">${d.montant_ttc!=null?parseFloat(d.montant_ttc).toFixed(2)+' €':'—'}${d.date_devis?' · '+dateLabel(d.date_devis):''}</div>
       </div>
+      ${d.document_url?`<a href="${d.document_url}" target="_blank" class="btn btn-sm">👁 Voir</a>`:''}
       ${!d.retenu?`<button type="button" class="btn btn-sm btn-p" data-retenir-devis="${d.id}" data-wo-id="${w.id}">Retenir</button>`:''}
       <button type="button" class="btn btn-d btn-sm" data-del-devis="${d.id}" style="margin-left:4px">✕</button>
     </div>`).join('')}
@@ -4687,8 +4797,9 @@ function renderModal(){
     ${S.factures.filter(fc=>fc.wo_id===w.id).sort((a,b)=>new Date(b.date)-new Date(a.date)).map(fc=>`<div class="row">
       <div class="fg">
         <div class="fgs">${fc.fournisseur||'—'}</div>
-        <div class="fgsub">${fc.montant_ttc!=null?parseFloat(fc.montant_ttc).toFixed(2)+' €':'—'}${fc.date?' · '+dateLabel(fc.date):''}${(fc.drive_url||fc.document_url)?` · <a href="${fc.drive_url||fc.document_url}" target="_blank">Voir</a>`:''}</div>
+        <div class="fgsub">${fc.montant_ttc!=null?parseFloat(fc.montant_ttc).toFixed(2)+' €':'—'}${fc.date?' · '+dateLabel(fc.date):''}</div>
       </div>
+      ${(fc.drive_url||fc.document_url)?`<a href="${fc.drive_url||fc.document_url}" target="_blank" class="btn btn-sm">👁 Voir</a>`:''}
       <button type="button" class="btn btn-sm" data-edit-fact="${fc.id}">✎</button>
       <button type="button" class="btn btn-d btn-sm" data-del-fact="${fc.id}" style="margin-left:4px">✕</button>
     </div>`).join('')}
@@ -5022,6 +5133,12 @@ function renderModal(){
           ${S.famille.map(p=>`<option value="${p.id}" ${f.famille_id===p.id?'selected':''}>${p.prenom}${p.nom?' '+p.nom:''}</option>`).join('')}
         </select>
       </div>
+    </div>
+    <div class="form-group"><label>Chantier lié (optionnel, sans passer par un BT)</label>
+      <select id="fac-chantier">
+        <option value="">— Aucun chantier —</option>
+        ${S.chantiers.map(c=>`<option value="${c.id}" ${f.chantier_id===c.id?'selected':''}>${c.nom}${c.statut==='termine'?' (terminé)':''}</option>`).join('')}
+      </select>
     </div>
     <div class="g2c">
       <div class="form-group"><label>Motif</label>
@@ -6738,6 +6855,8 @@ async function saveModal(){
     const rec={
       nom,
       description:q('m-chdesc')?.value||null,
+      date_debut:q('m-chdebut')?.value||null,
+      date_fin:q('m-chfin')?.value||null,
       statut:q('m-chstatut')?.value||'ouvert'
     };
     if(m.type==='add-chantier'){
@@ -6841,6 +6960,7 @@ async function saveModal(){
       categorie:q('fac-cat')?.value||null,compte:q('fac-compte')?.value||'savadur',
       bien:q('fac-bien')?.value||null,wo_id:q('fac-wo')?.value||null,
       asset_id:q('fac-asset')?.value||null,famille_id:q('fac-personne')?.value||null,
+      chantier_id:q('fac-chantier')?.value||null,
       motif:q('fac-motif-autre')?.value.trim()||q('fac-motif')?.value||null,
       montant_ht:parseFloat(q('fac-ht')?.value)||0,
       tva_pct:parseFloat(q('fac-tva')?.value)||0,
@@ -8008,6 +8128,7 @@ function bindAll(){
     const assetId=document.querySelector('.fav-asset[data-fav-id="'+id+'"]')?.value||'';
     const familleId=document.querySelector('.fav-personne[data-fav-id="'+id+'"]')?.value||'';
     const woId=document.querySelector('.fav-wo[data-fav-id="'+id+'"]')?.value||'';
+    const chantierId=document.querySelector('.fav-chantier[data-fav-id="'+id+'"]')?.value||'';
     const motifAutre=(document.querySelector('.fav-motif-autre[data-fav-id="'+id+'"]')?.value||'').trim();
     let motif=motifAutre||document.querySelector('.fav-motif[data-fav-id="'+id+'"]')?.value||'';
     const description=(document.querySelector('.fav-desc[data-fav-id="'+id+'"]')?.value||'').trim();
@@ -8036,7 +8157,15 @@ function bindAll(){
           motif='';
         }
       }
-      if(!bien&&!assetId&&!familleId&&!woId){alert('Sélectionnez au moins un bien, un équipement, une personne ou un bon de travaux avant validation');return;}
+      // Lien direct a un chantier sans BT (ex: piscine avec plusieurs artisans
+      // mais pas de decoupage en bons de travaux par corps de metier) - le
+      // motif reste utile ici pour distinguer les artisans, pas de titre de
+      // BT pour le remplacer.
+      if(!bien&&chantierId){
+        const chantierDirect=S.chantiers.find(c=>c.id===chantierId);
+        if(chantierDirect)bien=chantierDirect.nom;
+      }
+      if(!bien&&!assetId&&!familleId&&!woId&&!chantierId){alert('Sélectionnez au moins un bien, un équipement, une personne, un bon de travaux ou un chantier avant validation');return;}
       parts=[{bien,montant}];
     }else{
       parts=splitLines.map(line=>({
@@ -8056,7 +8185,7 @@ function bindAll(){
     for(const part of parts){
       const rec={fournisseur:entreprise,date:dateFacture||new Date().toISOString().slice(0,10),montant_ttc:part.montant,
         bien:part.bien||null,asset_id:assetId||null,famille_id:familleId||null,description:description||null,
-        motif:motif||null,wo_id:woId||null,document_url:documentUrl,compte:compteFav,rapproche:false,
+        motif:motif||null,wo_id:woId||null,chantier_id:chantierId||null,document_url:documentUrl,compte:compteFav,rapproche:false,
         date_paiement:datePaiement||null};
       const{data,error}=await sb.from('factures').insert(rec).select().single();
       if(error){alert(`Erreur enregistrement facture (${part.bien||'sans bien'}) : `+error.message);return;}
@@ -8066,11 +8195,37 @@ function bindAll(){
     const{error:updErr}=await sb.from('factures_a_valider').update({
       statut:'valide',facture_id:insertedIds[0],traite_at:new Date().toISOString(),
       entreprise,montant_ttc:montant,bien:parts[0].bien||null,asset_id:assetId||null,famille_id:familleId||null,
-      motif:motif||null,wo_id:woId||null,description:description||null,date_facture:dateFacture||null
+      motif:motif||null,wo_id:woId||null,chantier_id:chantierId||null,description:description||null,date_facture:dateFacture||null
     }).eq('id',id);
     if(updErr){alert('Facture enregistrée, mais erreur de mise à jour du suivi : '+updErr.message);}
     S.facturesAValider=(S.facturesAValider||[]).filter(x=>x.id!==id);
     render();
+  });
+  // Selectionner un bien met a jour le compte automatiquement (dubailFilter)
+  // et restreint la liste des BT proposes a ceux de ce bien (ou plus precis) -
+  // sans attendre un rendu complet, coherent avec le reste de la ligne qui
+  // fonctionne deja par manipulation DOM directe (voir "+Bien" plus bas).
+  const updateFavWoFilter=(id)=>{
+    const bienSel=document.querySelector('.fav-splits[data-fav-id="'+id+'"] .fav-split-bien');
+    const chantierSel=document.querySelector('.fav-chantier[data-fav-id="'+id+'"]');
+    const woSel=document.querySelector('.fav-wo[data-fav-id="'+id+'"]');
+    if(!woSel)return;
+    woSel.innerHTML=computeFilteredWoOpts(bienSel?bienSel.value:'',chantierSel?chantierSel.value:'',woSel.value);
+  };
+  const wireFavSplitBienChange=(sel)=>{
+    sel.onchange=()=>{
+      const id=sel.closest('.fav-splits')?.dataset.favId;
+      if(!id)return;
+      if(sel.value){
+        const compteSel=document.querySelector('.fav-compte[data-fav-id="'+id+'"]');
+        if(compteSel)compteSel.value=dubailFilter(sel.value)?'savadur':'perso';
+      }
+      updateFavWoFilter(id);
+    };
+  };
+  document.querySelectorAll('.fav-split-bien').forEach(wireFavSplitBienChange);
+  document.querySelectorAll('.fav-chantier').forEach(sel=>{
+    sel.onchange=()=>updateFavWoFilter(sel.dataset.favId);
   });
   document.querySelectorAll('.fav-add-split').forEach(btn=>btn.onclick=()=>{
     const id=btn.dataset.favId;
@@ -8087,6 +8242,7 @@ function bindAll(){
     }
     const clonedSelect=firstLine.querySelector('.fav-split-bien').cloneNode(true);
     clonedSelect.value='';
+    wireFavSplitBienChange(clonedSelect);
     const div=document.createElement('div');
     div.className='fav-split-line';
     div.style.cssText='display:flex;gap:4px;margin-bottom:4px';
@@ -8127,6 +8283,8 @@ function bindAll(){
     S.facturesAValider=(S.facturesAValider||[]).filter(x=>!ids.includes(x.id));
     render();
   };
+  const btnFavLoadMore=document.getElementById('btn-fav-load-more');
+  if(btnFavLoadMore)btnFavLoadMore.onclick=()=>{S.favPageSize=(S.favPageSize||100)+100;render();};
   const btnAddFact=document.getElementById('btn-add-facture');
   if(btnAddFact)btnAddFact.onclick=()=>{S.modal={type:'add-facture'};render();};
   const btnAddFournisseur=document.getElementById('btn-add-fournisseur');
@@ -8156,6 +8314,14 @@ function bindAll(){
     render();
   });
   document.querySelectorAll('[data-chantier-tab]').forEach(el=>el.onclick=()=>{S.chantierTab=el.dataset.chantierTab;render();});
+  document.querySelectorAll('[data-chantier-status]').forEach(el=>el.onclick=()=>{
+    if(!S.chantierFilter)S.chantierFilter={status:'ouvert',year:''};
+    S.chantierFilter.status=el.dataset.chantierStatus;render();
+  });
+  document.querySelectorAll('[data-chantier-year]').forEach(el=>el.onclick=()=>{
+    if(!S.chantierFilter)S.chantierFilter={status:'ouvert',year:''};
+    S.chantierFilter.year=el.dataset.chantierYear;render();
+  });
   const btnAddDevisWo=document.getElementById('btn-add-devis-wo');
   if(btnAddDevisWo)btnAddDevisWo.onclick=()=>{S.modal={type:'add-devis',woId:btnAddDevisWo.dataset.woId};render();};
   document.querySelectorAll('[data-retenir-devis]').forEach(el=>el.onclick=async()=>{
@@ -8362,13 +8528,13 @@ function bindAll(){
   const wfa=document.getElementById('wo-filter-asset');
   const wfst=document.getElementById('wo-filter-status');
   const wfr=document.getElementById('wo-reset-filters');
-  if(!S.woSearch)S.woSearch={prop:'',zone:'',sub:'',asset:'',status:'all'};
+  if(!S.woSearch)S.woSearch={prop:'',zone:'',sub:'',asset:'',status:'open'};
   if(wfp)wfp.onchange=()=>{S.woSearch.prop=wfp.value;S.woSearch.zone='';S.woSearch.sub='';render();};
   if(wfz)wfz.onchange=()=>{S.woSearch.zone=wfz.value;S.woSearch.sub='';render();};
   if(wfs)wfs.onchange=()=>{S.woSearch.sub=wfs.value;render();};
   if(wfa)wfa.onchange=()=>{S.woSearch.asset=wfa.value;render();};
   if(wfst)wfst.onchange=()=>{S.woSearch.status=wfst.value;render();};
-  if(wfr)wfr.onclick=()=>{S.woSearch={prop:'',zone:'',sub:'',asset:'',status:'all'};S.filter.cat='all';render();};
+  if(wfr)wfr.onclick=()=>{S.woSearch={prop:'',zone:'',sub:'',asset:'',status:'open'};S.filter.cat='all';render();};
 
   // Checklist toggle
   document.querySelectorAll('[data-checklist-wo]').forEach(el=>el.onclick=()=>{
@@ -8596,6 +8762,14 @@ function bindAll(){
   });
   document.querySelectorAll('[data-edit-wo]').forEach(el=>el.onclick=()=>{
     const w=S.workOrders.find(x=>x.id===el.dataset.editWo);
+    if(w){S.modal={type:'edit-wo',wo:w};render();}
+  });
+  document.querySelectorAll('[data-view-wo]').forEach(el=>el.onclick=()=>{
+    const w=S.workOrders.find(x=>x.id===el.dataset.viewWo);
+    if(w){S.modal={type:'view-wo',wo:w};render();}
+  });
+  document.querySelectorAll('[data-consult-to-edit]').forEach(el=>el.onclick=()=>{
+    const w=S.workOrders.find(x=>x.id===el.dataset.consultToEdit);
     if(w){S.modal={type:'edit-wo',wo:w};render();}
   });
   document.querySelectorAll('[data-del-wo]').forEach(el=>el.onclick=async()=>{
