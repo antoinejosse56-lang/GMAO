@@ -158,6 +158,10 @@ function dubailFilter(str){
   const s=(str||'').toLowerCase();
   return s.includes('dubail');
 }
+// "Rapprochee" derivee de la presence d'une date de paiement plutot que d'un
+// champ coche a la main - evite la double saisie (date de paiement ET case a
+// cocher separee pour la meme info).
+function estPaye(f){return !!f.date_paiement;}
 // PostgREST plafonne chaque requete a "Max Rows" (1000 par defaut cote Supabase),
 // meme si .range() en demande plus - il faut paginer cote client pour tout recuperer.
 async function fetchAllRows(table, orderCol, ascending){
@@ -223,7 +227,7 @@ let S = {
   // data
   users: [], assets: [], tasks: [], tools: [], loans: [],
   workOrders: [], maintenanceTemplates: [], topology: {properties: []},
-  factures: [], facturesAValider: [], revenues: [], finTab: 'overview', reservations: [], resaYear: new Date().getFullYear(), taxeSejourTaux: 5, taxeSejourPlafond: 4.60, compteurs: [], releves: [], rangements: [], famille: [], consommables: [], crecheSaisies: [], ecoleSaisies: [], familleTab: 'membres', finFactCpte: 'savadur', familleEnfant: null
+  factures: [], facturesAValider: [], fournisseurs: [], revenues: [], finTab: 'overview', reservations: [], resaYear: new Date().getFullYear(), taxeSejourTaux: 5, taxeSejourPlafond: 4.60, compteurs: [], releves: [], rangements: [], famille: [], consommables: [], crecheSaisies: [], ecoleSaisies: [], familleTab: 'membres', finFactCpte: 'savadur', familleEnfant: null
 };
 
 async function loadAll() {
@@ -242,7 +246,7 @@ async function loadAll() {
     const test = await sb.from('users').select('count', {count:'exact',head:true});
     if (test.error) { showError(test.error.message || JSON.stringify(test.error)); return; }
 
-    const [u, a, t, tl, l, wo, mt, topo, rev, cpt, rel, ten, rp, wr, rng, fam, crecheRes, ecoleRes, conso, facturesRes, resaRes, favRes] = await Promise.all([
+    const [u, a, t, tl, l, wo, mt, topo, rev, cpt, rel, ten, rp, wr, rng, fam, crecheRes, ecoleRes, conso, facturesRes, resaRes, favRes, fournRes] = await Promise.all([
       sb.from('users').select('*'),
       sb.from('assets').select('*'),
       sb.from('tasks').select('*'),
@@ -264,7 +268,8 @@ async function loadAll() {
       sb.from('consommables').select('*').order('nom'),
       fetchAllRows('factures','date',false),
       sb.from('reservations').select('*').order('date_arrivee',{ascending:false}),
-      fetchAllRows('factures_a_valider','created_at',false)
+      fetchAllRows('factures_a_valider','created_at',false),
+      sb.from('fournisseurs').select('*').order('nom')
     ]);
 
     // Only block on critical tables
@@ -300,6 +305,8 @@ async function loadAll() {
     S.reservations = resaRes?.error ? [] : (resaRes?.data || []);
     if (favRes?.error) console.warn('Table factures_a_valider non disponible:', favRes.error.message);
     S.facturesAValider = favRes?.error ? [] : (favRes?.data || []);
+    if (fournRes?.error) console.warn('Table fournisseurs non disponible:', fournRes.error.message);
+    S.fournisseurs = fournRes?.error ? [] : (fournRes?.data || []);
     const loadedTopo = topo.data?.[0]?.data;
     S.topoId = topo.data?.[0]?.id;
     if(loadedTopo?.properties?.length){
@@ -664,6 +671,7 @@ function renderApp(){
     </div>
     <div class="sidebar-overlay" id="sidebar-overlay"></div>
     <button class="mobile-home-btn" onclick="S.view='mobile_home';render()">&#127968;</button>
+    <datalist id="fournisseurs-list">${(S.fournisseurs||[]).map(fr=>`<option value="${(fr.nom||'').replace(/"/g,'&quot;')}">`).join('')}</datalist>
     ${S.modal ? renderModal() : ''}
   </div>`;
 }
@@ -958,7 +966,19 @@ function renderAssetDetail(a){
   const woList = S.workOrders.filter(w=>w.asset_id===a.id);
   const sb = a.status==='ok'?'bgreen':a.status==='attention'?'bamber':'bred';
   const docs = a.documents||[];
-  const hist = a.history||[];
+  // L'historique combine les interventions saisies a la main (a.history, rarement
+  // rempli) et les bons de travaux termines lies a cet equipement - sans quoi
+  // l'onglet Historique reste vide indefiniment meme quand des BT ont ete faits.
+  const hist = [
+    ...(a.history||[]),
+    ...woList.filter(w=>w.status==='done').map(w=>({
+      type: w.category||'Bon de travaux',
+      date: w.date,
+      desc: w.title+(w.description?' — '+w.description:''),
+      cost: w.cost||0,
+      by: w.by_user||'—',
+    })),
+  ].sort((h1,h2)=>new Date(h2.date||0)-new Date(h1.date||0));
   const isVehicle = a.category==='Véhicule';
   const cg = a.carte_grise||{};
 
@@ -1036,7 +1056,7 @@ function renderAssetDetail(a){
       <div class="sec" style="margin:0">Historique</div>
       ${canEdit()?`<button class="btn btn-p btn-sm" id="btn-add-history">+ Intervention</button>`:''}
     </div>
-    ${hist.slice().reverse().map(h=>`<div class="row">
+    ${hist.map(h=>`<div class="row">
       <div style="width:8px;height:8px;border-radius:50%;background:var(--green);flex-shrink:0;margin-top:2px"></div>
       <div class="fg">
         <div style="display:flex;align-items:center;gap:6px"><span class="fgs">${h.type}</span><span class="badge bgray">${dateLabel(h.date)}</span>${h.cost>0?`<span class="badge bblue">${h.cost}€</span>`:''}</div>
@@ -2452,18 +2472,37 @@ function renderFactures(){
 
 function renderFactures(){
   const fmt = n => new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR',minimumFractionDigits:2}).format(n||0);
-  const fTab = S.factTab||'liste';
+  const fTab = S.factTab||'savadur';
   const year = S.factYear||(new Date().getFullYear());
   const YEARS = [year-1, year, year+1];
 
   const nAValider = (S.facturesAValider||[]).filter(f=>f.statut==='en_attente').length;
   const tabBar = `<div class="tab-bar">
-    <div class="tab ${fTab==='liste'?'active':''}" data-fact-tab="liste">📋 Toutes</div>
     <div class="tab ${fTab==='savadur'?'active':''}" data-fact-tab="savadur">🏢 SAVADUR</div>
     <div class="tab ${fTab==='perso'?'active':''}" data-fact-tab="perso">🏠 Perso</div>
-    <div class="tab ${fTab==='rapproch'?'active':''}" data-fact-tab="rapproch">🔍 Rapprochement</div>
     <div class="tab ${fTab==='a_valider'?'active':''}" data-fact-tab="a_valider">📥 À valider${nAValider>0?` <span class="badge bamber" style="font-size:10px">${nAValider}</span>`:''}</div>
+    <div class="tab ${fTab==='fournisseurs'?'active':''}" data-fact-tab="fournisseurs">📇 Artisans</div>
   </div>`;
+
+  if(fTab==='fournisseurs'){
+    const sorted=[...(S.fournisseurs||[])].sort((a,b)=>(a.nom||'').localeCompare(b.nom||''));
+    return `${tabBar}
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <div class="sec" style="margin:0">📇 Artisans & entreprises (${sorted.length})</div>
+        ${isAdmin()?`<button class="btn btn-p btn-sm" id="btn-add-fournisseur">+ Artisan</button>`:''}
+      </div>
+      ${sorted.length===0?'<div style="text-align:center;padding:20px;color:var(--text2)">Aucun artisan enregistré. Il apparaîtra en suggestion dans le champ "Entreprise" des factures.</div>':''}
+      ${sorted.map(fr=>`<div class="row">
+        <div class="fg">
+          <div class="fgs">${fr.nom}</div>
+          <div class="fgsub">${[fr.corps_metier,fr.telephone,fr.email].filter(Boolean).join(' · ')||'—'}</div>
+        </div>
+        ${isAdmin()?`<button class="btn btn-sm" data-edit-fournisseur="${fr.id}">✎</button>`:''}
+        ${isAdmin()?`<button class="btn btn-d btn-sm" data-del-fournisseur="${fr.id}" style="margin-left:4px">✕</button>`:''}
+      </div>`).join('')}
+    </div>`;
+  }
 
   const yearBar = `<div style="display:flex;gap:6px;margin-bottom:12px;align-items:center;flex-wrap:wrap">
     <span style="font-size:12px;color:var(--text2)">Année :</span>
@@ -2479,43 +2518,11 @@ function renderFactures(){
     if(S.factYear&&f.date&&!f.date.startsWith(String(S.factYear)))return false;
     if(fTab==='savadur')return f.compte==='savadur';
     if(fTab==='perso')return f.compte==='perso';
-    if(fTab==='rapproch')return !f.rapproche;
     return true;
   }).sort((a,b)=>new Date(b.date)-new Date(a.date));
 
   const totalTTC = facts.reduce((s,f)=>s+parseFloat(f.montant_ttc||0),0);
-  const nonRappr = facts.filter(f=>!f.rapproche).length;
-
-  if(fTab==='rapproch'){
-    return `${tabBar}${yearBar}
-    ${nonRappr===0?`<div class="card" style="text-align:center;padding:30px;color:var(--green)">✅ Toutes les factures de la période sont rapprochées !</div>`:`
-    <div class="card">
-      <div class="sec">⚠ ${nonRappr} facture(s) non rapprochée(s) — à vérifier sur votre relevé bancaire</div>
-      <div style="overflow-x:auto"><table>
-        <thead><tr><th>Date</th><th>Fournisseur</th><th>Description</th><th>Catégorie</th><th>Bien</th><th>Équipement</th><th>Personne</th><th>Montant TTC</th><th>Compte</th><th>BT lié</th><th>✓</th></tr></thead>
-        <tbody>
-        ${facts.map(f=>{
-          const wo=f.wo_id?S.workOrders.find(w=>w.id===f.wo_id):null;
-          const asset=f.asset_id?S.assets.find(a=>a.id===f.asset_id):null;
-          const personne=f.famille_id?S.famille.find(p=>p.id===f.famille_id):null;
-          return `<tr style="background:var(--red-bg)">
-            <td style="font-size:12px;white-space:nowrap">${dateLabel(f.date)}</td>
-            <td style="font-weight:500;font-size:13px">${f.fournisseur||'—'} ${(f.drive_url||f.document_url)?`<a href="${f.drive_url||f.document_url}" target="_blank" style="font-size:10px;text-decoration:none;background:var(--bg2);border:0.5px solid var(--border);border-radius:4px;padding:1px 5px">📄 PJ</a>`:''}</td>
-            <td style="font-size:12px;color:var(--text2)">${f.description||'—'}</td>
-            <td><span class="badge bblue" style="font-size:10px">${f.categorie||'—'}</span></td>
-            <td style="font-size:11px;color:var(--text2)">${f.bien||'—'}</td>
-            <td style="font-size:11px;color:var(--text2)">${asset?asset.name:'—'}</td>
-            <td style="font-size:11px;color:var(--text2)">${personne?personne.prenom:'—'}</td>
-            <td style="font-weight:700;color:var(--red)">${fmt(f.montant_ttc)}</td>
-            <td style="font-size:11px">${f.compte==='savadur'?'🏢 SAVADUR':'🏠 Perso'}</td>
-            <td style="font-size:11px;color:var(--blue)">${wo?wo.title:'—'}</td>
-            <td><button class="btn btn-sm btn-p" data-rapproche="${f.id}" title="Marquer rapproché">✓</button></td>
-          </tr>`;
-        }).join('')}
-        </tbody>
-      </table></div>
-    </div>`}`;
-  }
+  const nonRappr = facts.filter(f=>!estPaye(f)).length;
 
   if(fTab==='a_valider'){
     const bienOptsFor=(sel)=>{
@@ -2582,12 +2589,19 @@ function renderFactures(){
               ${fileUrl?`<br><a href="${fileUrl}" target="_blank" style="font-size:10px">📄 Ouvrir le fichier</a>`:'<br><span style="color:var(--red);font-size:10px">Fichier indisponible</span>'}
               ${f.erreur_extraction?`<div class="badge bamber" style="font-size:9px;margin-top:4px;white-space:normal" title="${f.erreur_extraction.replace(/"/g,'&quot;')}">⚠ ${f.erreur_extraction}</div>`:''}
             </td>
-            <td style="vertical-align:top"><input class="fav-entreprise" data-fav-id="${f.id}" value="${(f.entreprise||'').replace(/"/g,'&quot;')}" placeholder="Entreprise / artisan" style="width:150px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">
+            <td style="vertical-align:top"><input class="fav-entreprise" data-fav-id="${f.id}" list="fournisseurs-list" value="${(f.entreprise||'').replace(/"/g,'&quot;')}" placeholder="Entreprise / artisan" style="width:150px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">
               ${doublon?'<div class="badge bamber" style="font-size:9px;margin-top:3px">⚠ Facture similaire déjà enregistrée</div>':''}
             </td>
             <td style="vertical-align:top"><input class="fav-desc" data-fav-id="${f.id}" value="${(f.description||'').replace(/"/g,'&quot;')}" placeholder="Description / N° facture" style="width:140px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px"></td>
             <td style="vertical-align:top"><input type="number" step="0.01" class="fav-montant" data-fav-id="${f.id}" value="${f.montant_ttc!=null?f.montant_ttc:''}" placeholder="0.00" style="width:90px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px"></td>
-            <td style="vertical-align:top"><select class="fav-bien" data-fav-id="${f.id}" style="width:180px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">${bienOptsFor(f.bien||'')}</select></td>
+            <td style="vertical-align:top;min-width:190px">
+              <div class="fav-splits" data-fav-id="${f.id}">
+                <div class="fav-split-line" style="display:flex;gap:4px;margin-bottom:4px">
+                  <select class="fav-split-bien" style="flex:1;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">${bienOptsFor(f.bien||'')}</select>
+                </div>
+              </div>
+              <button type="button" class="btn btn-sm fav-add-split" data-fav-id="${f.id}" style="font-size:10px;padding:2px 6px" title="La facture concerne plusieurs biens (montant à répartir)">+ Bien</button>
+            </td>
             <td style="vertical-align:top"><select class="fav-asset" data-fav-id="${f.id}" style="width:160px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">${assetOptsFor(f.asset_id||'')}</select></td>
             <td style="vertical-align:top"><select class="fav-personne" data-fav-id="${f.id}" style="width:140px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">${personneOptsFor(f.famille_id||'')}</select></td>
             <td style="vertical-align:top"><select class="fav-compte" data-fav-id="${f.id}" style="width:110px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">${compteOptsFor(compteGuess(f))}</select></td>
@@ -2603,47 +2617,71 @@ function renderFactures(){
     </div>`;
   }
 
+  const rowHtml=(f)=>{
+    const rapBg=estPaye(f)?'':'background:var(--amber-bg)';
+    const driveIcon=(f.drive_url||f.document_url)?`<a href="${f.drive_url||f.document_url}" target="_blank" title="Voir la pièce jointe" style="text-decoration:none;background:var(--bg2);border:0.5px solid var(--border);border-radius:4px;padding:2px 6px;font-size:11px">📄 PJ</a>`:'';
+    const wo=f.wo_id?S.workOrders.find(w=>w.id===f.wo_id):null;
+    return `<tr style="${rapBg}">
+      <td style="font-size:12px;white-space:nowrap">${dateLabel(f.date)}</td>
+      <td style="font-weight:500;font-size:13px">${f.fournisseur||'—'} ${driveIcon}</td>
+      <td style="font-size:12px;color:var(--text2);max-width:180px">${f.description||'—'}</td>
+      <td><span class="badge bblue" style="font-size:10px">${f.categorie||'—'}</span></td>
+      <td style="font-size:11px;color:var(--blue)">${wo?wo.title:'—'}</td>
+      <td style="font-size:12px">${f.montant_ht?fmt(f.montant_ht):'—'}</td>
+      <td style="font-size:12px;color:var(--amber)">${f.tva?fmt(f.tva):'—'}</td>
+      <td style="font-weight:700;color:var(--red)">${fmt(f.montant_ttc)}</td>
+      <td style="font-size:11px;white-space:nowrap">${estPaye(f)?dateLabel(f.date_paiement):'<span style="color:var(--amber)">—</span>'}</td>
+      <td style="white-space:nowrap">
+        ${canEdit()?`<button class="btn btn-sm" data-edit-fact="${f.id}">✎</button>`:''}
+        ${isAdmin()?`<button class="btn btn-d btn-sm" data-del-fact="${f.id}">✕</button>`:''}
+      </td>
+    </tr>`;
+  };
+  const tableHtml=(rows)=>`<div style="overflow-x:auto"><table>
+      <thead><tr>
+        <th>Date</th><th>Fournisseur</th><th>Description</th><th>Catégorie</th>
+        <th>BT lié</th><th>HT</th><th>TVA</th><th>TTC</th><th>Payée</th><th></th>
+      </tr></thead>
+      <tbody>${rows.map(rowHtml).join('')}</tbody>
+    </table></div>`;
+
+  // Groupe par bien (1er segment du libelle "Bien - Zone - SousZone") puis
+  // sous-groupe (reste du libelle) - evite de tout re-parcourir en vrac quand
+  // il y a des dizaines de factures sur plusieurs biens.
+  const SANS_BIEN='— Sans bien lié —';
+  const groups=new Map();
+  facts.forEach(f=>{
+    const bienStr=(f.bien||'').trim();
+    let top,sub;
+    if(!bienStr){top=SANS_BIEN;sub='';}
+    else{const parts=bienStr.split(' - ');top=parts[0];sub=parts.slice(1).join(' › ');}
+    if(!groups.has(top))groups.set(top,new Map());
+    const subMap=groups.get(top);
+    if(!subMap.has(sub))subMap.set(sub,[]);
+    subMap.get(sub).push(f);
+  });
+  const topNames=[...groups.keys()].sort((a,b)=>a===SANS_BIEN?1:b===SANS_BIEN?-1:a.localeCompare(b));
+
   return `${tabBar}${yearBar}
   <div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap">
-    <div class="stat" style="flex:1"><div class="stat-l">Total ${fTab==='savadur'?'SAVADUR':fTab==='perso'?'Perso':'Factures'} ${S.factYear||''}</div><div class="stat-v" style="color:var(--red)">${fmt(totalTTC)}</div></div>
+    <div class="stat" style="flex:1"><div class="stat-l">Total ${fTab==='savadur'?'SAVADUR':'Perso'} ${S.factYear||''}</div><div class="stat-v" style="color:var(--red)">${fmt(totalTTC)}</div></div>
     <div class="stat" style="flex:1"><div class="stat-l">Non rapprochées</div><div class="stat-v" style="color:${nonRappr>0?'var(--amber)':'var(--green)'}">${nonRappr}</div></div>
     <div class="stat" style="flex:1"><div class="stat-l">Nb factures</div><div class="stat-v">${facts.length}</div></div>
   </div>
-  <div class="card">
-    <div style="overflow-x:auto"><table>
-      <thead><tr>
-        <th>Date</th><th>Fournisseur</th><th>Description</th><th>Catégorie</th>
-        <th>Bien / BT</th><th>HT</th><th>TVA</th><th>TTC</th><th>Compte</th><th>✓</th><th></th>
-      </tr></thead>
-      <tbody>
-      ${facts.length===0?'<tr><td colspan="11" style="text-align:center;padding:20px;color:var(--text2)">Aucune facture. Cliquez "+ Facture" pour commencer.</td></tr>':''}
-      ${facts.map(f=>{
-        const wo=f.wo_id?S.workOrders.find(w=>w.id===f.wo_id):null;
-        const rapBg=f.rapproche?'':'background:var(--amber-bg)';
-        const driveIcon=(f.drive_url||f.document_url)?`<a href="${f.drive_url||f.document_url}" target="_blank" title="Voir la pièce jointe" style="text-decoration:none;background:var(--bg2);border:0.5px solid var(--border);border-radius:4px;padding:2px 6px;font-size:11px">📄 PJ</a>`:'';
-        return `<tr style="${rapBg}">
-          <td style="font-size:12px;white-space:nowrap">${dateLabel(f.date)}</td>
-          <td style="font-weight:500;font-size:13px">${f.fournisseur||'—'} ${driveIcon}</td>
-          <td style="font-size:12px;color:var(--text2);max-width:180px">${f.description||'—'}</td>
-          <td><span class="badge bblue" style="font-size:10px">${f.categorie||'—'}</span></td>
-          <td style="font-size:11px;color:var(--text2)">${f.bien||'—'}${wo?'<br><span style="color:var(--blue)">BT: '+wo.title+'</span>':''}</td>
-          <td style="font-size:12px">${f.montant_ht?fmt(f.montant_ht):'—'}</td>
-          <td style="font-size:12px;color:var(--amber)">${f.tva?fmt(f.tva):'—'}</td>
-          <td style="font-weight:700;color:var(--red)">${fmt(f.montant_ttc)}</td>
-          <td style="font-size:11px">${f.compte==='savadur'?'🏢':'🏠'}</td>
-          <td>${f.rapproche?'<span style="color:var(--green);font-size:16px">✓</span>':`<button class="btn btn-sm" data-rapproche="${f.id}">○</button>`}</td>
-          <td style="white-space:nowrap">
-            ${canEdit()?`<button class="btn btn-sm" data-edit-fact="${f.id}">✎</button>`:''}
-            ${isAdmin()?`<button class="btn btn-d btn-sm" data-del-fact="${f.id}">✕</button>`:''}
-          </td>
-        </tr>`;
-      }).join('')}
-      </tbody>
-    </table></div>
-    <div style="display:flex;justify-content:flex-end;padding:10px 0;border-top:0.5px solid var(--border);font-weight:600">
-      Total : <span style="color:var(--red);margin-left:8px">${fmt(totalTTC)}</span>
-    </div>
-  </div>`;
+  ${facts.length===0?'<div class="card" style="text-align:center;padding:20px;color:var(--text2)">Aucune facture. Cliquez "+ Facture" pour commencer.</div>':''}
+  ${topNames.map(top=>{
+    const subMap=groups.get(top);
+    const subLabels=[...subMap.keys()].sort((a,b)=>a===''?-1:b===''?1:a.localeCompare(b));
+    const allRows=[...subMap.values()].flat();
+    const totalBien=allRows.reduce((s,f)=>s+parseFloat(f.montant_ttc||0),0);
+    return `<div class="card" style="margin-bottom:14px">
+      <div class="sec" style="margin-bottom:8px">🏠 ${top} — ${allRows.length} facture(s), ${fmt(totalBien)}</div>
+      ${subLabels.map(sub=>`
+        ${sub?`<div style="font-size:12px;font-weight:600;color:var(--text2);margin:10px 0 6px">📁 ${sub}</div>`:''}
+        ${tableHtml(subMap.get(sub))}
+      `).join('')}
+    </div>`;
+  }).join('')}`;
 }
 
 function renderCompteurs(){
@@ -4303,13 +4341,25 @@ function renderModal(){
   const mhd = t => `<div class="modal-hd">${t}<button class="xbtn" id="mc">×</button></div>`;
   const mf = `<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px"><button class="btn" id="mc2">Annuler</button><button class="btn btn-p" id="ms">Enregistrer</button></div>`;
 
+  if(m.type==='add-fournisseur'||m.type==='edit-fournisseur'){
+    const fr=m.fournisseur||{};
+    html=`${mhd(m.type==='add-fournisseur'?'Nouvel artisan / entreprise':'Modifier — '+fr.nom)}
+    <div class="form-group"><label>Nom *</label><input id="m-frnom" value="${fr.nom||''}" placeholder="Ex: Plomberie Martin"></div>
+    <div class="g2c">
+      <div class="form-group"><label>Corps de métier</label><input id="m-frmetier" value="${fr.corps_metier||''}" placeholder="Ex: Plomberie, Électricité..."></div>
+      <div class="form-group"><label>Téléphone</label><input id="m-frtel" value="${fr.telephone||''}"></div>
+    </div>
+    <div class="form-group"><label>Email</label><input id="m-fremail" value="${fr.email||''}"></div>
+    <div class="form-group"><label>Notes</label><textarea id="m-frnotes">${fr.notes||''}</textarea></div>${mf}`;
+  }
+
   if(m.type==='add-asset'||m.type==='edit-asset'){
     const a = m.asset||{};
     const fc = m.forceCategory||a.category||'';
     html=`${mhd(m.type==='add-asset'?'Nouvel équipement':'Modifier — '+a.name)}
     <div class="form-group"><label>Nom *</label><input id="m-name" value="${a.name||''}"></div>
     <div class="g2c">
-      <div class="form-group"><label>Catégorie</label><select id="m-cat"><option ${fc==='Équipement'?'selected':''}>Équipement</option><option ${fc==='Immobilier'?'selected':''}>Immobilier</option><option ${fc==='Véhicule'?'selected':''}>Véhicule</option><option ${fc==='Outillage'?'selected':''}>Outillage</option></select></div>
+      <div class="form-group"><label>Catégorie</label><select id="m-cat"><option ${fc==='Équipement'?'selected':''}>Équipement</option><option ${fc==='Immobilier'?'selected':''}>Immobilier</option><option ${fc==='Véhicule'?'selected':''}>Véhicule</option><option ${fc==='Bateau'?'selected':''}>Bateau</option><option ${fc==='Outillage'?'selected':''}>Outillage</option></select></div>
       <div class="form-group"><label>Type</label><input id="m-type" value="${a.type||''}"></div>
     </div>
     <div class="form-group"><label>Localisation</label><input id="m-loc" value="${a.location||''}"></div>
@@ -4333,7 +4383,7 @@ function renderModal(){
     // Build asset options
     const allAssets=isAdmin()?S.assets:accessAssets(S.currentUser);
     const assetOpts=`<option value="">— Aucun équipement —</option>`
-      +['Équipement','Véhicule','Outillage'].flatMap(cat=>{
+      +['Équipement','Véhicule','Bateau','Outillage'].flatMap(cat=>{
         const items=allAssets.filter(a=>a.category===cat);
         if(!items.length)return[];
         return [`<optgroup label="${cat}">${items.map(a=>`<option value="${a.id}" ${w.asset_id===a.id?'selected':''}>${a.name}</option>`).join('')}</optgroup>`];
@@ -4480,6 +4530,7 @@ function renderModal(){
             const groups = {
               'Équipements': all.filter(a=>a.category==='Équipement'),
               'Véhicules': all.filter(a=>a.category==='Véhicule'),
+              'Bateaux': all.filter(a=>a.category==='Bateau'),
               'Outillage': all.filter(a=>a.category==='Outillage'),
             };
             return Object.entries(groups).filter(([,items])=>items.length>0).map(([label,items])=>
@@ -4669,7 +4720,7 @@ function renderModal(){
     const woOpts=S.workOrders.filter(w=>w.status==='open'||w.id===f.wo_id).map(w=>`<option value="${w.id}" ${f.wo_id===w.id?'selected':''}>${w.title} (${w.date||'—'})</option>`).join('');
     html=`${mhd(m.type==='add-facture'?'Nouvelle facture':'Modifier facture — '+f.fournisseur)}
     <div class="g2c">
-      <div class="form-group"><label>Fournisseur *</label><input id="fac-four" value="${f.fournisseur||''}" placeholder="Ex: Plomberie Martin, EDF..."></div>
+      <div class="form-group"><label>Fournisseur *</label><input id="fac-four" list="fournisseurs-list" value="${f.fournisseur||''}" placeholder="Ex: Plomberie Martin, EDF..."></div>
       <div class="form-group"><label>Date *</label><input id="fac-date" type="date" value="${f.date||new Date().toISOString().slice(0,10)}"></div>
     </div>
     <div class="g2c">
@@ -4732,10 +4783,8 @@ function renderModal(){
         <button type="button" class="btn btn-sm" onclick="openDrivePicker(f=>{document.getElementById('fac-url').value=f.url;},(document.getElementById('fac-bien')?.value||document.getElementById('fac-compte')?.value==='savadur'?'dubail':''))">📁</button>
       </div>
     </div>
-    <div class="form-group"><label>Date de paiement</label><input id="fac-date-paiement" type="date" value="${f.date_paiement||''}"></div>
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-      <input type="checkbox" id="fac-rapproche" ${f.rapproche?'checked':''}>
-      <label for="fac-rapproche" style="font-size:13px;cursor:pointer">✅ Rapprochée (correspond à un débit bancaire)</label>
+    <div class="form-group"><label>Date de paiement</label><input id="fac-date-paiement" type="date" value="${f.date_paiement||''}">
+      <div style="font-size:11px;color:var(--text2);margin-top:4px">Une date de paiement renseignée marque automatiquement la facture comme rapprochée.</div>
     </div>
     ${mf}`;
   }
@@ -6392,6 +6441,26 @@ async function saveModal(){
   }
 
 
+  if(m.type==='add-fournisseur'||m.type==='edit-fournisseur'){
+    const nom=q('m-frnom')?.value?.trim();if(!nom)return alert('Nom requis');
+    const rec={
+      nom,
+      corps_metier:q('m-frmetier')?.value||null,
+      telephone:q('m-frtel')?.value||null,
+      email:q('m-fremail')?.value||null,
+      notes:q('m-frnotes')?.value||null
+    };
+    if(m.type==='add-fournisseur'){
+      const {data,error}=await sb.from('fournisseurs').insert(rec).select().single();
+      if(error){alert('Erreur : '+error.message);return;}
+      if(data)S.fournisseurs.push(data);
+    }else{
+      const {error}=await sb.from('fournisseurs').update(rec).eq('id',m.fournisseur.id);
+      if(error){alert('Erreur : '+error.message);return;}
+      Object.assign(m.fournisseur,rec);
+    }
+  }
+
   if(m.type==='add-asset'||m.type==='edit-asset'){
     const nom=q('m-name')?.value?.trim();if(!nom)return alert('Nom requis');
     const rec={
@@ -6467,8 +6536,7 @@ async function saveModal(){
       tva_pct:parseFloat(q('fac-tva')?.value)||0,
       montant_ttc:ttc,description:q('fac-desc')?.value||null,
       numero:q('fac-num')?.value||null,drive_url:q('fac-url')?.value||null,
-      date_paiement:q('fac-date-paiement')?.value||null,
-      rapproche:q('fac-rapproche')?.checked||false};
+      date_paiement:q('fac-date-paiement')?.value||null};
     if(m.type==='add-facture'){
       const {data,error}=await sb.from('factures').insert(rec).select().single();
       if(error){alert('Erreur : '+error.message);return;}
@@ -7627,7 +7695,6 @@ function bindAll(){
     if(!fav)return;
     const entreprise=(document.querySelector('.fav-entreprise[data-fav-id="'+id+'"]')?.value||'').trim();
     const montant=parseFloat(document.querySelector('.fav-montant[data-fav-id="'+id+'"]')?.value);
-    const bien=document.querySelector('.fav-bien[data-fav-id="'+id+'"]')?.value||'';
     const assetId=document.querySelector('.fav-asset[data-fav-id="'+id+'"]')?.value||'';
     const familleId=document.querySelector('.fav-personne[data-fav-id="'+id+'"]')?.value||'';
     const description=(document.querySelector('.fav-desc[data-fav-id="'+id+'"]')?.value||'').trim();
@@ -7636,23 +7703,75 @@ function bindAll(){
     const compteFav=document.querySelector('.fav-compte[data-fav-id="'+id+'"]')?.value||'savadur';
     if(!entreprise){alert('Entreprise requise avant validation');return;}
     if(!montant||montant<=0){alert('Montant TTC requis avant validation');return;}
+    if(!compteFav){alert('Compte requis avant validation');return;}
+    // Une facture peut concerner plusieurs biens (ex: 2 appartements du meme
+    // immeuble) - dans ce cas, une ligne de facture est creee par bien, avec
+    // sa part du montant. La somme des parts doit correspondre exactement au
+    // montant total (sinon on risque de perdre ou dupliquer de l'argent).
+    const splitLines=[...document.querySelectorAll(`.fav-splits[data-fav-id="${id}"] .fav-split-line`)];
+    let parts;
+    if(splitLines.length<=1){
+      const bien=splitLines[0]?.querySelector('.fav-split-bien')?.value||'';
+      if(!bien&&!assetId&&!familleId){alert('Sélectionnez au moins un bien, un équipement ou une personne avant validation');return;}
+      parts=[{bien,montant}];
+    }else{
+      parts=splitLines.map(line=>({
+        bien:line.querySelector('.fav-split-bien')?.value||'',
+        montant:parseFloat(line.querySelector('.fav-split-montant')?.value)||0
+      }));
+      if(parts.some(p=>!p.bien)){alert('Sélectionnez un bien pour chaque ligne de répartition');return;}
+      const sumParts=parts.reduce((s,p)=>s+p.montant,0);
+      if(Math.abs(sumParts-montant)>0.01){
+        alert(`La somme des parts (${sumParts.toFixed(2)} €) ne correspond pas au montant total de la facture (${montant.toFixed(2)} €).`);
+        return;
+      }
+    }
     const facPreviewPath=fav.apercu_pdf_path||fav.storage_path;
     const documentUrl=facPreviewPath?`${SUPABASE_URL}/storage/v1/object/public/factures-a-valider/${facPreviewPath}`:null;
-    const rec={fournisseur:entreprise,date:dateFacture||new Date().toISOString().slice(0,10),montant_ttc:montant,
-      bien:bien||null,asset_id:assetId||null,famille_id:familleId||null,description:description||null,
-      document_url:documentUrl,compte:compteFav,rapproche:false,
-      date_paiement:datePaiement||null};
-    const{data,error}=await sb.from('factures').insert(rec).select().single();
-    if(error){alert('Erreur enregistrement facture : '+error.message);return;}
-    S.factures=[data,...(S.factures||[])];
+    const insertedIds=[];
+    for(const part of parts){
+      const rec={fournisseur:entreprise,date:dateFacture||new Date().toISOString().slice(0,10),montant_ttc:part.montant,
+        bien:part.bien||null,asset_id:assetId||null,famille_id:familleId||null,description:description||null,
+        document_url:documentUrl,compte:compteFav,rapproche:false,
+        date_paiement:datePaiement||null};
+      const{data,error}=await sb.from('factures').insert(rec).select().single();
+      if(error){alert(`Erreur enregistrement facture (${part.bien||'sans bien'}) : `+error.message);return;}
+      S.factures=[data,...(S.factures||[])];
+      insertedIds.push(data.id);
+    }
     const{error:updErr}=await sb.from('factures_a_valider').update({
-      statut:'valide',facture_id:data.id,traite_at:new Date().toISOString(),
-      entreprise,montant_ttc:montant,bien:bien||null,asset_id:assetId||null,famille_id:familleId||null,
+      statut:'valide',facture_id:insertedIds[0],traite_at:new Date().toISOString(),
+      entreprise,montant_ttc:montant,bien:parts[0].bien||null,asset_id:assetId||null,famille_id:familleId||null,
       description:description||null,date_facture:dateFacture||null
     }).eq('id',id);
     if(updErr){alert('Facture enregistrée, mais erreur de mise à jour du suivi : '+updErr.message);}
     S.facturesAValider=(S.facturesAValider||[]).filter(x=>x.id!==id);
     render();
+  });
+  document.querySelectorAll('.fav-add-split').forEach(btn=>btn.onclick=()=>{
+    const id=btn.dataset.favId;
+    const container=document.querySelector(`.fav-splits[data-fav-id="${id}"]`);
+    if(!container)return;
+    const lines=container.querySelectorAll('.fav-split-line');
+    const firstLine=lines[0];
+    // Passage en mode "plusieurs biens" : ajoute le champ montant sur la 1ere
+    // ligne s'il n'y est pas encore (invisible tant qu'il n'y a qu'un bien).
+    if(lines.length===1&&!firstLine.querySelector('.fav-split-montant')){
+      const totalVal=document.querySelector(`.fav-montant[data-fav-id="${id}"]`)?.value||'';
+      firstLine.insertAdjacentHTML('beforeend',
+        `<input type="number" step="0.01" class="fav-split-montant" placeholder="Montant" value="${totalVal}" style="width:80px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">`);
+    }
+    const clonedSelect=firstLine.querySelector('.fav-split-bien').cloneNode(true);
+    clonedSelect.value='';
+    const div=document.createElement('div');
+    div.className='fav-split-line';
+    div.style.cssText='display:flex;gap:4px;margin-bottom:4px';
+    div.appendChild(clonedSelect);
+    div.insertAdjacentHTML('beforeend',
+      `<input type="number" step="0.01" class="fav-split-montant" placeholder="Montant" value="0" style="width:80px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">
+       <button type="button" class="btn btn-sm btn-d fav-remove-split" style="padding:2px 6px">✕</button>`);
+    div.querySelector('.fav-remove-split').onclick=()=>div.remove();
+    container.appendChild(div);
   });
   document.querySelectorAll('[data-fav-rejeter]').forEach(el=>el.onclick=async()=>{
     const id=el.dataset.favRejeter;
@@ -7686,6 +7805,18 @@ function bindAll(){
   };
   const btnAddFact=document.getElementById('btn-add-facture');
   if(btnAddFact)btnAddFact.onclick=()=>{S.modal={type:'add-facture'};render();};
+  const btnAddFournisseur=document.getElementById('btn-add-fournisseur');
+  if(btnAddFournisseur)btnAddFournisseur.onclick=()=>{S.modal={type:'add-fournisseur'};render();};
+  document.querySelectorAll('[data-edit-fournisseur]').forEach(el=>el.onclick=()=>{
+    const fr=S.fournisseurs.find(x=>x.id===el.dataset.editFournisseur);
+    if(fr){S.modal={type:'edit-fournisseur',fournisseur:fr};render();}
+  });
+  document.querySelectorAll('[data-del-fournisseur]').forEach(el=>el.onclick=async()=>{
+    if(!confirm('Supprimer cet artisan du répertoire ?'))return;
+    const{error}=await sb.from('fournisseurs').delete().eq('id',el.dataset.delFournisseur);
+    if(error){alert('Erreur : '+error.message);return;}
+    S.fournisseurs=S.fournisseurs.filter(x=>x.id!==el.dataset.delFournisseur);render();
+  });
   document.querySelectorAll('[data-edit-fact]').forEach(el=>el.onclick=()=>{
     const f=S.factures.find(x=>x.id===el.dataset.editFact);
     if(f){S.modal={type:'edit-facture',facture:f};render();}
@@ -7694,11 +7825,6 @@ function bindAll(){
     if(!confirm('Supprimer cette facture ?'))return;
     await sb.from('factures').delete().eq('id',el.dataset.delFact);
     S.factures=S.factures.filter(x=>x.id!==el.dataset.delFact);render();
-  });
-  document.querySelectorAll('[data-rapproche]').forEach(el=>el.onclick=async()=>{
-    const f=S.factures.find(x=>x.id===el.dataset.rapproche);if(!f)return;
-    f.rapproche=!f.rapproche;
-    await sb.from('factures').update({rapproche:f.rapproche}).eq('id',f.id);render();
   });
   const btnExportFact=document.getElementById('btn-export-factures');
   if(btnExportFact)btnExportFact.onclick=()=>exportFacturesExcel();
@@ -9516,7 +9642,7 @@ function exportFacturesExcel(compte){
         wo?wo.title:'',f.description||'',
         f.compte==='savadur'?'J&A SAVADUR':'Personnel',
         fmt(f.montant_ht),f.taux_tva||0,fmt(f.montant_ttc),
-        f.rapproche?'Oui':'Non',f.url_drive||''
+        estPaye(f)?'Oui':'Non',f.url_drive||''
       ]);
     }),
     csvRow([]),
@@ -9591,7 +9717,7 @@ function exportBilanExcel(){
     csvRow(['DÉPENSES — FACTURES']),
     csvRow(['Date','Fournisseur','Catégorie','Bien','TTC','Rapprochée']),
     ...factures.sort((a,b)=>new Date(a.date)-new Date(b.date)).map(f=>
-      csvRow([f.date?new Date(f.date).toLocaleDateString('fr-FR'):'',f.fournisseur||'',f.categorie||'',f.bien||'',fmt(f.montant_ttc),f.rapproche?'Oui':'Non'])
+      csvRow([f.date?new Date(f.date).toLocaleDateString('fr-FR'):'',f.fournisseur||'',f.categorie||'',f.bien||'',fmt(f.montant_ttc),estPaye(f)?'Oui':'Non'])
     ),
     csvRow(['','TOTAL FACTURES','','',fmt(depFact)]),
     csvRow([]),
@@ -9652,7 +9778,7 @@ function exportFacturesExcel(){
       <td style="text-align:right">${fmt2(f.tva)}</td>
       <td style="text-align:right;font-weight:bold">${fmt2(f.montant_ttc)}</td>
       <td>${f.compte==='savadur'?'J&A SAVADUR':'Perso'}</td>
-      <td style="text-align:center">${f.rapproche?'✓':''}</td>
+      <td style="text-align:center">${estPaye(f)?'✓':''}</td>
     </tr>`;
   });
 
