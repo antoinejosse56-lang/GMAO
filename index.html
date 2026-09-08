@@ -162,6 +162,10 @@ function dubailFilter(str){
 // champ coche a la main - evite la double saisie (date de paiement ET case a
 // cocher separee pour la meme info).
 function estPaye(f){return !!f.date_paiement;}
+// Motifs de facture predefinis, utilises pour classer les factures archivees
+// par sous-dossier (facilite la recherche en cas de revente d'un bien/zone).
+// "Autre" reste toujours possible via saisie libre a cote du select.
+const MOTIFS=['Entretien','Rénovation','Travaux','Études','Médicale','Diagnostiques'];
 // PostgREST plafonne chaque requete a "Max Rows" (1000 par defaut cote Supabase),
 // meme si .range() en demande plus - il faut paginer cote client pour tout recuperer.
 async function fetchAllRows(table, orderCol, ascending){
@@ -227,7 +231,7 @@ let S = {
   // data
   users: [], assets: [], tasks: [], tools: [], loans: [],
   workOrders: [], maintenanceTemplates: [], topology: {properties: []},
-  factures: [], facturesAValider: [], fournisseurs: [], revenues: [], finTab: 'overview', reservations: [], resaYear: new Date().getFullYear(), taxeSejourTaux: 5, taxeSejourPlafond: 4.60, compteurs: [], releves: [], rangements: [], famille: [], consommables: [], crecheSaisies: [], ecoleSaisies: [], familleTab: 'membres', finFactCpte: 'savadur', familleEnfant: null
+  factures: [], facturesAValider: [], fournisseurs: [], chantiers: [], revenues: [], finTab: 'overview', reservations: [], resaYear: new Date().getFullYear(), taxeSejourTaux: 5, taxeSejourPlafond: 4.60, compteurs: [], releves: [], rangements: [], famille: [], consommables: [], crecheSaisies: [], ecoleSaisies: [], familleTab: 'membres', finFactCpte: 'savadur', familleEnfant: null
 };
 
 async function loadAll() {
@@ -246,7 +250,7 @@ async function loadAll() {
     const test = await sb.from('users').select('count', {count:'exact',head:true});
     if (test.error) { showError(test.error.message || JSON.stringify(test.error)); return; }
 
-    const [u, a, t, tl, l, wo, mt, topo, rev, cpt, rel, ten, rp, wr, rng, fam, crecheRes, ecoleRes, conso, facturesRes, resaRes, favRes, fournRes] = await Promise.all([
+    const [u, a, t, tl, l, wo, mt, topo, rev, cpt, rel, ten, rp, wr, rng, fam, crecheRes, ecoleRes, conso, facturesRes, resaRes, favRes, fournRes, chantiersRes] = await Promise.all([
       sb.from('users').select('*'),
       sb.from('assets').select('*'),
       sb.from('tasks').select('*'),
@@ -269,7 +273,8 @@ async function loadAll() {
       fetchAllRows('factures','date',false),
       sb.from('reservations').select('*').order('date_arrivee',{ascending:false}),
       fetchAllRows('factures_a_valider','created_at',false),
-      sb.from('fournisseurs').select('*').order('nom')
+      sb.from('fournisseurs').select('*').order('nom'),
+      sb.from('chantiers').select('*').order('created_at',{ascending:false})
     ]);
 
     // Only block on critical tables
@@ -307,6 +312,8 @@ async function loadAll() {
     S.facturesAValider = favRes?.error ? [] : (favRes?.data || []);
     if (fournRes?.error) console.warn('Table fournisseurs non disponible:', fournRes.error.message);
     S.fournisseurs = fournRes?.error ? [] : (fournRes?.data || []);
+    if (chantiersRes?.error) console.warn('Table chantiers non disponible:', chantiersRes.error.message);
+    S.chantiers = chantiersRes?.error ? [] : (chantiersRes?.data || []);
     const loadedTopo = topo.data?.[0]?.data;
     S.topoId = topo.data?.[0]?.id;
     if(loadedTopo?.properties?.length){
@@ -555,6 +562,7 @@ function navItems(){
       {id:'assets', label:'Équipements', icon:'◧', badge: S.assets.filter(a=>a.status==='urgent').length||0},
       {id:'tasks', label:'Échéances', icon:'◫', badge: overdueT},
       {id:'workorders', label:'Bons de travaux', icon:'◪', badge: openWO},
+      {id:'chantiers', label:'Chantiers', icon:'🏗️'},
     ]},
     {group:'Outils', items:[
       {id:'tools', label:'Inventaire outils', icon:'◈'},
@@ -605,6 +613,7 @@ function renderApp(){
     assets: renderAssets(),
     tasks: renderTasks(),
     workorders: renderWorkOrders(),
+    chantiers: renderChantiers(),
     tools: renderTools(),
     consommables: renderConsommables(),
     etiquettes: renderEtiquettes(),
@@ -627,6 +636,7 @@ function renderApp(){
     assets: isAdmin()?`<button class="btn btn-p" id="btn-add-asset">+ Équipement</button>`:'',
     tools: isAdmin()?`<button class="btn btn-p" id="btn-add-tool">+ Nouvel outil</button>`:'',
     workorders: canEdit()?`<button class="btn btn-p" id="btn-add-wo">+ Bon de travaux</button>`:'',
+    chantiers: isAdmin()?`<button class="btn btn-p" id="btn-add-chantier">+ Chantier</button>`:'',
     vehicles: isAdmin()?`<button class="btn btn-p" id="btn-add-vehicle">+ Véhicule</button>`:'',
     locatif: isAdmin()?`<button class="btn btn-p" id="btn-add-tenant">+ Locataire</button>`:'',
     eau: isAdmin()?`<button class="btn btn-p" id="btn-add-water">+ Relevé eau</button>`:'',
@@ -636,7 +646,7 @@ function renderApp(){
     users: isAdmin()?`<button class="btn btn-p" id="btn-add-user">+ Utilisateur</button>`:'',
     asset_detail: `<button class="btn" id="btn-back">← Retour</button>${canEdit()?`<button class="btn btn-p" id="btn-add-wo-asset" style="margin-left:6px">+ Bon de travaux</button>`:''}`
   };
-  const titles = {dashboard:'Tableau de bord',assets:'Équipements',tasks:'Échéances',workorders:'Bons de travaux',tools:'Inventaire outils',consommables:'Inventaire consommables',rangements:'Gestion des rangements',etiquettes:'Étiquettes & QR Code',loans:"Prêts d'outils",vehicles:'Mes véhicules',locatif:'Gestion locative',compteurs:'Compteurs & Relevés',finances:'Coûts & Revenus',factures:'Factures & Rapprochement',factures:'Gestion des factures',topology:'Topologie des biens',maintenance:"Gammes d'entretien",users:'Utilisateurs',famille:'Suivi famille',settings:'Paramètres',asset_detail:S.selectedAsset?.name||'Détail'};
+  const titles = {dashboard:'Tableau de bord',assets:'Équipements',tasks:'Échéances',workorders:'Bons de travaux',chantiers:'Chantiers',tools:'Inventaire outils',consommables:'Inventaire consommables',rangements:'Gestion des rangements',etiquettes:'Étiquettes & QR Code',loans:"Prêts d'outils",vehicles:'Mes véhicules',locatif:'Gestion locative',compteurs:'Compteurs & Relevés',finances:'Coûts & Revenus',factures:'Factures & Rapprochement',factures:'Gestion des factures',topology:'Topologie des biens',maintenance:"Gammes d'entretien",users:'Utilisateurs',famille:'Suivi famille',settings:'Paramètres',asset_detail:S.selectedAsset?.name||'Détail'};
 
   return `<div class="app">
     <div class="sidebar">
@@ -1206,6 +1216,7 @@ function renderWorkOrders(){
       <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:6px">
         <div>
           <div style="font-size:14px;font-weight:600;color:var(--text)">${w.title}</div>
+          ${w.chantier_id?(()=>{const ch=S.chantiers.find(c=>c.id===w.chantier_id);return ch?`<div style="font-size:11px;color:var(--text2);margin-top:1px">🏗️ ${ch.nom}</div>`:'';})():''}
           ${locationLabel?`<div style="font-size:11px;color:var(--blue);margin-top:1px">📍 ${locationLabel}</div>`:''}
           <div style="font-size:11px;color:var(--text2)">${asset?`🔧 ${asset.name} · `:''}${dateLabel(w.date)}</div>
         </div>
@@ -1228,6 +1239,11 @@ function renderWorkOrders(){
           </div>`).join('')}
         </div>
       </div>`:''}
+      ${w.devis_montant>0?(()=>{
+        const totalFact=S.factures.filter(fc=>fc.wo_id===w.id).reduce((s,fc)=>s+parseFloat(fc.montant_ttc||0),0);
+        const ecart=totalFact-w.devis_montant;
+        return `<div style="font-size:11px;color:var(--text2);margin-bottom:6px">📐 Devis ${w.devis_montant.toFixed(2)}€ · Reçu ${totalFact.toFixed(2)}€ · Écart <b style="color:${ecart>0?'var(--red)':'var(--green)'}">${ecart>0?'+':''}${ecart.toFixed(2)}€</b></div>`;
+      })():''}
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         ${w.cost>0?`<span class="badge bblue">${w.cost}€</span>`:''}
         ${w.by_user?`<span style="font-size:11px;color:var(--text3)">Par : ${w.by_user}</span>`:''}
@@ -1263,6 +1279,50 @@ function renderWorkOrders(){
     </div>`;
   }).join('')}
   ${filtered.length===0?'<div style="text-align:center;padding:30px;color:var(--text2)">Aucun bon de travaux.</div>':''}`;
+}
+
+function renderChantiers(){
+  const chantiers=[...(S.chantiers||[])].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
+  const html=chantiers.map(c=>{
+    const wos=S.workOrders.filter(w=>w.chantier_id===c.id);
+    const totalDevis=wos.reduce((s,w)=>s+parseFloat(w.devis_montant||0),0);
+    const totalReel=wos.reduce((s,w)=>s+S.factures.filter(f=>f.wo_id===w.id).reduce((ss,f)=>ss+parseFloat(f.montant_ttc||0),0),0);
+    const ecart=totalReel-totalDevis;
+    return `<div class="card" style="margin-bottom:14px">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px">
+        <div>
+          <div style="font-size:15px;font-weight:600">🏗️ ${c.nom}</div>
+          ${c.description?`<div style="font-size:12px;color:var(--text2);margin-top:2px">${c.description}</div>`:''}
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
+          <span class="badge ${c.statut==='termine'?'bgreen':'bamber'}">${c.statut==='termine'?'Terminé':'Ouvert'}</span>
+          ${isAdmin()?`<button class="btn btn-sm" data-edit-chantier="${c.id}">✎</button>`:''}
+          ${isAdmin()?`<button class="btn btn-d btn-sm" data-del-chantier="${c.id}">✕</button>`:''}
+        </div>
+      </div>
+      ${totalDevis>0?`<div style="display:flex;gap:16px;flex-wrap:wrap;padding:10px;background:var(--bg2);border-radius:var(--radius);margin-bottom:10px;font-size:12px">
+        <div><span style="color:var(--text2)">Devis cumulé :</span> <b>${totalDevis.toFixed(2)} €</b></div>
+        <div><span style="color:var(--text2)">Factures reçues :</span> <b>${totalReel.toFixed(2)} €</b></div>
+        <div><span style="color:var(--text2)">Écart :</span> <b style="color:${ecart>0?'var(--red)':'var(--green)'}">${ecart>0?'+':''}${ecart.toFixed(2)} €</b></div>
+      </div>`:''}
+      <div class="sec" style="margin-bottom:6px">Bons de travaux (${wos.length})</div>
+      ${wos.map(w=>{
+        const totalFactWo=S.factures.filter(f=>f.wo_id===w.id).reduce((s,f)=>s+parseFloat(f.montant_ttc||0),0);
+        return `<div class="row">
+          <div class="fg">
+            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+              <span class="fgs">${w.title}</span>
+              <span class="badge ${w.status==='done'?'bgreen':'bamber'}" style="font-size:10px">${w.status==='done'?'Terminé':'Ouvert'}</span>
+            </div>
+            <div class="fgsub">${w.devis_montant>0?`Devis ${parseFloat(w.devis_montant).toFixed(2)}€ · `:''}Reçu ${totalFactWo.toFixed(2)}€</div>
+          </div>
+          ${(canEdit()||isAdmin())?`<button class="btn btn-sm" data-edit-wo="${w.id}">✎</button>`:''}
+        </div>`;
+      }).join('')}
+      ${wos.length===0?`<div style="font-size:12px;color:var(--text2)">Aucun bon de travaux rattaché — depuis "Bons de travaux", associez-en un à ce chantier en le modifiant.</div>`:''}
+    </div>`;
+  }).join('');
+  return html+(chantiers.length===0?'<div style="text-align:center;padding:30px;color:var(--text2)">Aucun chantier. Cliquez "+ Chantier" pour en créer un.</div>':'');
 }
 
 function renderTools(){
@@ -2551,6 +2611,12 @@ function renderFactures(){
       S.famille.forEach(p=>{opts.push(opt(p.id,p.prenom+(p.nom?' '+p.nom:'')));});
       return opts.join('');
     };
+    const motifOptsFor=(sel)=>{
+      const opt=(val,label)=>'<option value="'+val+'"'+(val===(sel||'')?' selected':'')+'>'+label+'</option>';
+      const opts=[opt('','— Motif —')];
+      MOTIFS.forEach(m=>opts.push(opt(m,m)));
+      return opts.join('');
+    };
     // Devine savadur/perso : d'abord via le bien choisi, sinon via le compte explicite
     // de l'equipement lie (champ assets.compte, renseigne dans sa fiche), sinon via une
     // heuristique sur son nom/emplacement (dubailFilter) - reste modifiable a la main
@@ -2574,7 +2640,7 @@ function renderFactures(){
         <span id="fav-selected-count" style="font-size:12px;color:var(--text2)"></span>
       </div>` :''}
       ${pending.length>0?`<div style="overflow-x:auto"><table>
-        <thead><tr><th><input type="checkbox" id="fav-select-all"></th><th>Date facture</th><th>Fichier</th><th>Entreprise</th><th>Description</th><th>Montant TTC</th><th>Bien / Local</th><th>Équipement</th><th>Personne</th><th>Compte</th><th>Date paiement</th><th>Actions</th></tr></thead>
+        <thead><tr><th><input type="checkbox" id="fav-select-all"></th><th>Date facture</th><th>Fichier</th><th>Entreprise</th><th>Description</th><th>Montant TTC</th><th>Bien / Local</th><th>Équipement</th><th>Personne</th><th>Motif</th><th>Compte</th><th>Date paiement</th><th>Actions</th></tr></thead>
         <tbody>
         ${pending.map(f=>{
           const fileUrl=(f.apercu_pdf_path||f.storage_path)?`${SUPABASE_URL}/storage/v1/object/public/factures-a-valider/${f.apercu_pdf_path||f.storage_path}`:null;
@@ -2604,6 +2670,10 @@ function renderFactures(){
             </td>
             <td style="vertical-align:top"><select class="fav-asset" data-fav-id="${f.id}" style="width:160px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">${assetOptsFor(f.asset_id||'')}</select></td>
             <td style="vertical-align:top"><select class="fav-personne" data-fav-id="${f.id}" style="width:140px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">${personneOptsFor(f.famille_id||'')}</select></td>
+            <td style="vertical-align:top">
+              <select class="fav-motif" data-fav-id="${f.id}" style="width:110px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px;margin-bottom:3px">${motifOptsFor(MOTIFS.includes(f.motif)?f.motif:'')}</select>
+              <input class="fav-motif-autre" data-fav-id="${f.id}" value="${(f.motif&&!MOTIFS.includes(f.motif))?f.motif.replace(/"/g,'&quot;'):''}" placeholder="Autre motif..." style="width:110px;padding:4px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:11px">
+            </td>
             <td style="vertical-align:top"><select class="fav-compte" data-fav-id="${f.id}" style="width:110px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">${compteOptsFor(compteGuess(f))}</select></td>
             <td style="vertical-align:top"><input type="date" class="fav-date-paiement" data-fav-id="${f.id}" style="width:130px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px"></td>
             <td style="white-space:nowrap;vertical-align:top;padding-top:8px">
@@ -2645,22 +2715,28 @@ function renderFactures(){
       <tbody>${rows.map(rowHtml).join('')}</tbody>
     </table></div>`;
 
-  // Groupe par bien (1er segment du libelle "Bien - Zone - SousZone") puis
-  // sous-groupe (reste du libelle) - evite de tout re-parcourir en vrac quand
-  // il y a des dizaines de factures sur plusieurs biens.
+  // Groupe par bien (1er segment du libelle "Bien - Zone - SousZone"), puis
+  // par zone/sous-zone (reste du libelle), puis par motif - evite de tout
+  // re-parcourir en vrac quand il y a des dizaines de factures sur plusieurs
+  // biens et plusieurs types de travaux.
   const SANS_BIEN='— Sans bien lié —';
+  const SANS_MOTIF='Sans motif';
   const groups=new Map();
   facts.forEach(f=>{
     const bienStr=(f.bien||'').trim();
     let top,sub;
     if(!bienStr){top=SANS_BIEN;sub='';}
     else{const parts=bienStr.split(' - ');top=parts[0];sub=parts.slice(1).join(' › ');}
+    const motif=f.motif||SANS_MOTIF;
     if(!groups.has(top))groups.set(top,new Map());
     const subMap=groups.get(top);
-    if(!subMap.has(sub))subMap.set(sub,[]);
-    subMap.get(sub).push(f);
+    if(!subMap.has(sub))subMap.set(sub,new Map());
+    const motifMap=subMap.get(sub);
+    if(!motifMap.has(motif))motifMap.set(motif,[]);
+    motifMap.get(motif).push(f);
   });
   const topNames=[...groups.keys()].sort((a,b)=>a===SANS_BIEN?1:b===SANS_BIEN?-1:a.localeCompare(b));
+  const sortMotifs=(labels)=>labels.sort((a,b)=>a===SANS_MOTIF?1:b===SANS_MOTIF?-1:a.localeCompare(b));
 
   return `${tabBar}${yearBar}
   <div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap">
@@ -2672,14 +2748,21 @@ function renderFactures(){
   ${topNames.map(top=>{
     const subMap=groups.get(top);
     const subLabels=[...subMap.keys()].sort((a,b)=>a===''?-1:b===''?1:a.localeCompare(b));
-    const allRows=[...subMap.values()].flat();
+    const allRows=[...subMap.values()].flatMap(motifMap=>[...motifMap.values()].flat());
     const totalBien=allRows.reduce((s,f)=>s+parseFloat(f.montant_ttc||0),0);
     return `<div class="card" style="margin-bottom:14px">
       <div class="sec" style="margin-bottom:8px">🏠 ${top} — ${allRows.length} facture(s), ${fmt(totalBien)}</div>
-      ${subLabels.map(sub=>`
-        ${sub?`<div style="font-size:12px;font-weight:600;color:var(--text2);margin:10px 0 6px">📁 ${sub}</div>`:''}
-        ${tableHtml(subMap.get(sub))}
-      `).join('')}
+      ${subLabels.map(sub=>{
+        const motifMap=subMap.get(sub);
+        const motifLabels=sortMotifs([...motifMap.keys()]);
+        return `
+          ${sub?`<div style="font-size:12px;font-weight:600;color:var(--text2);margin:10px 0 6px">📁 ${sub}</div>`:''}
+          ${motifLabels.map(motif=>`
+            <div style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.03em;margin:8px 0 4px 0;padding-left:${sub?'12px':'0'}">${motif}</div>
+            ${tableHtml(motifMap.get(motif))}
+          `).join('')}
+        `;
+      }).join('')}
     </div>`;
   }).join('')}`;
 }
@@ -4353,6 +4436,17 @@ function renderModal(){
     <div class="form-group"><label>Notes</label><textarea id="m-frnotes">${fr.notes||''}</textarea></div>${mf}`;
   }
 
+  if(m.type==='add-chantier'||m.type==='edit-chantier'){
+    const c=m.chantier||{};
+    html=`${mhd(m.type==='add-chantier'?'Nouveau chantier':'Modifier — '+c.nom)}
+    <div class="form-group"><label>Nom *</label><input id="m-chnom" value="${c.nom||''}" placeholder="Ex: Construction extension, Rénovation 3ème étage..."></div>
+    <div class="form-group"><label>Description</label><textarea id="m-chdesc">${c.description||''}</textarea></div>
+    <div class="form-group"><label>Statut</label><select id="m-chstatut">
+      <option value="ouvert" ${(c.statut||'ouvert')==='ouvert'?'selected':''}>Ouvert</option>
+      <option value="termine" ${c.statut==='termine'?'selected':''}>Terminé</option>
+    </select></div>${mf}`;
+  }
+
   if(m.type==='add-asset'||m.type==='edit-asset'){
     const a = m.asset||{};
     const fc = m.forceCategory||a.category||'';
@@ -4402,6 +4496,12 @@ function renderModal(){
     html=`${mhd('Modifier — '+w.title)}
     <div class="form-group"><label>Titre *</label><input id="m-wt" value="${w.title||''}"></div>
     <div class="form-group"><label>Description</label><textarea id="m-wd" rows="2">${w.description||''}</textarea></div>
+    <div class="form-group"><label>Chantier (optionnel)</label>
+      <select id="m-wchantier">
+        <option value="">— Aucun chantier —</option>
+        ${(S.chantiers||[]).map(c=>`<option value="${c.id}" ${w.chantier_id===c.id?'selected':''}>${c.nom}</option>`).join('')}
+      </select>
+    </div>
 
     <div style="border-top:0.5px solid var(--border);margin:12px 0 10px"></div>
     <div style="font-size:12px;font-weight:500;color:var(--text2);margin-bottom:8px">📍 Localisation</div>
@@ -4441,7 +4541,18 @@ function renderModal(){
         </div>
       </div>
       <div class="form-group"><label>Coût (€)</label><input id="m-wcost" type="number" value="${w.cost||0}"></div>
+      <div class="form-group"><label>Montant devis (€)</label><input id="m-wdevis" type="number" step="0.01" value="${w.devis_montant||''}" placeholder="Optionnel"></div>
     </div>
+    ${w.devis_montant>0?(()=>{
+      const factLiees=S.factures.filter(fc=>fc.wo_id===w.id);
+      const totalFact=factLiees.reduce((s,fc)=>s+parseFloat(fc.montant_ttc||0),0);
+      const ecart=totalFact-w.devis_montant;
+      return `<div style="display:flex;gap:16px;flex-wrap:wrap;padding:10px;background:var(--bg2);border-radius:var(--radius);margin-bottom:10px;font-size:12px">
+        <div><span style="color:var(--text2)">Devis :</span> <b>${w.devis_montant.toFixed(2)} €</b></div>
+        <div><span style="color:var(--text2)">Factures reçues (${factLiees.length}) :</span> <b>${totalFact.toFixed(2)} €</b></div>
+        <div><span style="color:var(--text2)">Écart :</span> <b style="color:${ecart>0?'var(--red)':'var(--green)'}">${ecart>0?'+':''}${ecart.toFixed(2)} €</b></div>
+      </div>`;
+    })():''}
     <div class="form-group" style="display:flex;align-items:center;gap:10px;padding:8px;background:var(--bg2);border-radius:var(--radius);margin-bottom:8px">
       <input type="checkbox" id="m-wpaid" ${w.paid?'checked':''} style="width:16px;height:16px;cursor:pointer">
       <label for="m-wpaid" style="cursor:pointer;font-weight:500;font-size:13px">💰 Dépense déjà réglée</label>
@@ -4500,6 +4611,12 @@ function renderModal(){
   if(m.type==='add-wo'){html=`${mhd('Nouveau bon de travaux')}
     <div class="form-group"><label>Titre *</label><input id="m-wt" placeholder="Ex: Fuite joint pompe"></div>
     <div class="form-group"><label>Description</label><textarea id="m-wd"></textarea></div>
+    <div class="form-group"><label>Chantier (optionnel)</label>
+      <select id="m-wchantier">
+        <option value="">— Aucun chantier —</option>
+        ${(S.chantiers||[]).map(c=>`<option value="${c.id}" ${m.chantierId===c.id?'selected':''}>${c.nom}</option>`).join('')}
+      </select>
+    </div>
     <div class="g2c">
         <div style="font-size:11px;color:var(--text3);margin-bottom:10px;padding:8px;background:var(--bg2);border-radius:var(--radius)">
         Liez ce bon à un bien/zone <b>ou</b> à un équipement — au moins l'un des deux est requis.
@@ -4554,6 +4671,7 @@ function renderModal(){
         </div>
       </div>
       <div class="form-group"><label>Coût (€)</label><input id="m-wcost" type="number" placeholder="0"></div>
+      <div class="form-group"><label>Montant devis (€)</label><input id="m-wdevis" type="number" step="0.01" placeholder="Optionnel"></div>
     </div>
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
       <input type="checkbox" id="m-wpaid-new">
@@ -4763,6 +4881,15 @@ function renderModal(){
           ${S.famille.map(p=>`<option value="${p.id}" ${f.famille_id===p.id?'selected':''}>${p.prenom}${p.nom?' '+p.nom:''}</option>`).join('')}
         </select>
       </div>
+    </div>
+    <div class="g2c">
+      <div class="form-group"><label>Motif</label>
+        <select id="fac-motif">
+          <option value="" ${(!f.motif||!MOTIFS.includes(f.motif))?'selected':''}>— Motif —</option>
+          ${MOTIFS.map(m=>`<option value="${m}" ${f.motif===m?'selected':''}>${m}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group"><label>Autre motif (si non listé)</label><input id="fac-motif-autre" value="${(f.motif&&!MOTIFS.includes(f.motif))?f.motif:''}" placeholder="Ex: Litige, Garantie..."></div>
     </div>
     <div class="g2c">
       <div class="form-group"><label>Montant HT (€)</label><input id="fac-ht" type="number" step="0.01" value="${f.montant_ht||0}" oninput="(function(){const ht=parseFloat(document.getElementById('fac-ht').value)||0;const tva=parseFloat(document.getElementById('fac-tva').value)||0;document.getElementById('fac-ttc').value=Math.round((ht*(1+tva/100))*100)/100;})()"></div>
@@ -6021,6 +6148,8 @@ async function saveModal(){
     const upd={title,description:q('m-wd')?.value,category:q('m-wc')?.value,
       status:q('m-wstatus')?.value,date:q('m-wdate')?.value,
       cost:parseFloat(q('m-wcost')?.value)||0,
+      devis_montant:q('m-wdevis')?.value?parseFloat(q('m-wdevis').value):null,
+      chantier_id:q('m-wchantier')?.value||null,
       paid:q('m-wpaid')?.checked||false,
       alert_days:q('m-walert-on')?.checked?(parseInt(q('m-walert-days')?.value)||7):(w.alert_days||null),
       by_user:byUser,asset_id:assetId||w.asset_id,topo_ref:topoRef,journal,checklist};
@@ -6052,6 +6181,8 @@ async function saveModal(){
     const rec={
       title,description:q('m-wd')?.value||'',category:q('m-wc')?.value||'Entretien',
       status:'open',date:q('m-wdate')?.value||null,cost:parseFloat(q('m-wcost')?.value)||0,
+      devis_montant:q('m-wdevis')?.value?parseFloat(q('m-wdevis').value):null,
+      chantier_id:q('m-wchantier')?.value||null,
       paid:q('m-wpaid')?.checked||false,
       alert_days:q('m-walert-on')?.checked?(parseInt(q('m-walert-days')?.value)||7):null,
       by_user:byUser,asset_id:assetId||null,topo_ref:topoRef,journal:[],checklist
@@ -6461,6 +6592,24 @@ async function saveModal(){
     }
   }
 
+  if(m.type==='add-chantier'||m.type==='edit-chantier'){
+    const nom=q('m-chnom')?.value?.trim();if(!nom)return alert('Nom requis');
+    const rec={
+      nom,
+      description:q('m-chdesc')?.value||null,
+      statut:q('m-chstatut')?.value||'ouvert'
+    };
+    if(m.type==='add-chantier'){
+      const {data,error}=await sb.from('chantiers').insert(rec).select().single();
+      if(error){alert('Erreur : '+error.message);return;}
+      if(data)S.chantiers.unshift(data);
+    }else{
+      const {error}=await sb.from('chantiers').update(rec).eq('id',m.chantier.id);
+      if(error){alert('Erreur : '+error.message);return;}
+      Object.assign(m.chantier,rec);
+    }
+  }
+
   if(m.type==='add-asset'||m.type==='edit-asset'){
     const nom=q('m-name')?.value?.trim();if(!nom)return alert('Nom requis');
     const rec={
@@ -6532,6 +6681,7 @@ async function saveModal(){
       categorie:q('fac-cat')?.value||null,compte:q('fac-compte')?.value||'savadur',
       bien:q('fac-bien')?.value||null,wo_id:q('fac-wo')?.value||null,
       asset_id:q('fac-asset')?.value||null,famille_id:q('fac-personne')?.value||null,
+      motif:q('fac-motif-autre')?.value.trim()||q('fac-motif')?.value||null,
       montant_ht:parseFloat(q('fac-ht')?.value)||0,
       tva_pct:parseFloat(q('fac-tva')?.value)||0,
       montant_ttc:ttc,description:q('fac-desc')?.value||null,
@@ -7697,6 +7847,8 @@ function bindAll(){
     const montant=parseFloat(document.querySelector('.fav-montant[data-fav-id="'+id+'"]')?.value);
     const assetId=document.querySelector('.fav-asset[data-fav-id="'+id+'"]')?.value||'';
     const familleId=document.querySelector('.fav-personne[data-fav-id="'+id+'"]')?.value||'';
+    const motifAutre=(document.querySelector('.fav-motif-autre[data-fav-id="'+id+'"]')?.value||'').trim();
+    const motif=motifAutre||document.querySelector('.fav-motif[data-fav-id="'+id+'"]')?.value||'';
     const description=(document.querySelector('.fav-desc[data-fav-id="'+id+'"]')?.value||'').trim();
     const dateFacture=document.querySelector('.fav-date[data-fav-id="'+id+'"]')?.value||'';
     const datePaiement=document.querySelector('.fav-date-paiement[data-fav-id="'+id+'"]')?.value||'';
@@ -7732,7 +7884,7 @@ function bindAll(){
     for(const part of parts){
       const rec={fournisseur:entreprise,date:dateFacture||new Date().toISOString().slice(0,10),montant_ttc:part.montant,
         bien:part.bien||null,asset_id:assetId||null,famille_id:familleId||null,description:description||null,
-        document_url:documentUrl,compte:compteFav,rapproche:false,
+        motif:motif||null,document_url:documentUrl,compte:compteFav,rapproche:false,
         date_paiement:datePaiement||null};
       const{data,error}=await sb.from('factures').insert(rec).select().single();
       if(error){alert(`Erreur enregistrement facture (${part.bien||'sans bien'}) : `+error.message);return;}
@@ -7742,7 +7894,7 @@ function bindAll(){
     const{error:updErr}=await sb.from('factures_a_valider').update({
       statut:'valide',facture_id:insertedIds[0],traite_at:new Date().toISOString(),
       entreprise,montant_ttc:montant,bien:parts[0].bien||null,asset_id:assetId||null,famille_id:familleId||null,
-      description:description||null,date_facture:dateFacture||null
+      motif:motif||null,description:description||null,date_facture:dateFacture||null
     }).eq('id',id);
     if(updErr){alert('Facture enregistrée, mais erreur de mise à jour du suivi : '+updErr.message);}
     S.facturesAValider=(S.facturesAValider||[]).filter(x=>x.id!==id);
@@ -7816,6 +7968,20 @@ function bindAll(){
     const{error}=await sb.from('fournisseurs').delete().eq('id',el.dataset.delFournisseur);
     if(error){alert('Erreur : '+error.message);return;}
     S.fournisseurs=S.fournisseurs.filter(x=>x.id!==el.dataset.delFournisseur);render();
+  });
+  const btnAddChantier=document.getElementById('btn-add-chantier');
+  if(btnAddChantier)btnAddChantier.onclick=()=>{S.modal={type:'add-chantier'};render();};
+  document.querySelectorAll('[data-edit-chantier]').forEach(el=>el.onclick=()=>{
+    const c=S.chantiers.find(x=>x.id===el.dataset.editChantier);
+    if(c){S.modal={type:'edit-chantier',chantier:c};render();}
+  });
+  document.querySelectorAll('[data-del-chantier]').forEach(el=>el.onclick=async()=>{
+    if(!confirm('Supprimer ce chantier ? Les bons de travaux rattachés ne seront pas supprimés, juste détachés.'))return;
+    const{error}=await sb.from('chantiers').delete().eq('id',el.dataset.delChantier);
+    if(error){alert('Erreur : '+error.message);return;}
+    S.chantiers=S.chantiers.filter(x=>x.id!==el.dataset.delChantier);
+    S.workOrders.forEach(w=>{if(w.chantier_id===el.dataset.delChantier)w.chantier_id=null;});
+    render();
   });
   document.querySelectorAll('[data-edit-fact]').forEach(el=>el.onclick=()=>{
     const f=S.factures.find(x=>x.id===el.dataset.editFact);

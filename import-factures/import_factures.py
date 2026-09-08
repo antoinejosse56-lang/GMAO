@@ -188,7 +188,7 @@ def fetch_known_rows() -> dict:
     while True:
         resp = requests.get(
             f"{SUPABASE_URL}/rest/v1/{TABLE}",
-            params={"select": "chemin_relatif,statut,bien"},
+            params={"select": "chemin_relatif,statut,bien,motif,entreprise,description,date_facture"},
             headers={**HEADERS, "Range-Unit": "items", "Range": f"{offset}-{offset+page_size-1}"},
             timeout=30,
         )
@@ -209,9 +209,13 @@ def sanitize_folder_name(name: str) -> str:
     return cleaned or "Non classe"
 
 
-def archive_path_for(bien: str) -> Path:
-    """Calcule le sous-dossier d'archive ARCHIVE_DIR/<savadur|perso>/<bien>/<zone>/
-    a partir de la valeur `bien` stockee ("Prop - Zone - SousZone" ou vide)."""
+def archive_path_for(bien: str, motif: str) -> Path:
+    """Calcule le sous-dossier d'archive
+    ARCHIVE_DIR/<savadur|perso>/<bien>/<zone>/<motif>/ a partir de la valeur
+    `bien` stockee ("Prop - Zone - SousZone" ou vide) et du motif (Entretien,
+    Renovation, Travaux, Etudes, Medicale, Diagnostiques ou texte libre) - pour
+    retrouver facilement les factures d'un type donne en cas de revente d'un
+    bien ou d'une zone precise."""
     parts = [p.strip() for p in (bien or "").split(" - ") if p.strip()]
     compte = "perso" if parts and "dubail" not in parts[0].lower() else "savadur"
     folder = Path(ARCHIVE_DIR) / compte
@@ -221,13 +225,27 @@ def archive_path_for(bien: str) -> Path:
             folder = folder / sanitize_folder_name(parts[1])
     else:
         folder = folder / "Non classe"
+    folder = folder / sanitize_folder_name(motif or "Divers")
     return folder
+
+
+def archive_filename_for(original_ext: str, entreprise: str, date_facture: str, description: str) -> str:
+    """Nom lisible 'NOM ENTREPRISE.DATE.Description.ext' pour le fichier archive
+    (au lieu du nom brut issu de l'extraction mail) - facilite la recherche
+    manuelle dans l'explorateur de fichiers."""
+    parts = [
+        sanitize_folder_name(entreprise) if entreprise else "Facture",
+        date_facture or "date-inconnue",
+        sanitize_folder_name(description) if description else "Facture",
+    ]
+    return ".".join(parts) + original_ext
 
 
 def archive_validated_files(watch_path: Path, known_rows: dict):
     """Deplace vers ARCHIVE_DIR les fichiers encore presents dans le dossier de
     transit dont la facture correspondante a ete validee dans le GMAO. Ne touche
-    pas aux fichiers en_attente ou rejetes - uniquement statut == 'valide'."""
+    pas aux fichiers en_attente ou rejetes - uniquement statut == 'valide'.
+    Renomme au passage au format 'NOM ENTREPRISE.DATE.Description.ext'."""
     if not ARCHIVE_DIR:
         return
     moved = 0
@@ -237,11 +255,12 @@ def archive_validated_files(watch_path: Path, known_rows: dict):
         info = known_rows.get(p.name)
         if not info or info.get("statut") != "valide":
             continue
-        dest_dir = archive_path_for(info.get("bien"))
+        dest_dir = archive_path_for(info.get("bien"), info.get("motif"))
         dest_dir.mkdir(parents=True, exist_ok=True)
-        dest = dest_dir / p.name
+        new_name = archive_filename_for(p.suffix, info.get("entreprise"), info.get("date_facture"), info.get("description"))
+        dest = dest_dir / new_name
         if dest.exists():
-            log(f"  ARCHIVAGE ignore (deja present a destination) : {p.name}")
+            log(f"  ARCHIVAGE ignore (deja present a destination) : {p.name} -> {new_name}")
             continue
         try:
             shutil.move(str(p), str(dest))
