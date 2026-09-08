@@ -231,7 +231,7 @@ let S = {
   // data
   users: [], assets: [], tasks: [], tools: [], loans: [],
   workOrders: [], maintenanceTemplates: [], topology: {properties: []},
-  factures: [], facturesAValider: [], fournisseurs: [], chantiers: [], revenues: [], finTab: 'overview', reservations: [], resaYear: new Date().getFullYear(), taxeSejourTaux: 5, taxeSejourPlafond: 4.60, compteurs: [], releves: [], rangements: [], famille: [], consommables: [], crecheSaisies: [], ecoleSaisies: [], familleTab: 'membres', finFactCpte: 'savadur', familleEnfant: null
+  factures: [], facturesAValider: [], fournisseurs: [], chantiers: [], devis: [], devisAValider: [], revenues: [], finTab: 'overview', reservations: [], resaYear: new Date().getFullYear(), taxeSejourTaux: 5, taxeSejourPlafond: 4.60, compteurs: [], releves: [], rangements: [], famille: [], consommables: [], crecheSaisies: [], ecoleSaisies: [], familleTab: 'membres', finFactCpte: 'savadur', familleEnfant: null
 };
 
 async function loadAll() {
@@ -250,7 +250,7 @@ async function loadAll() {
     const test = await sb.from('users').select('count', {count:'exact',head:true});
     if (test.error) { showError(test.error.message || JSON.stringify(test.error)); return; }
 
-    const [u, a, t, tl, l, wo, mt, topo, rev, cpt, rel, ten, rp, wr, rng, fam, crecheRes, ecoleRes, conso, facturesRes, resaRes, favRes, fournRes, chantiersRes] = await Promise.all([
+    const [u, a, t, tl, l, wo, mt, topo, rev, cpt, rel, ten, rp, wr, rng, fam, crecheRes, ecoleRes, conso, facturesRes, resaRes, favRes, fournRes, chantiersRes, devisRes, devisAvRes] = await Promise.all([
       sb.from('users').select('*'),
       sb.from('assets').select('*'),
       sb.from('tasks').select('*'),
@@ -274,7 +274,9 @@ async function loadAll() {
       sb.from('reservations').select('*').order('date_arrivee',{ascending:false}),
       fetchAllRows('factures_a_valider','created_at',false),
       sb.from('fournisseurs').select('*').order('nom'),
-      sb.from('chantiers').select('*').order('created_at',{ascending:false})
+      sb.from('chantiers').select('*').order('created_at',{ascending:false}),
+      sb.from('devis').select('*'),
+      fetchAllRows('devis_a_valider','created_at',false)
     ]);
 
     // Only block on critical tables
@@ -314,6 +316,10 @@ async function loadAll() {
     S.fournisseurs = fournRes?.error ? [] : (fournRes?.data || []);
     if (chantiersRes?.error) console.warn('Table chantiers non disponible:', chantiersRes.error.message);
     S.chantiers = chantiersRes?.error ? [] : (chantiersRes?.data || []);
+    if (devisRes?.error) console.warn('Table devis non disponible:', devisRes.error.message);
+    S.devis = devisRes?.error ? [] : (devisRes?.data || []);
+    if (devisAvRes?.error) console.warn('Table devis_a_valider non disponible:', devisAvRes.error.message);
+    S.devisAValider = devisAvRes?.error ? [] : (devisAvRes?.data || []);
     const loadedTopo = topo.data?.[0]?.data;
     S.topoId = topo.data?.[0]?.id;
     if(loadedTopo?.properties?.length){
@@ -1281,7 +1287,62 @@ function renderWorkOrders(){
   ${filtered.length===0?'<div style="text-align:center;padding:30px;color:var(--text2)">Aucun bon de travaux.</div>':''}`;
 }
 
+function motifOptsFor(sel){
+  const opt=(val,label)=>'<option value="'+val+'"'+(val===(sel||'')?' selected':'')+'>'+label+'</option>';
+  const opts=[opt('','— Motif —')];
+  MOTIFS.forEach(m=>opts.push(opt(m,m)));
+  return opts.join('');
+}
+
+function renderDevisAValider(){
+  const pending=(S.devisAValider||[]).filter(d=>d.statut==='en_attente').sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
+  const woOpts=(sel)=>{
+    const sorted=[...S.workOrders].sort((a,b)=>new Date(b.date)-new Date(a.date));
+    return '<option value="">— Sélectionner —</option>'+sorted.map(w=>`<option value="${w.id}" ${sel===w.id?'selected':''}>${w.title}${w.status==='done'?' (terminé)':''}</option>`).join('');
+  };
+  return `<div class="card" style="margin-top:14px">
+    <div class="sec" style="margin-bottom:8px">📐 Devis détectés automatiquement, en attente de rattachement à un bon de travaux</div>
+    ${pending.length===0?'<div style="text-align:center;padding:20px;color:var(--text2)">Rien à valider — tout est à jour.</div>':''}
+    ${pending.length>0?`<div style="overflow-x:auto"><table>
+      <thead><tr><th>Date</th><th>Fichier</th><th>Entreprise</th><th>Montant TTC</th><th>Bon de travaux</th><th>Motif</th><th>Actions</th></tr></thead>
+      <tbody>
+      ${pending.map(d=>{
+        const fileUrl=(d.apercu_pdf_path||d.storage_path)?`${SUPABASE_URL}/storage/v1/object/public/devis-a-valider/${d.apercu_pdf_path||d.storage_path}`:null;
+        return `<tr>
+          <td style="vertical-align:top;padding-top:8px"><input type="date" class="dev-date" data-dev-id="${d.id}" value="${d.date_devis||d.fichier_date||''}" style="width:130px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px"></td>
+          <td style="font-size:11px;vertical-align:top;padding-top:10px;max-width:160px;word-break:break-word">
+            ${d.fichier_nom||'—'}
+            ${fileUrl?`<br><a href="${fileUrl}" target="_blank" style="font-size:10px">📄 Ouvrir le fichier</a>`:'<br><span style="color:var(--red);font-size:10px">Fichier indisponible</span>'}
+            ${d.erreur_extraction?`<div class="badge bamber" style="font-size:9px;margin-top:4px;white-space:normal" title="${d.erreur_extraction.replace(/"/g,'&quot;')}">⚠ ${d.erreur_extraction}</div>`:''}
+          </td>
+          <td style="vertical-align:top"><input class="dev-entreprise" data-dev-id="${d.id}" list="fournisseurs-list" value="${(d.entreprise||'').replace(/"/g,'&quot;')}" placeholder="Entreprise / artisan" style="width:150px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px"></td>
+          <td style="vertical-align:top"><input type="number" step="0.01" class="dev-montant" data-dev-id="${d.id}" value="${d.montant_ttc!=null?d.montant_ttc:''}" placeholder="0.00" style="width:90px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px"></td>
+          <td style="vertical-align:top"><select class="dev-wo" data-dev-id="${d.id}" style="width:200px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">${woOpts(d.wo_id)}</select></td>
+          <td style="vertical-align:top">
+            <select class="dev-motif" data-dev-id="${d.id}" style="width:110px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px;margin-bottom:3px">${motifOptsFor(MOTIFS.includes(d.motif)?d.motif:'')}</select>
+            <input class="dev-motif-autre" data-dev-id="${d.id}" value="${(d.motif&&!MOTIFS.includes(d.motif))?d.motif.replace(/"/g,'&quot;'):''}" placeholder="Autre motif..." style="width:110px;padding:4px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:11px">
+          </td>
+          <td style="white-space:nowrap;vertical-align:top;padding-top:8px">
+            <button class="btn btn-sm btn-p" data-devis-valider="${d.id}" title="Valider et rattacher au bon de travaux">✅</button>
+            <button class="btn btn-sm btn-d" data-devis-rejeter="${d.id}" title="Rejeter (n'est pas un devis)" style="margin-left:3px">🚫</button>
+          </td>
+        </tr>`;
+      }).join('')}
+      </tbody>
+    </table></div>`:''}
+  </div>`;
+}
+
 function renderChantiers(){
+  const cTab=S.chantierTab||'liste';
+  const nDevisAValider=(S.devisAValider||[]).filter(d=>d.statut==='en_attente').length;
+  const tabBar=`<div class="tab-bar">
+    <div class="tab ${cTab==='liste'?'active':''}" data-chantier-tab="liste">🏗️ Chantiers</div>
+    <div class="tab ${cTab==='devis'?'active':''}" data-chantier-tab="devis">📐 Devis à valider${nDevisAValider>0?` <span class="badge bamber" style="font-size:10px">${nDevisAValider}</span>`:''}</div>
+  </div>`;
+  if(cTab==='devis'){
+    return tabBar+renderDevisAValider();
+  }
   const chantiers=[...(S.chantiers||[])].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
   const html=chantiers.map(c=>{
     const wos=S.workOrders.filter(w=>w.chantier_id===c.id);
@@ -1322,7 +1383,7 @@ function renderChantiers(){
       ${wos.length===0?`<div style="font-size:12px;color:var(--text2)">Aucun bon de travaux rattaché — depuis "Bons de travaux", associez-en un à ce chantier en le modifiant.</div>`:''}
     </div>`;
   }).join('');
-  return html+(chantiers.length===0?'<div style="text-align:center;padding:30px;color:var(--text2)">Aucun chantier. Cliquez "+ Chantier" pour en créer un.</div>':'');
+  return tabBar+html+(chantiers.length===0?'<div style="text-align:center;padding:30px;color:var(--text2)">Aucun chantier. Cliquez "+ Chantier" pour en créer un.</div>':'');
 }
 
 function renderTools(){
@@ -2609,12 +2670,6 @@ function renderFactures(){
       const opt=(val,label)=>'<option value="'+val+'"'+(val===(sel||'')?' selected':'')+'>'+label+'</option>';
       const opts=[opt('','— Aucune personne —')];
       S.famille.forEach(p=>{opts.push(opt(p.id,p.prenom+(p.nom?' '+p.nom:'')));});
-      return opts.join('');
-    };
-    const motifOptsFor=(sel)=>{
-      const opt=(val,label)=>'<option value="'+val+'"'+(val===(sel||'')?' selected':'')+'>'+label+'</option>';
-      const opts=[opt('','— Motif —')];
-      MOTIFS.forEach(m=>opts.push(opt(m,m)));
       return opts.join('');
     };
     // Devine savadur/perso : d'abord via le bien choisi, sinon via le compte explicite
@@ -4447,6 +4502,22 @@ function renderModal(){
     </select></div>${mf}`;
   }
 
+  if(m.type==='add-devis'){
+    const wo=S.workOrders.find(w=>w.id===m.woId);
+    html=`${mhd('Nouveau devis'+(wo?' — '+wo.title:''))}
+    <div class="form-group"><label>Entreprise *</label><input id="m-devfour" list="fournisseurs-list" placeholder="Ex: Maçonnerie Dupont"></div>
+    <div class="g2c">
+      <div class="form-group"><label>Montant TTC (€) *</label><input id="m-devmontant" type="number" step="0.01"></div>
+      <div class="form-group"><label>Date</label><input id="m-devdate" type="date" value="${NOW}"></div>
+    </div>
+    <div class="form-group"><label>Lien du document (optionnel)</label>
+      <div style="display:flex;gap:6px">
+        <input id="m-devurl" placeholder="https://drive.google.com/..." style="flex:1">
+        <button type="button" class="btn btn-p" onclick="openDrivePicker(f=>{document.getElementById('m-devurl').value=f.url;})">📁</button>
+      </div>
+    </div>${mf}`;
+  }
+
   if(m.type==='add-asset'||m.type==='edit-asset'){
     const a = m.asset||{};
     const fc = m.forceCategory||a.category||'';
@@ -4553,6 +4624,23 @@ function renderModal(){
         <div><span style="color:var(--text2)">Écart :</span> <b style="color:${ecart>0?'var(--red)':'var(--green)'}">${ecart>0?'+':''}${ecart.toFixed(2)} €</b></div>
       </div>`;
     })():''}
+    <div style="display:flex;align-items:center;justify-content:space-between;margin:4px 0 8px">
+      <div style="font-size:12px;font-weight:500;color:var(--text2)">📐 Devis reçus (${(S.devis||[]).filter(d=>d.wo_id===w.id).length}) — comparez plusieurs artisans avant de retenir</div>
+      <button type="button" class="btn btn-sm" id="btn-add-devis-wo" data-wo-id="${w.id}">+ Ajouter un devis</button>
+    </div>
+    ${(S.devis||[]).filter(d=>d.wo_id===w.id).map(d=>`<div class="row">
+      <div class="fg">
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+          <span class="fgs">${d.entreprise||'—'}</span>
+          ${d.retenu?'<span class="badge bgreen" style="font-size:10px">Retenu</span>':''}
+        </div>
+        <div class="fgsub">${d.montant_ttc!=null?parseFloat(d.montant_ttc).toFixed(2)+' €':'—'}${d.date_devis?' · '+dateLabel(d.date_devis):''}${d.document_url?` · <a href="${d.document_url}" target="_blank">Voir le document</a>`:''}</div>
+      </div>
+      ${!d.retenu?`<button type="button" class="btn btn-sm btn-p" data-retenir-devis="${d.id}" data-wo-id="${w.id}">Retenir</button>`:''}
+      <button type="button" class="btn btn-d btn-sm" data-del-devis="${d.id}" style="margin-left:4px">✕</button>
+    </div>`).join('')}
+    ${(S.devis||[]).filter(d=>d.wo_id===w.id).length===0?`<div style="font-size:12px;color:var(--text2);margin-bottom:8px">Aucun devis enregistré pour ce bon de travaux.</div>`:''}
+    <div style="border-top:0.5px solid var(--border);margin:12px 0 10px"></div>
     <div class="form-group" style="display:flex;align-items:center;gap:10px;padding:8px;background:var(--bg2);border-radius:var(--radius);margin-bottom:8px">
       <input type="checkbox" id="m-wpaid" ${w.paid?'checked':''} style="width:16px;height:16px;cursor:pointer">
       <label for="m-wpaid" style="cursor:pointer;font-weight:500;font-size:13px">💰 Dépense déjà réglée</label>
@@ -6610,6 +6698,25 @@ async function saveModal(){
     }
   }
 
+  if(m.type==='add-devis'){
+    const entreprise=q('m-devfour')?.value.trim();if(!entreprise)return alert('Entreprise requise');
+    const montant=parseFloat(q('m-devmontant')?.value);if(!montant)return alert('Montant TTC requis');
+    const existingCount=(S.devis||[]).filter(d=>d.wo_id===m.woId).length;
+    const retenu=existingCount===0; // premier devis pour ce BT -> retenu par defaut, sinon a comparer manuellement
+    const rec={wo_id:m.woId,entreprise,montant_ttc:montant,date_devis:q('m-devdate')?.value||null,document_url:q('m-devurl')?.value||null,retenu};
+    const {data,error}=await sb.from('devis').insert(rec).select().single();
+    if(error){alert('Erreur : '+error.message);return;}
+    S.devis=[data,...(S.devis||[])];
+    const wo=S.workOrders.find(w=>w.id===m.woId);
+    if(retenu){
+      await sb.from('work_orders').update({devis_montant:montant}).eq('id',m.woId);
+      if(wo)wo.devis_montant=montant;
+    }
+    S.modal=wo?{type:'edit-wo',wo}:null;
+    render();
+    return;
+  }
+
   if(m.type==='add-asset'||m.type==='edit-asset'){
     const nom=q('m-name')?.value?.trim();if(!nom)return alert('Nom requis');
     const rec={
@@ -7981,6 +8088,72 @@ function bindAll(){
     if(error){alert('Erreur : '+error.message);return;}
     S.chantiers=S.chantiers.filter(x=>x.id!==el.dataset.delChantier);
     S.workOrders.forEach(w=>{if(w.chantier_id===el.dataset.delChantier)w.chantier_id=null;});
+    render();
+  });
+  document.querySelectorAll('[data-chantier-tab]').forEach(el=>el.onclick=()=>{S.chantierTab=el.dataset.chantierTab;render();});
+  const btnAddDevisWo=document.getElementById('btn-add-devis-wo');
+  if(btnAddDevisWo)btnAddDevisWo.onclick=()=>{S.modal={type:'add-devis',woId:btnAddDevisWo.dataset.woId};render();};
+  document.querySelectorAll('[data-retenir-devis]').forEach(el=>el.onclick=async()=>{
+    const devisId=el.dataset.retenirDevis,woId=el.dataset.woId;
+    const chosen=(S.devis||[]).find(x=>x.id===devisId);
+    if(!chosen)return;
+    const{error:e1}=await sb.from('devis').update({retenu:false}).eq('wo_id',woId);
+    if(e1){alert('Erreur : '+e1.message);return;}
+    const{error:e2}=await sb.from('devis').update({retenu:true}).eq('id',devisId);
+    if(e2){alert('Erreur : '+e2.message);return;}
+    S.devis.forEach(d=>{if(d.wo_id===woId)d.retenu=(d.id===devisId);});
+    await sb.from('work_orders').update({devis_montant:chosen.montant_ttc}).eq('id',woId);
+    const wo=S.workOrders.find(w=>w.id===woId);if(wo)wo.devis_montant=chosen.montant_ttc;
+    render();
+  });
+  document.querySelectorAll('[data-del-devis]').forEach(el=>el.onclick=async()=>{
+    if(!confirm('Supprimer ce devis ?'))return;
+    const{error}=await sb.from('devis').delete().eq('id',el.dataset.delDevis);
+    if(error){alert('Erreur : '+error.message);return;}
+    S.devis=S.devis.filter(x=>x.id!==el.dataset.delDevis);
+    render();
+  });
+  document.querySelectorAll('[data-devis-valider]').forEach(el=>el.onclick=async()=>{
+    const id=el.dataset.devisValider;
+    const d=(S.devisAValider||[]).find(x=>x.id===id);
+    if(!d)return;
+    const entreprise=(document.querySelector('.dev-entreprise[data-dev-id="'+id+'"]')?.value||'').trim();
+    const montant=parseFloat(document.querySelector('.dev-montant[data-dev-id="'+id+'"]')?.value);
+    const woId=document.querySelector('.dev-wo[data-dev-id="'+id+'"]')?.value||'';
+    const dateDevis=document.querySelector('.dev-date[data-dev-id="'+id+'"]')?.value||'';
+    const motifAutre=(document.querySelector('.dev-motif-autre[data-dev-id="'+id+'"]')?.value||'').trim();
+    const motif=motifAutre||document.querySelector('.dev-motif[data-dev-id="'+id+'"]')?.value||'';
+    if(!entreprise){alert('Entreprise requise avant validation');return;}
+    if(!montant||montant<=0){alert('Montant TTC requis avant validation');return;}
+    if(!woId){alert('Sélectionnez un bon de travaux avant validation');return;}
+    const wo=S.workOrders.find(w=>w.id===woId);
+    const bien=wo?.topo_ref?[wo.topo_ref.propName,wo.topo_ref.zoneName,wo.topo_ref.subName].filter(Boolean).join(' - '):'';
+    const previewPath=d.apercu_pdf_path||d.storage_path;
+    const documentUrl=previewPath?`${SUPABASE_URL}/storage/v1/object/public/devis-a-valider/${previewPath}`:null;
+    const existingCount=(S.devis||[]).filter(x=>x.wo_id===woId).length;
+    const retenu=existingCount===0;
+    const rec={wo_id:woId,entreprise,montant_ttc:montant,date_devis:dateDevis||null,document_url:documentUrl,motif:motif||null,retenu};
+    const{data,error}=await sb.from('devis').insert(rec).select().single();
+    if(error){alert('Erreur enregistrement devis : '+error.message);return;}
+    S.devis=[data,...(S.devis||[])];
+    if(retenu){
+      await sb.from('work_orders').update({devis_montant:montant}).eq('id',woId);
+      if(wo)wo.devis_montant=montant;
+    }
+    const{error:updErr}=await sb.from('devis_a_valider').update({
+      statut:'valide',devis_id:data.id,traite_at:new Date().toISOString(),
+      entreprise,montant_ttc:montant,date_devis:dateDevis||null,bien:bien||null,wo_id:woId,motif:motif||null
+    }).eq('id',id);
+    if(updErr){alert('Devis enregistré, mais erreur de mise à jour du suivi : '+updErr.message);}
+    S.devisAValider=(S.devisAValider||[]).filter(x=>x.id!==id);
+    render();
+  });
+  document.querySelectorAll('[data-devis-rejeter]').forEach(el=>el.onclick=async()=>{
+    const id=el.dataset.devisRejeter;
+    if(!confirm('Rejeter ce fichier ? Il ne sera plus proposé.'))return;
+    const{error}=await sb.from('devis_a_valider').update({statut:'rejete',traite_at:new Date().toISOString()}).eq('id',id);
+    if(error){alert('Erreur : '+error.message);return;}
+    S.devisAValider=(S.devisAValider||[]).filter(x=>x.id!==id);
     render();
   });
   document.querySelectorAll('[data-edit-fact]').forEach(el=>el.onclick=()=>{

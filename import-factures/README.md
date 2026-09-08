@@ -139,3 +139,26 @@ fonctionnalité :
 ```
 python backfill_pdf_previews.py "D:\chemin\vers\le\dossier\source"
 ```
+
+## Pipeline devis (import_devis.py)
+
+Même principe que l'import de factures, mais **séparé** : un devis n'est pas
+une pièce comptable à transmettre au comptable, donc pas dans `WATCH_DIR`.
+Dossier surveillé et dossier d'archivage dédiés (`DEVIS_WATCH_DIR` /
+`DEVIS_ARCHIVE_DIR` dans `.env`), actuellement sur le disque D, à remplacer
+par un chemin réseau une fois le NAS en service (aucune modification de code
+nécessaire, comme pour `WATCH_DIR`).
+
+Les devis détectés atterrissent dans le GMAO, onglet **Chantiers → 📐 Devis à
+valider**, où on les rattache à un bon de travaux existant (obligatoire — un
+devis sans BT n'a pas de destination). Plusieurs devis peuvent être rattachés
+au même BT pour comparer plusieurs artisans consultés ; un seul est marqué
+"retenu" à la fois (visible et modifiable directement dans la fiche du BT),
+et c'est son montant qui sert à l'écart devis/réel affiché partout ailleurs.
+
+```
+python import_devis.py
+```
+
+À planifier de la même façon que `import_factures.py` (tâche Windows
+séparée — voir plus haut), aucun paramètre requis.
