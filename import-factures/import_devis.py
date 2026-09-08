@@ -96,17 +96,18 @@ def fetch_known_rows() -> dict:
 def archive_path_for(bien: str, motif: str) -> Path:
     """Meme logique que archive_path_for dans import_factures.py, dupliquee ici
     pour utiliser DEVIS_ARCHIVE_DIR au lieu de ARCHIVE_DIR (constante differente,
-    pas reutilisable telle quelle par import)."""
+    pas reutilisable telle quelle par import). Racine commune avec les factures
+    (meme arborescence <compte>/<type>/... sous D:/Antoine/GMAO)."""
     parts = [p.strip() for p in (bien or "").split(" - ") if p.strip()]
-    compte = "perso" if parts and "dubail" not in parts[0].lower() else "savadur"
-    folder = Path(ARCHIVE_DIR) / compte
+    compte = "PERSO" if parts and "dubail" not in parts[0].lower() else "SAVADUR"
+    folder = Path(ARCHIVE_DIR) / compte / "Devis"
     if parts:
-        folder = folder / sanitize_folder_name(parts[0])
-        if len(parts) > 1:
-            folder = folder / sanitize_folder_name(parts[1])
+        for p in parts:
+            folder = folder / sanitize_folder_name(p)
     else:
         folder = folder / "Non classe"
-    folder = folder / sanitize_folder_name(motif or "Divers")
+    if motif:
+        folder = folder / sanitize_folder_name(motif)
     return folder
 
 

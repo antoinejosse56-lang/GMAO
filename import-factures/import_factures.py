@@ -210,22 +210,27 @@ def sanitize_folder_name(name: str) -> str:
 
 
 def archive_path_for(bien: str, motif: str) -> Path:
-    """Calcule le sous-dossier d'archive
-    ARCHIVE_DIR/<savadur|perso>/<bien>/<zone>/<motif>/ a partir de la valeur
-    `bien` stockee ("Prop - Zone - SousZone" ou vide) et du motif (Entretien,
-    Renovation, Travaux, Etudes, Medicale, Diagnostiques ou texte libre) - pour
-    retrouver facilement les factures d'un type donne en cas de revente d'un
-    bien ou d'une zone precise."""
+    """Calcule le sous-dossier d'archive ARCHIVE_DIR/<SAVADUR|PERSO>/Factures/...
+    a partir de la valeur `bien` stockee et du motif. `bien` est un chemin
+    "A - B - C" dont chaque segment devient un niveau de dossier (nombre
+    variable) :
+    - cas normal : "Prop - Zone - SousZone" (jusqu'a 3 niveaux) + motif en
+      dernier niveau si renseigne (Entretien, Renovation, Travaux, Etudes,
+      Medicale, Diagnostiques ou texte libre) ;
+    - facture/devis lie a un chantier : "Prop - Chantier - TitreDuBT" (motif
+      alors vide - le chantier et le BT categorisent deja suffisamment).
+    Racine commune ARCHIVE_DIR partagee avec import_devis.py (meme
+    arborescence <compte>/<type>/...)."""
     parts = [p.strip() for p in (bien or "").split(" - ") if p.strip()]
-    compte = "perso" if parts and "dubail" not in parts[0].lower() else "savadur"
-    folder = Path(ARCHIVE_DIR) / compte
+    compte = "PERSO" if parts and "dubail" not in parts[0].lower() else "SAVADUR"
+    folder = Path(ARCHIVE_DIR) / compte / "Factures"
     if parts:
-        folder = folder / sanitize_folder_name(parts[0])
-        if len(parts) > 1:
-            folder = folder / sanitize_folder_name(parts[1])
+        for p in parts:
+            folder = folder / sanitize_folder_name(p)
     else:
         folder = folder / "Non classe"
-    folder = folder / sanitize_folder_name(motif or "Divers")
+    if motif:
+        folder = folder / sanitize_folder_name(motif)
     return folder
 
 

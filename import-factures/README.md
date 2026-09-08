@@ -89,23 +89,26 @@ Si `ARCHIVE_DIR` est renseigné dans `.env`, le script déplace automatiquement,
 **validée** dans le GMAO (statut `valide`) vers :
 
 ```
-ARCHIVE_DIR\savadur\<bien>\<zone>\   (biens contenant "Dubail")
-ARCHIVE_DIR\perso\<bien>\<zone>\     (Calvin, Bouvet, Jean Martin...)
-ARCHIVE_DIR\<savadur|perso>\Non classe\   (facture validée sans bien lié)
+ARCHIVE_DIR\SAVADUR\Factures\<bien>\<zone>\<motif>\   (biens contenant "Dubail")
+ARCHIVE_DIR\PERSO\Factures\<bien>\<zone>\<motif>\     (Calvin, Bouvet, Jean Martin...)
+ARCHIVE_DIR\<SAVADUR|PERSO>\Factures\Non classe\<motif>\   (facture validée sans bien lié)
 ```
 
-Les sous-dossiers `<bien>` et `<zone>` sont créés automatiquement à la volée,
-inutile de tout créer à l'avance. Un fichier `en_attente` ou `rejeté` n'est
-jamais déplacé — seuls les fichiers déjà validés bougent, et seulement s'ils
-sont encore physiquement présents dans le dossier de transit au moment du
-scan (voir la section précédente sur la fenêtre de risque).
+Racine commune avec les devis (voir plus bas) : `ARCHIVE_DIR\<SAVADUR|PERSO>\Devis\...`
+à côté de `...\Factures\...`, et un dossier `...\Quittances\` vide en réserve
+pour un usage futur (pas de pipeline automatique dessus pour l'instant).
+
+Les sous-dossiers `<bien>`, `<zone>` et `<motif>` sont créés automatiquement à
+la volée, inutile de tout créer à l'avance. Un fichier `en_attente` ou
+`rejeté` n'est jamais déplacé — seuls les fichiers déjà validés bougent, et
+seulement s'ils sont encore physiquement présents dans le dossier de transit
+au moment du scan (voir la section précédente sur la fenêtre de risque).
 
 Pour l'activer, ajoute cette ligne dans ton `.env` :
 ```
-ARCHIVE_DIR=D:\Antoine\Factures archivées
+ARCHIVE_DIR=D:\Antoine\GMAO
 ```
-(le dossier racine `D:\Antoine\Factures archivées\savadur` et `...\perso`
-est déjà créé.)
+(le dossier racine `D:\Antoine\GMAO\SAVADUR` et `...\PERSO` est déjà créé.)
 
 ## Limites connues (v1)
 

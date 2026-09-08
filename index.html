@@ -166,6 +166,24 @@ function estPaye(f){return !!f.date_paiement;}
 // par sous-dossier (facilite la recherche en cas de revente d'un bien/zone).
 // "Autre" reste toujours possible via saisie libre a cote du select.
 const MOTIFS=['Entretien','Rénovation','Travaux','Études','Médicale','Diagnostiques'];
+// Calcule le "bien" a stocker pour l'archivage/regroupement d'une facture ou
+// d'un devis lie a un bon de travaux. Si ce BT appartient a un chantier, le
+// chemin devient <bien si connu> - <chantier> - <titre du BT> (ex: "17 rue
+// fleuriot de langle - Extension - Maçonnerie") plutot que bien/zone/motif -
+// le chantier + le BT (le corps de metier) categorisent deja suffisamment,
+// pas besoin d'un niveau "motif" en plus. Sans chantier, comportement normal
+// (chemin topologique complet du BT).
+function bienForWorkOrder(wo){
+  if(!wo)return '';
+  if(wo.chantier_id){
+    const chantier=S.chantiers.find(c=>c.id===wo.chantier_id);
+    if(chantier){
+      const segments=[wo.topo_ref?.propName||'',chantier.nom,wo.title].filter(Boolean);
+      return segments.join(' - ');
+    }
+  }
+  return wo.topo_ref?[wo.topo_ref.propName,wo.topo_ref.zoneName,wo.topo_ref.subName].filter(Boolean).join(' - '):'';
+}
 // PostgREST plafonne chaque requete a "Max Rows" (1000 par defaut cote Supabase),
 // meme si .range() en demande plus - il faut paginer cote client pour tout recuperer.
 async function fetchAllRows(table, orderCol, ascending){
@@ -2672,6 +2690,12 @@ function renderFactures(){
       S.famille.forEach(p=>{opts.push(opt(p.id,p.prenom+(p.nom?' '+p.nom:'')));});
       return opts.join('');
     };
+    const woOptsFor=(sel)=>{
+      const opt=(val,label)=>'<option value="'+val+'"'+(val===(sel||'')?' selected':'')+'>'+label+'</option>';
+      const opts=[opt('','— Aucun BT —')];
+      [...S.workOrders].sort((a,b)=>new Date(b.date)-new Date(a.date)).forEach(w=>{opts.push(opt(w.id,w.title+(w.status==='done'?' (terminé)':'')));});
+      return opts.join('');
+    };
     // Devine savadur/perso : d'abord via le bien choisi, sinon via le compte explicite
     // de l'equipement lie (champ assets.compte, renseigne dans sa fiche), sinon via une
     // heuristique sur son nom/emplacement (dubailFilter) - reste modifiable a la main
@@ -2695,7 +2719,7 @@ function renderFactures(){
         <span id="fav-selected-count" style="font-size:12px;color:var(--text2)"></span>
       </div>` :''}
       ${pending.length>0?`<div style="overflow-x:auto"><table>
-        <thead><tr><th><input type="checkbox" id="fav-select-all"></th><th>Date facture</th><th>Fichier</th><th>Entreprise</th><th>Description</th><th>Montant TTC</th><th>Bien / Local</th><th>Équipement</th><th>Personne</th><th>Motif</th><th>Compte</th><th>Date paiement</th><th>Actions</th></tr></thead>
+        <thead><tr><th><input type="checkbox" id="fav-select-all"></th><th>Date facture</th><th>Fichier</th><th>Entreprise</th><th>Description</th><th>Montant TTC</th><th>Bien / Local</th><th>Équipement</th><th>Personne</th><th>BT lié</th><th>Motif</th><th>Compte</th><th>Date paiement</th><th>Actions</th></tr></thead>
         <tbody>
         ${pending.map(f=>{
           const fileUrl=(f.apercu_pdf_path||f.storage_path)?`${SUPABASE_URL}/storage/v1/object/public/factures-a-valider/${f.apercu_pdf_path||f.storage_path}`:null;
@@ -2725,6 +2749,7 @@ function renderFactures(){
             </td>
             <td style="vertical-align:top"><select class="fav-asset" data-fav-id="${f.id}" style="width:160px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">${assetOptsFor(f.asset_id||'')}</select></td>
             <td style="vertical-align:top"><select class="fav-personne" data-fav-id="${f.id}" style="width:140px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">${personneOptsFor(f.famille_id||'')}</select></td>
+            <td style="vertical-align:top"><select class="fav-wo" data-fav-id="${f.id}" style="width:160px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">${woOptsFor(f.wo_id||'')}</select></td>
             <td style="vertical-align:top">
               <select class="fav-motif" data-fav-id="${f.id}" style="width:110px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px;margin-bottom:3px">${motifOptsFor(MOTIFS.includes(f.motif)?f.motif:'')}</select>
               <input class="fav-motif-autre" data-fav-id="${f.id}" value="${(f.motif&&!MOTIFS.includes(f.motif))?f.motif.replace(/"/g,'&quot;'):''}" placeholder="Autre motif..." style="width:110px;padding:4px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:11px">
@@ -2782,8 +2807,14 @@ function renderFactures(){
   facts.forEach(f=>{
     const bienStr=(f.bien||'').trim();
     let top,sub;
+    const wo=f.wo_id?S.workOrders.find(w=>w.id===f.wo_id):null;
+    const chantier=wo?.chantier_id?S.chantiers.find(c=>c.id===wo.chantier_id):null;
     if(bienStr){
       const parts=bienStr.split(' - ');top='🏠 '+parts[0];sub=parts.slice(1).join(' › ');
+    }else if(chantier){
+      // BT lie a un chantier (frequent pour une construction neuve, sans bien
+      // dans la topologie) - regroupe par chantier plutot que dans le vrac.
+      top='🏗️ '+chantier.nom;sub='';
     }else if(f.asset_id){
       const asset=S.assets.find(a=>a.id===f.asset_id);
       top=asset?'🔧 '+asset.name:SANS_BIEN;sub='';
@@ -4651,6 +4682,17 @@ function renderModal(){
       <button type="button" class="btn btn-d btn-sm" data-del-devis="${d.id}" style="margin-left:4px">✕</button>
     </div>`).join('')}
     ${(S.devis||[]).filter(d=>d.wo_id===w.id).length===0?`<div style="font-size:12px;color:var(--text2);margin-bottom:8px">Aucun devis enregistré pour ce bon de travaux.</div>`:''}
+    <div style="border-top:0.5px solid var(--border);margin:12px 0 10px"></div>
+    <div style="font-size:12px;font-weight:500;color:var(--text2);margin-bottom:8px">🧾 Factures reçues (${S.factures.filter(fc=>fc.wo_id===w.id).length}) — toutes sources confondues (validation auto, saisie manuelle)</div>
+    ${S.factures.filter(fc=>fc.wo_id===w.id).sort((a,b)=>new Date(b.date)-new Date(a.date)).map(fc=>`<div class="row">
+      <div class="fg">
+        <div class="fgs">${fc.fournisseur||'—'}</div>
+        <div class="fgsub">${fc.montant_ttc!=null?parseFloat(fc.montant_ttc).toFixed(2)+' €':'—'}${fc.date?' · '+dateLabel(fc.date):''}${(fc.drive_url||fc.document_url)?` · <a href="${fc.drive_url||fc.document_url}" target="_blank">Voir</a>`:''}</div>
+      </div>
+      <button type="button" class="btn btn-sm" data-edit-fact="${fc.id}">✎</button>
+      <button type="button" class="btn btn-d btn-sm" data-del-fact="${fc.id}" style="margin-left:4px">✕</button>
+    </div>`).join('')}
+    ${S.factures.filter(fc=>fc.wo_id===w.id).length===0?`<div style="font-size:12px;color:var(--text2);margin-bottom:8px">Aucune facture enregistrée pour ce bon de travaux.</div>`:''}
     <div style="border-top:0.5px solid var(--border);margin:12px 0 10px"></div>
     <div class="form-group" style="display:flex;align-items:center;gap:10px;padding:8px;background:var(--bg2);border-radius:var(--radius);margin-bottom:8px">
       <input type="checkbox" id="m-wpaid" ${w.paid?'checked':''} style="width:16px;height:16px;cursor:pointer">
@@ -7965,8 +8007,9 @@ function bindAll(){
     const montant=parseFloat(document.querySelector('.fav-montant[data-fav-id="'+id+'"]')?.value);
     const assetId=document.querySelector('.fav-asset[data-fav-id="'+id+'"]')?.value||'';
     const familleId=document.querySelector('.fav-personne[data-fav-id="'+id+'"]')?.value||'';
+    const woId=document.querySelector('.fav-wo[data-fav-id="'+id+'"]')?.value||'';
     const motifAutre=(document.querySelector('.fav-motif-autre[data-fav-id="'+id+'"]')?.value||'').trim();
-    const motif=motifAutre||document.querySelector('.fav-motif[data-fav-id="'+id+'"]')?.value||'';
+    let motif=motifAutre||document.querySelector('.fav-motif[data-fav-id="'+id+'"]')?.value||'';
     const description=(document.querySelector('.fav-desc[data-fav-id="'+id+'"]')?.value||'').trim();
     const dateFacture=document.querySelector('.fav-date[data-fav-id="'+id+'"]')?.value||'';
     const datePaiement=document.querySelector('.fav-date-paiement[data-fav-id="'+id+'"]')?.value||'';
@@ -7981,8 +8024,19 @@ function bindAll(){
     const splitLines=[...document.querySelectorAll(`.fav-splits[data-fav-id="${id}"] .fav-split-line`)];
     let parts;
     if(splitLines.length<=1){
-      const bien=splitLines[0]?.querySelector('.fav-split-bien')?.value||'';
-      if(!bien&&!assetId&&!familleId){alert('Sélectionnez au moins un bien, un équipement ou une personne avant validation');return;}
+      let bien=splitLines[0]?.querySelector('.fav-split-bien')?.value||'';
+      // Si pas de bien mais un BT choisi qui appartient a un chantier (frequent
+      // pour une construction neuve, absente de la topologie), range par
+      // bien/chantier/nom-du-BT plutot que par motif - le chantier + le corps
+      // de metier categorisent deja suffisamment.
+      if(!bien&&woId){
+        const wo=S.workOrders.find(w=>w.id===woId);
+        if(wo?.chantier_id){
+          bien=bienForWorkOrder(wo);
+          motif='';
+        }
+      }
+      if(!bien&&!assetId&&!familleId&&!woId){alert('Sélectionnez au moins un bien, un équipement, une personne ou un bon de travaux avant validation');return;}
       parts=[{bien,montant}];
     }else{
       parts=splitLines.map(line=>({
@@ -8002,7 +8056,7 @@ function bindAll(){
     for(const part of parts){
       const rec={fournisseur:entreprise,date:dateFacture||new Date().toISOString().slice(0,10),montant_ttc:part.montant,
         bien:part.bien||null,asset_id:assetId||null,famille_id:familleId||null,description:description||null,
-        motif:motif||null,document_url:documentUrl,compte:compteFav,rapproche:false,
+        motif:motif||null,wo_id:woId||null,document_url:documentUrl,compte:compteFav,rapproche:false,
         date_paiement:datePaiement||null};
       const{data,error}=await sb.from('factures').insert(rec).select().single();
       if(error){alert(`Erreur enregistrement facture (${part.bien||'sans bien'}) : `+error.message);return;}
@@ -8012,7 +8066,7 @@ function bindAll(){
     const{error:updErr}=await sb.from('factures_a_valider').update({
       statut:'valide',facture_id:insertedIds[0],traite_at:new Date().toISOString(),
       entreprise,montant_ttc:montant,bien:parts[0].bien||null,asset_id:assetId||null,famille_id:familleId||null,
-      motif:motif||null,description:description||null,date_facture:dateFacture||null
+      motif:motif||null,wo_id:woId||null,description:description||null,date_facture:dateFacture||null
     }).eq('id',id);
     if(updErr){alert('Facture enregistrée, mais erreur de mise à jour du suivi : '+updErr.message);}
     S.facturesAValider=(S.facturesAValider||[]).filter(x=>x.id!==id);
@@ -8133,12 +8187,16 @@ function bindAll(){
     const woId=document.querySelector('.dev-wo[data-dev-id="'+id+'"]')?.value||'';
     const dateDevis=document.querySelector('.dev-date[data-dev-id="'+id+'"]')?.value||'';
     const motifAutre=(document.querySelector('.dev-motif-autre[data-dev-id="'+id+'"]')?.value||'').trim();
-    const motif=motifAutre||document.querySelector('.dev-motif[data-dev-id="'+id+'"]')?.value||'';
+    let motif=motifAutre||document.querySelector('.dev-motif[data-dev-id="'+id+'"]')?.value||'';
     if(!entreprise){alert('Entreprise requise avant validation');return;}
     if(!montant||montant<=0){alert('Montant TTC requis avant validation');return;}
     if(!woId){alert('Sélectionnez un bon de travaux avant validation');return;}
     const wo=S.workOrders.find(w=>w.id===woId);
-    const bien=wo?.topo_ref?[wo.topo_ref.propName,wo.topo_ref.zoneName,wo.topo_ref.subName].filter(Boolean).join(' - '):'';
+    const bien=bienForWorkOrder(wo);
+    // Chantier + nom du BT categorisent deja suffisamment (ex: "17 rue
+    // fleuriot de langle - Extension - Maçonnerie") - pas besoin d'un motif
+    // en plus dans ce cas.
+    if(wo?.chantier_id)motif='';
     const previewPath=d.apercu_pdf_path||d.storage_path;
     const documentUrl=previewPath?`${SUPABASE_URL}/storage/v1/object/public/devis-a-valider/${previewPath}`:null;
     const existingCount=(S.devis||[]).filter(x=>x.wo_id===woId).length;
