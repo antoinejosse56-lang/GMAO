@@ -165,7 +165,7 @@ function estPaye(f){return !!f.date_paiement;}
 // Motifs de facture predefinis, utilises pour classer les factures archivees
 // par sous-dossier (facilite la recherche en cas de revente d'un bien/zone).
 // "Autre" reste toujours possible via saisie libre a cote du select.
-const MOTIFS=['Entretien','Rénovation','Travaux','Études','Médicale','Diagnostiques'];
+const MOTIFS=['Entretien','Rénovation','Travaux','Études','Médicale','Diagnostiques','Achat électroménager','Achat outillage'];
 // Calcule le "bien" a stocker pour l'archivage/regroupement d'une facture ou
 // d'un devis lie a un bon de travaux. Si ce BT appartient a un chantier, le
 // chemin devient <bien si connu> - <chantier> - <titre du BT> (ex: "17 rue
