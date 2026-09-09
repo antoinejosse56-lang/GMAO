@@ -191,7 +191,7 @@ function bienForWorkOrder(wo){
 // choisis (le BT selectionnable doit appartenir a ce chantier, et/ou son
 // chemin topologique doit correspondre au bien choisi ou etre plus precis) -
 // evite de proposer des BT sans rapport une fois qu'un bien/chantier est fixe.
-function computeFilteredWoOpts(bienStr, chantierId, selectedWoId){
+function computeFilteredWoOpts(bienStr, chantierId, selectedWoId, allowNew){
   const bien=(bienStr||'').trim();
   let list=[...S.workOrders];
   if(chantierId) list=list.filter(w=>w.chantier_id===chantierId);
@@ -204,7 +204,7 @@ function computeFilteredWoOpts(bienStr, chantierId, selectedWoId){
     });
   }
   list.sort((a,b)=>new Date(b.date)-new Date(a.date));
-  let html='<option value="">— Aucun BT —</option>';
+  let html='<option value="">— Aucun BT —</option>'+(allowNew?'<option value="__new__">+ Nouveau BT…</option>':'');
   list.forEach(w=>{
     html+='<option value="'+w.id+'"'+(w.id===selectedWoId?' selected':'')+'>'+w.title+(w.status==='done'?' (terminé)':'')+'</option>';
   });
@@ -2776,7 +2776,7 @@ function renderFactures(){
     })();
     const assetOptsBase=[{v:'',l:'— Aucun équipement —'},...S.assets.map(a=>({v:a.id,l:a.name+(a.location?' — '+a.location:'')}))];
     const personneOptsBase=[{v:'',l:'— Aucune personne —'},...S.famille.map(p=>({v:p.id,l:p.prenom+(p.nom?' '+p.nom:'')}))];
-    const woOptsBase=[{v:'',l:'— Aucun BT —'},...[...S.workOrders].sort((a,b)=>new Date(b.date)-new Date(a.date)).map(w=>({v:w.id,l:w.title+(w.status==='done'?' (terminé)':'')}))];
+    const woOptsBase=[{v:'',l:'— Aucun BT —'},{v:'__new__',l:'+ Nouveau BT…'},...[...S.workOrders].sort((a,b)=>new Date(b.date)-new Date(a.date)).map(w=>({v:w.id,l:w.title+(w.status==='done'?' (terminé)':'')}))];
     const bienOptsFor=(sel)=>renderOpts(bienOptsBase,sel);
     const assetOptsFor=(sel)=>renderOpts(assetOptsBase,sel);
     const personneOptsFor=(sel)=>renderOpts(personneOptsBase,sel);
@@ -8364,7 +8364,7 @@ function bindAll(){
     const chantierSel=document.querySelector('.fav-chantier[data-fav-id="'+id+'"]');
     const woSel=document.querySelector('.fav-wo[data-fav-id="'+id+'"]');
     if(!woSel)return;
-    woSel.innerHTML=computeFilteredWoOpts(bienSel?bienSel.value:'',chantierSel?chantierSel.value:'',woSel.value);
+    woSel.innerHTML=computeFilteredWoOpts(bienSel?bienSel.value:'',chantierSel?chantierSel.value:'',woSel.value,true);
   };
   const wireFavSplitBienChange=(sel)=>{
     sel.onchange=()=>{
@@ -8413,6 +8413,28 @@ function bindAll(){
         sel.value=data.id;
       }
       updateFavWoFilter(id);
+    };
+  });
+  // "+ Nouveau BT" cree le bon de travaux a la volee, meme principe que
+  // "+ Nouveau chantier" ci-dessus - repris par le chantier deja choisi sur la
+  // ligne le cas echeant, pour ne pas avoir a le relier a la main ensuite.
+  document.querySelectorAll('.fav-wo').forEach(sel=>{
+    sel.onchange=async()=>{
+      const id=sel.dataset.favId;
+      if(sel.value==='__new__'){
+        const title=prompt('Titre du nouveau bon de travaux :');
+        if(!title||!title.trim()){sel.value='';return;}
+        const chantierId=document.querySelector('.fav-chantier[data-fav-id="'+id+'"]')?.value||null;
+        const rec={title:title.trim(),status:'open',date:NOW,chantier_id:chantierId||null};
+        const{data,error}=await sb.from('work_orders').insert(rec).select().single();
+        if(error){alert('Erreur création BT : '+error.message);sel.value='';return;}
+        S.workOrders.unshift(data);
+        const optHtml=`<option value="${data.id}">${data.title}</option>`;
+        document.querySelectorAll('.fav-wo').forEach(s=>{
+          s.querySelector('option[value="__new__"]')?.insertAdjacentHTML('afterend',optHtml);
+        });
+        sel.value=data.id;
+      }
     };
   });
   document.querySelectorAll('.fav-add-split').forEach(btn=>btn.onclick=()=>{
