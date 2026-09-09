@@ -2755,14 +2755,17 @@ function renderFactures(){
     const assetOptsFor=(sel)=>renderOpts(assetOptsBase,sel);
     const personneOptsFor=(sel)=>renderOpts(personneOptsBase,sel);
     const woOptsFor=(sel)=>renderOpts(woOptsBase,sel);
-    const chantierOptsBase=[{v:'',l:'— Aucun chantier —'},...[...S.chantiers].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at)).map(c=>({v:c.id,l:c.nom+(c.statut==='termine'?' (terminé)':'')}))];
+    const chantierOptsBase=[{v:'',l:'— Aucun chantier —'},{v:'__new__',l:'+ Nouveau chantier…'},...[...S.chantiers].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at)).map(c=>({v:c.id,l:c.nom+(c.statut==='termine'?' (terminé)':'')}))];
     const chantierOptsFor=(sel)=>renderOpts(chantierOptsBase,sel);
-    // Devine savadur/perso : d'abord via le bien choisi, sinon via le compte explicite
-    // de l'equipement lie (champ assets.compte, renseigne dans sa fiche), sinon via une
-    // heuristique sur son nom/emplacement (dubailFilter) - reste modifiable a la main
-    // juste apres de toute facon.
+    // Devine savadur/perso : d'abord via le bien choisi, sinon via une personne
+    // liee (une depense pour un membre de la famille est presque toujours
+    // personnelle, modifiable a la main si jamais c'est pour savadur), sinon via
+    // le compte explicite de l'equipement lie (champ assets.compte, renseigne
+    // dans sa fiche), sinon via une heuristique sur son nom/emplacement
+    // (dubailFilter) - reste modifiable a la main juste apres de toute facon.
     const compteGuess=(f)=>{
       if(f.bien) return dubailFilter(f.bien)?'savadur':'perso';
+      if(f.famille_id) return 'perso';
       if(f.asset_id){
         const a=S.assets.find(x=>x.id===f.asset_id);
         if(a) return a.compte||((dubailFilter(a.name)||dubailFilter(a.location||''))?'savadur':'perso');
@@ -8244,8 +8247,42 @@ function bindAll(){
     };
   };
   document.querySelectorAll('.fav-split-bien').forEach(wireFavSplitBienChange);
+  // Choisir une personne (sans bien deja renseigne) bascule le compte sur
+  // perso par defaut - une depense pour un membre de la famille est presque
+  // toujours personnelle, modifiable a la main sinon.
+  document.querySelectorAll('.fav-personne').forEach(sel=>{
+    sel.onchange=()=>{
+      const id=sel.dataset.favId;
+      if(sel.value){
+        const bienSel=document.querySelector('.fav-splits[data-fav-id="'+id+'"] .fav-split-bien');
+        if(!bienSel||!bienSel.value){
+          const compteSel=document.querySelector('.fav-compte[data-fav-id="'+id+'"]');
+          if(compteSel)compteSel.value='perso';
+        }
+      }
+    };
+  });
+  // "+ Nouveau chantier" cree le chantier a la volee (sans ouvrir la modale
+  // complete, qui ferait un render() et perdrait les saisies en cours sur les
+  // autres lignes du tableau) puis l'ajoute a tous les selects Chantier
+  // affiches, pour qu'il soit tout de suite utilisable sur les autres factures.
   document.querySelectorAll('.fav-chantier').forEach(sel=>{
-    sel.onchange=()=>updateFavWoFilter(sel.dataset.favId);
+    sel.onchange=async()=>{
+      const id=sel.dataset.favId;
+      if(sel.value==='__new__'){
+        const nom=prompt('Nom du nouveau chantier :');
+        if(!nom||!nom.trim()){sel.value='';updateFavWoFilter(id);return;}
+        const{data,error}=await sb.from('chantiers').insert({nom:nom.trim(),statut:'ouvert'}).select().single();
+        if(error){alert('Erreur création chantier : '+error.message);sel.value='';updateFavWoFilter(id);return;}
+        S.chantiers.unshift(data);
+        const optHtml=`<option value="${data.id}">${data.nom}</option>`;
+        document.querySelectorAll('.fav-chantier').forEach(s=>{
+          s.querySelector('option[value="__new__"]')?.insertAdjacentHTML('afterend',optHtml);
+        });
+        sel.value=data.id;
+      }
+      updateFavWoFilter(id);
+    };
   });
   document.querySelectorAll('.fav-add-split').forEach(btn=>btn.onclick=()=>{
     const id=btn.dataset.favId;
