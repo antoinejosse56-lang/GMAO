@@ -1423,7 +1423,9 @@ function renderChantiers(){
   const html=chantiers.map(c=>{
     const wos=S.workOrders.filter(w=>w.chantier_id===c.id);
     const factsDirectes=S.factures.filter(f=>f.chantier_id===c.id&&!f.wo_id);
-    const totalDevis=wos.reduce((s,w)=>s+parseFloat(w.devis_montant||0),0);
+    const devisDirects=(S.devis||[]).filter(d=>d.chantier_id===c.id&&!d.wo_id);
+    const totalDevis=wos.reduce((s,w)=>s+parseFloat(w.devis_montant||0),0)
+      +devisDirects.filter(d=>d.retenu).reduce((s,d)=>s+parseFloat(d.montant_ttc||0),0);
     const totalReel=wos.reduce((s,w)=>s+S.factures.filter(f=>f.wo_id===w.id).reduce((ss,f)=>ss+parseFloat(f.montant_ttc||0),0),0)
       +factsDirectes.reduce((s,f)=>s+parseFloat(f.montant_ttc||0),0);
     const ecart=totalReel-totalDevis;
@@ -1468,6 +1470,11 @@ function renderChantiers(){
           <div class="fg"><div class="fgs">${f.fournisseur||'—'}</div><div class="fgsub">${parseFloat(f.montant_ttc||0).toFixed(2)}€${f.date?' · '+dateLabel(f.date):''}</div></div>
           ${(f.drive_url||f.document_url)?`<a href="${f.drive_url||f.document_url}" target="_blank" class="btn btn-sm">👁 Voir</a>`:''}
           <button class="btn btn-sm" data-edit-fact="${f.id}">✎</button>
+        </div>`).join('')}`:''}
+      ${devisDirects.length>0?`<div class="sec" style="margin:10px 0 6px">Devis liés directement (${devisDirects.length}, sans BT)</div>
+        ${devisDirects.map(d=>`<div class="row">
+          <div class="fg"><div class="fgs">${d.entreprise||'—'}${d.retenu?' <span class=\"badge bgreen\" style=\"font-size:9px\">retenu</span>':''}</div><div class="fgsub">${parseFloat(d.montant_ttc||0).toFixed(2)}€${d.date_devis?' · '+dateLabel(d.date_devis):''}</div></div>
+          ${d.document_url?`<a href="${d.document_url}" target="_blank" class="btn btn-sm">👁 Voir</a>`:''}
         </div>`).join('')}`:''}
     </div>`;
   }).join('');
@@ -2849,6 +2856,7 @@ function renderFactures(){
             <td style="vertical-align:top"><input type="date" class="fav-date-paiement" data-fav-id="${f.id}" style="width:130px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px"></td>
             <td style="white-space:nowrap;vertical-align:top;padding-top:8px">
               <button class="btn btn-sm btn-p" data-fav-valider="${f.id}" title="Valider et enregistrer dans les factures">✅</button>
+              <button class="btn btn-sm" data-fav-devis="${f.id}" title="Ce n'est pas une facture mais un devis — le rattacher au BT ou au chantier choisi ci-dessus" style="margin-left:3px">📐</button>
               <button class="btn btn-sm" data-fav-classer="${f.id}" title="Ce n'est pas une facture mais un document à archiver (DPE, diagnostic...) — le ranger dans la fiche du bien" style="margin-left:3px">📄</button>
               <button class="btn btn-sm btn-d" data-fav-rejeter="${f.id}" title="Rejeter (n'est pas une facture)" style="margin-left:3px">🚫</button>
             </td>
@@ -8308,6 +8316,42 @@ function bindAll(){
     S.bienDocuments.unshift(data);
     const{error:updErr}=await sb.from('factures_a_valider').update({statut:'classe',traite_at:new Date().toISOString(),bien}).eq('id',id);
     if(updErr){alert('Document classé, mais erreur de mise à jour du suivi : '+updErr.message);}
+    S.facturesAValider=(S.facturesAValider||[]).filter(x=>x.id!==id);
+    render();
+  });
+  // "C'est un devis" : le document n'est pas une facture a payer mais un devis
+  // recu par erreur dans le dossier factures - on le rattache au BT ou au
+  // chantier deja choisis sur la ligne (au moins l'un des deux requis, comme
+  // pour la validation normale d'un devis) plutot que de le rejeter.
+  document.querySelectorAll('[data-fav-devis]').forEach(el=>el.onclick=async()=>{
+    const id=el.dataset.favDevis;
+    const fav=(S.facturesAValider||[]).find(x=>x.id===id);
+    if(!fav)return;
+    const entreprise=(document.querySelector('.fav-entreprise[data-fav-id="'+id+'"]')?.value||'').trim();
+    const montant=parseFloat(document.querySelector('.fav-montant[data-fav-id="'+id+'"]')?.value);
+    const woId=document.querySelector('.fav-wo[data-fav-id="'+id+'"]')?.value||'';
+    const chantierId=document.querySelector('.fav-chantier[data-fav-id="'+id+'"]')?.value||'';
+    const motifAutre=(document.querySelector('.fav-motif-autre[data-fav-id="'+id+'"]')?.value||'').trim();
+    const motif=motifAutre||document.querySelector('.fav-motif[data-fav-id="'+id+'"]')?.value||'';
+    const dateDevis=document.querySelector('.fav-date[data-fav-id="'+id+'"]')?.value||'';
+    if(!entreprise){alert('Entreprise requise avant de classer ce devis');return;}
+    if(!montant||montant<=0){alert('Montant TTC requis avant de classer ce devis');return;}
+    if(!woId&&!chantierId){alert('Sélectionnez un bon de travaux ou un chantier avant de classer ce devis');return;}
+    const facPreviewPath=fav.apercu_pdf_path||fav.storage_path;
+    const documentUrl=facPreviewPath?`${SUPABASE_URL}/storage/v1/object/public/factures-a-valider/${facPreviewPath}`:null;
+    const existingCount=(S.devis||[]).filter(x=>woId?x.wo_id===woId:x.chantier_id===chantierId).length;
+    const retenu=existingCount===0;
+    const rec={wo_id:woId||null,chantier_id:woId?null:(chantierId||null),entreprise,montant_ttc:montant,date_devis:dateDevis||null,document_url:documentUrl,motif:motif||null,retenu};
+    const{data,error}=await sb.from('devis').insert(rec).select().single();
+    if(error){alert('Erreur enregistrement devis : '+error.message);return;}
+    S.devis=[data,...(S.devis||[])];
+    if(retenu&&woId){
+      const wo=S.workOrders.find(w=>w.id===woId);
+      await sb.from('work_orders').update({devis_montant:montant}).eq('id',woId);
+      if(wo)wo.devis_montant=montant;
+    }
+    const{error:updErr}=await sb.from('factures_a_valider').update({statut:'classe',traite_at:new Date().toISOString()}).eq('id',id);
+    if(updErr){alert('Devis classé, mais erreur de mise à jour du suivi : '+updErr.message);}
     S.facturesAValider=(S.facturesAValider||[]).filter(x=>x.id!==id);
     render();
   });
