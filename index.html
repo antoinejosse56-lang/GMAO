@@ -5112,7 +5112,7 @@ function renderModal(){
   if(m.type==='add-facture'||m.type==='edit-facture'){
     const f=m.facture||{};
     const rngOpts=S.topology.properties.map(p=>`<option value="${p.name}" ${f.bien===p.name?'selected':''}>${p.name}</option>`).join('');
-    const woOpts=S.workOrders.filter(w=>w.status==='open'||w.id===f.wo_id).map(w=>`<option value="${w.id}" ${f.wo_id===w.id?'selected':''}>${w.title} (${w.date||'—'})</option>`).join('');
+    const woOpts=computeFilteredWoOpts(f.bien||'',f.chantier_id||'',f.wo_id||'');
     html=`${mhd(m.type==='add-facture'?'Nouvelle facture':'Modifier facture — '+f.fournisseur)}
     <div class="g2c">
       <div class="form-group"><label>Fournisseur *</label><input id="fac-four" list="fournisseurs-list" value="${f.fournisseur||''}" placeholder="Ex: Plomberie Martin, EDF..."></div>
@@ -5133,14 +5133,13 @@ function renderModal(){
     </div>
     <div class="g2c">
       <div class="form-group"><label>Bien / Propriété</label>
-        <select id="fac-bien">
+        <select id="fac-bien" onchange="document.getElementById('fac-wo').innerHTML=computeFilteredWoOpts(this.value,document.getElementById('fac-chantier')?.value,'')">
           <option value="">— Général / Non lié —</option>
           ${(()=>{const opts=[];S.topology.properties.forEach(p=>{opts.push('<option value="'+p.name+'">'+p.name+'</option>');(p.zones||[]).forEach(z=>{opts.push('<option value="'+p.name+' - '+z.name+'">&nbsp;&nbsp;'+p.name+' &rsaquo; '+z.name+'</option>');(z.subZones||[]).forEach(s=>{opts.push('<option value="'+p.name+' - '+z.name+' - '+s.name+'">&nbsp;&nbsp;&nbsp;&nbsp;'+p.name+' &rsaquo; '+z.name+' &rsaquo; '+s.name+'</option>');});});});return opts.join('');})()}
         </select>
       </div>
       <div class="form-group"><label>BT lié (optionnel)</label>
         <select id="fac-wo">
-          <option value="">— Aucun BT —</option>
           ${woOpts}
         </select>
       </div>
@@ -5160,7 +5159,7 @@ function renderModal(){
       </div>
     </div>
     <div class="form-group"><label>Chantier lié (optionnel, sans passer par un BT)</label>
-      <select id="fac-chantier">
+      <select id="fac-chantier" onchange="document.getElementById('fac-wo').innerHTML=computeFilteredWoOpts(document.getElementById('fac-bien')?.value,this.value,'')">
         <option value="">— Aucun chantier —</option>
         ${S.chantiers.map(c=>`<option value="${c.id}" ${f.chantier_id===c.id?'selected':''}>${c.nom}${c.statut==='termine'?' (terminé)':''}</option>`).join('')}
       </select>
