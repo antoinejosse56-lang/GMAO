@@ -166,6 +166,9 @@ function estPaye(f){return !!f.date_paiement;}
 // par sous-dossier (facilite la recherche en cas de revente d'un bien/zone).
 // "Autre" reste toujours possible via saisie libre a cote du select.
 const MOTIFS=['Entretien','Rénovation','Travaux','Études','Médicale','Diagnostiques','Achat électroménager','Achat outillage'];
+// Categories de facture, utilisees pour le filtre de la liste et le formulaire
+// manuel - une seule liste partagee pour eviter les deux copies divergentes.
+const CATS_FACTURE=['Travaux/Artisan','Matériaux','Énergie','Téléphone/Internet','Assurance','Abonnement','Achat','Autre'];
 // Calcule le "bien" a stocker pour l'archivage/regroupement d'une facture ou
 // d'un devis lie a un bon de travaux. Si ce BT appartient a un chantier, le
 // chemin devient <bien si connu> - <chantier> - <titre du BT> (ex: "17 rue
@@ -2576,7 +2579,7 @@ function renderFactures(){
 
   // LISTE TAB
   if(fTab==='liste'){
-    const CATS=['Travaux/Artisan','Matériaux','Énergie','Téléphone/Internet','Assurance','Abonnement','Autre'];
+    const CATS=CATS_FACTURE;
     const catFilter = S.facturesCat||'all';
     const catBar=`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
       <span class="pill ${catFilter==='all'?'active':''}" data-fcat-factures="all">Toutes</span>
@@ -5118,7 +5121,7 @@ function renderModal(){
     <div class="g2c">
       <div class="form-group"><label>Catégorie</label>
         <select id="fac-cat">
-          ${['Travaux/Artisan','Matériaux','Énergie','Téléphone/Internet','Assurance','Abonnement','Autre'].map(c=>`<option value="${c}" ${f.categorie===c?'selected':''}>${c}</option>`).join('')}
+          ${CATS_FACTURE.map(c=>`<option value="${c}" ${f.categorie===c?'selected':''}>${c}</option>`).join('')}
         </select>
       </div>
       <div class="form-group"><label>Compte</label>
