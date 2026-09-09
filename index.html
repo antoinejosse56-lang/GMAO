@@ -275,7 +275,7 @@ let S = {
   // data
   users: [], assets: [], tasks: [], tools: [], loans: [],
   workOrders: [], maintenanceTemplates: [], topology: {properties: []},
-  factures: [], facturesAValider: [], fournisseurs: [], chantiers: [], devis: [], devisAValider: [], revenues: [], finTab: 'overview', reservations: [], resaYear: new Date().getFullYear(), taxeSejourTaux: 5, taxeSejourPlafond: 4.60, compteurs: [], releves: [], rangements: [], famille: [], consommables: [], crecheSaisies: [], ecoleSaisies: [], familleTab: 'membres', finFactCpte: 'savadur', familleEnfant: null
+  factures: [], facturesAValider: [], fournisseurs: [], chantiers: [], devis: [], devisAValider: [], bienDocuments: [], revenues: [], finTab: 'overview', reservations: [], resaYear: new Date().getFullYear(), taxeSejourTaux: 5, taxeSejourPlafond: 4.60, compteurs: [], releves: [], rangements: [], famille: [], consommables: [], crecheSaisies: [], ecoleSaisies: [], familleTab: 'membres', finFactCpte: 'savadur', familleEnfant: null
 };
 
 async function loadAll() {
@@ -294,7 +294,7 @@ async function loadAll() {
     const test = await sb.from('users').select('count', {count:'exact',head:true});
     if (test.error) { showError(test.error.message || JSON.stringify(test.error)); return; }
 
-    const [u, a, t, tl, l, wo, mt, topo, rev, cpt, rel, ten, rp, wr, rng, fam, crecheRes, ecoleRes, conso, facturesRes, resaRes, favRes, fournRes, chantiersRes, devisRes, devisAvRes] = await Promise.all([
+    const [u, a, t, tl, l, wo, mt, topo, rev, cpt, rel, ten, rp, wr, rng, fam, crecheRes, ecoleRes, conso, facturesRes, resaRes, favRes, fournRes, chantiersRes, devisRes, devisAvRes, bienDocsRes] = await Promise.all([
       sb.from('users').select('*'),
       sb.from('assets').select('*'),
       sb.from('tasks').select('*'),
@@ -320,7 +320,8 @@ async function loadAll() {
       sb.from('fournisseurs').select('*').order('nom'),
       sb.from('chantiers').select('*').order('created_at',{ascending:false}),
       sb.from('devis').select('*'),
-      fetchAllRows('devis_a_valider','created_at',false)
+      fetchAllRows('devis_a_valider','created_at',false),
+      sb.from('bien_documents').select('*').order('created_at',{ascending:false})
     ]);
 
     // Only block on critical tables
@@ -364,6 +365,8 @@ async function loadAll() {
     S.devis = devisRes?.error ? [] : (devisRes?.data || []);
     if (devisAvRes?.error) console.warn('Table devis_a_valider non disponible:', devisAvRes.error.message);
     S.devisAValider = devisAvRes?.error ? [] : (devisAvRes?.data || []);
+    if (bienDocsRes?.error) console.warn('Table bien_documents non disponible:', bienDocsRes.error.message);
+    S.bienDocuments = bienDocsRes?.error ? [] : (bienDocsRes?.data || []);
     const loadedTopo = topo.data?.[0]?.data;
     S.topoId = topo.data?.[0]?.id;
     if(loadedTopo?.properties?.length){
@@ -1602,10 +1605,11 @@ function renderTopology(){
 
   // Determine what to show in right panel
 
-  function topoAssetPanel(nodeAssetId, nodeName){
+  function topoAssetPanel(nodeAssetId, nodeName, bienStr){
     if(!nodeAssetId && !nodeName) return '';
     const asset = nodeAssetId ? S.assets.find(a=>a.id===nodeAssetId) : null;
     const ts = S.topoState;
+    const docs = (S.bienDocuments||[]).filter(d=>d.bien===bienStr);
     // Find WOs linked to this topo node (by assetId OR by topo_ref matching current node)
     const wos = S.workOrders.filter(w=>{
       if(nodeAssetId && w.asset_id===nodeAssetId) return true;
@@ -1643,6 +1647,18 @@ function renderTopology(){
           ${hist.length===0?'<div style="font-size:11px;color:var(--text2)">Aucune intervention.</div>':''}
         </div>
       </div>
+      ${bienStr?`<div class="card" style="padding:12px;margin-top:10px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <div class="sec" style="margin:0">📄 Documents (${docs.length})</div>
+          ${canEdit()?`<button class="btn btn-sm btn-p" data-add-bien-doc="${bienStr.replace(/"/g,'&quot;')}">+ Document</button>`:''}
+        </div>
+        ${docs.map(d=>`<div class="row">
+          <div class="fg"><div class="fgs" style="font-size:12px">${d.type||'Document'}</div><div class="fgsub">${d.date?dateLabel(d.date):''}${d.date_expiry?' · expire '+dateLabel(d.date_expiry):''}${d.notes?' · '+d.notes:''}</div></div>
+          ${d.document_url?`<a href="${d.document_url}" target="_blank" class="btn btn-sm">👁 Voir</a>`:''}
+          ${canEdit()?`<button class="btn btn-d btn-sm" data-del-bien-doc="${d.id}">✕</button>`:''}
+        </div>`).join('')}
+        ${docs.length===0?'<div style="font-size:11px;color:var(--text2)">Aucun document (DPE, diagnostic amiante/plomb...).</div>':''}
+      </div>`:''}
     </div>`;
   }
 
@@ -1681,7 +1697,7 @@ function renderTopology(){
       ${trades.length===0?'<div style="font-size:12px;color:var(--text2)">Aucun corps de métier.</div>':''}
     </div>
     ${!subZone.assetId&&canEdit()?`<div style="margin-top:10px"><button class="btn btn-p" style="width:100%" data-link-node="${subZone.id}" data-link-name="${subZone.name}" data-link-type="Sous-zone">🔗 Lier un équipement à cette sous-zone</button></div>`:''}
-    ${topoAssetPanel(subZone.assetId, subZone.name)}`;
+    ${topoAssetPanel(subZone.assetId, subZone.name, [prop.name,zone.name,subZone.name].filter(Boolean).join(' - '))}`;
   } else if(zone){
     // Show subzones + direct trades
     const subs = zone.subZones||[];
@@ -1710,7 +1726,7 @@ function renderTopology(){
       ${subs.length===0&&trades.length===0?'<div style="font-size:12px;color:var(--text2)">Zone vide. Ajoutez une sous-zone ou un corps de métier directement.</div>':''}
     </div>
     ${!zone.assetId&&canEdit()?`<div style="margin-top:10px"><button class="btn btn-p" style="width:100%" data-link-node="${zone.id}" data-link-name="${zone.name}" data-link-type="Zone">🔗 Lier un équipement à cette zone</button></div>`:''}
-    ${topoAssetPanel(zone.assetId, zone.name)}`;
+    ${topoAssetPanel(zone.assetId, zone.name, [prop.name,zone.name].filter(Boolean).join(' - '))}`;
   } else {
     // Show zones of property
     const zones = prop.zones||[];
@@ -1727,7 +1743,7 @@ function renderTopology(){
       ${zones.length===0?'<div style="font-size:12px;color:var(--text2)">Aucune zone. Commencez par ajouter une zone (ex: Appartement 1er gauche, RDC, Cave...).</div>':''}
     </div>
     ${!prop.assetId&&canEdit()?`<div style="margin-top:10px"><button class="btn btn-p" style="width:100%" data-link-node="${prop.id}" data-link-name="${prop.name}" data-link-type="Bien immobilier">🔗 Lier un équipement à ce bien</button></div>`:''}
-    ${topoAssetPanel(prop.assetId, prop.name)}`;
+    ${topoAssetPanel(prop.assetId, prop.name, prop.name)}`;
   }
 
   return `<div class="split">
@@ -2833,6 +2849,7 @@ function renderFactures(){
             <td style="vertical-align:top"><input type="date" class="fav-date-paiement" data-fav-id="${f.id}" style="width:130px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px"></td>
             <td style="white-space:nowrap;vertical-align:top;padding-top:8px">
               <button class="btn btn-sm btn-p" data-fav-valider="${f.id}" title="Valider et enregistrer dans les factures">✅</button>
+              <button class="btn btn-sm" data-fav-classer="${f.id}" title="Ce n'est pas une facture mais un document à archiver (DPE, diagnostic...) — le ranger dans la fiche du bien" style="margin-left:3px">📄</button>
               <button class="btn btn-sm btn-d" data-fav-rejeter="${f.id}" title="Rejeter (n'est pas une facture)" style="margin-left:3px">🚫</button>
             </td>
           </tr>`;
@@ -4630,6 +4647,29 @@ function renderModal(){
       <option value="ouvert" ${(c.statut||'ouvert')==='ouvert'?'selected':''}>Ouvert</option>
       <option value="termine" ${c.statut==='termine'?'selected':''}>Terminé</option>
     </select></div>${mf}`;
+  }
+
+  if(m.type==='add-bien-document'||m.type==='edit-bien-document'){
+    const d=m.doc||{};
+    const DOC_TYPES=['DPE','Diagnostic amiante','Diagnostic plomb','Diagnostic électricité','Diagnostic gaz','Diagnostic termites','ERP','Carrez','Autre'];
+    html=`${mhd((m.type==='add-bien-document'?'Nouveau document — ':'Modifier — ')+(m.bien||d.bien||''))}
+    <div class="form-group"><label>Type</label>
+      <select id="m-bdoctype">
+        ${DOC_TYPES.map(t=>`<option value="${t}" ${d.type===t?'selected':''}>${t}</option>`).join('')}
+      </select>
+      <input id="m-bdoctype-autre" value="${(d.type&&!DOC_TYPES.includes(d.type))?d.type:''}" placeholder="Autre type (si non listé)" style="margin-top:6px">
+    </div>
+    <div class="g2c">
+      <div class="form-group"><label>Date du document</label><input id="m-bdocdate" type="date" value="${d.date||NOW}"></div>
+      <div class="form-group"><label>Date d'expiration (optionnel)</label><input id="m-bdocexp" type="date" value="${d.date_expiry||''}"></div>
+    </div>
+    <div class="form-group"><label>Lien du document (optionnel)</label>
+      <div style="display:flex;gap:6px">
+        <input id="m-bdocurl" value="${d.document_url||''}" placeholder="https://drive.google.com/..." style="flex:1">
+        <button type="button" class="btn btn-p" onclick="openDrivePicker(f=>{document.getElementById('m-bdocurl').value=f.url;})">📁</button>
+      </div>
+    </div>
+    <div class="form-group"><label>Notes</label><input id="m-bdocnotes" value="${d.notes||''}" placeholder="Ex: refait suite à travaux..."></div>${mf}`;
   }
 
   if(m.type==='add-devis'){
@@ -6895,6 +6935,27 @@ async function saveModal(){
     }
   }
 
+  if(m.type==='add-bien-document'||m.type==='edit-bien-document'){
+    const type=q('m-bdoctype-autre')?.value.trim()||q('m-bdoctype')?.value||null;
+    const rec={
+      bien:m.bien||m.doc?.bien,
+      type,
+      date:q('m-bdocdate')?.value||null,
+      date_expiry:q('m-bdocexp')?.value||null,
+      document_url:q('m-bdocurl')?.value||null,
+      notes:q('m-bdocnotes')?.value||null
+    };
+    if(m.type==='add-bien-document'){
+      const {data,error}=await sb.from('bien_documents').insert(rec).select().single();
+      if(error){alert('Erreur : '+error.message);return;}
+      if(data)S.bienDocuments.unshift(data);
+    }else{
+      const {error}=await sb.from('bien_documents').update(rec).eq('id',m.doc.id);
+      if(error){alert('Erreur : '+error.message);return;}
+      Object.assign(m.doc,rec);
+    }
+  }
+
   if(m.type==='add-devis'){
     const entreprise=q('m-devfour')?.value.trim();if(!entreprise)return alert('Entreprise requise');
     const montant=parseFloat(q('m-devmontant')?.value);if(!montant)return alert('Montant TTC requis');
@@ -8226,6 +8287,30 @@ function bindAll(){
     S.facturesAValider=(S.facturesAValider||[]).filter(x=>x.id!==id);
     render();
   });
+  // "Classer" : le document n'est pas une facture (DPE, diagnostic...) - au
+  // lieu de le valider comme depense, on le range dans bien_documents pour le
+  // retrouver depuis la fiche du bien (onglet Topologie).
+  document.querySelectorAll('[data-fav-classer]').forEach(el=>el.onclick=async()=>{
+    const id=el.dataset.favClasser;
+    const fav=(S.facturesAValider||[]).find(x=>x.id===id);
+    if(!fav)return;
+    const bien=document.querySelector('.fav-splits[data-fav-id="'+id+'"] .fav-split-bien')?.value||'';
+    if(!bien){alert('Sélectionnez le bien concerné avant de classer ce document');return;}
+    const motifAutre=(document.querySelector('.fav-motif-autre[data-fav-id="'+id+'"]')?.value||'').trim();
+    const type=motifAutre||document.querySelector('.fav-motif[data-fav-id="'+id+'"]')?.value||'Autre';
+    const dateDoc=document.querySelector('.fav-date[data-fav-id="'+id+'"]')?.value||'';
+    const notes=(document.querySelector('.fav-desc[data-fav-id="'+id+'"]')?.value||'').trim();
+    const facPreviewPath=fav.apercu_pdf_path||fav.storage_path;
+    const documentUrl=facPreviewPath?`${SUPABASE_URL}/storage/v1/object/public/factures-a-valider/${facPreviewPath}`:null;
+    const rec={bien,type,date:dateDoc||null,document_url:documentUrl,notes:notes||null};
+    const{data,error}=await sb.from('bien_documents').insert(rec).select().single();
+    if(error){alert('Erreur : '+error.message);return;}
+    S.bienDocuments.unshift(data);
+    const{error:updErr}=await sb.from('factures_a_valider').update({statut:'classe',traite_at:new Date().toISOString(),bien}).eq('id',id);
+    if(updErr){alert('Document classé, mais erreur de mise à jour du suivi : '+updErr.message);}
+    S.facturesAValider=(S.facturesAValider||[]).filter(x=>x.id!==id);
+    render();
+  });
   // Selectionner un bien met a jour le compte automatiquement (dubailFilter)
   // et restreint la liste des BT proposes a ceux de ce bien (ou plus precis) -
   // sans attendre un rendu complet, coherent avec le reste de la ligne qui
@@ -8370,6 +8455,16 @@ function bindAll(){
     if(error){alert('Erreur : '+error.message);return;}
     S.chantiers=S.chantiers.filter(x=>x.id!==el.dataset.delChantier);
     S.workOrders.forEach(w=>{if(w.chantier_id===el.dataset.delChantier)w.chantier_id=null;});
+    render();
+  });
+  document.querySelectorAll('[data-add-bien-doc]').forEach(el=>el.onclick=()=>{
+    S.modal={type:'add-bien-document',bien:el.dataset.addBienDoc};render();
+  });
+  document.querySelectorAll('[data-del-bien-doc]').forEach(el=>el.onclick=async()=>{
+    if(!confirm('Supprimer ce document ?'))return;
+    const{error}=await sb.from('bien_documents').delete().eq('id',el.dataset.delBienDoc);
+    if(error){alert('Erreur : '+error.message);return;}
+    S.bienDocuments=S.bienDocuments.filter(x=>x.id!==el.dataset.delBienDoc);
     render();
   });
   document.querySelectorAll('[data-chantier-tab]').forEach(el=>el.onclick=()=>{S.chantierTab=el.dataset.chantierTab;render();});
