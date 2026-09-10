@@ -4967,15 +4967,27 @@ function renderModal(){
           ${S.topology.properties.map(p=>`<option value="${p.id}" ${(m.propId===p.id)?'selected':''}>${p.name}</option>`).join('')}
         </select>
       </div>
-      <div class="form-group" id="m-wa-zone-wrap" style="display:none"><label>Zone <span style="color:var(--text3);font-weight:400">(optionnel)</span></label>
+      ${(()=>{
+        // Pre-remplit zone/sous-zone si le bon est cree depuis un filtre deja
+        // localise (ex: bouton "+ Bon de travaux" avec un bien/zone selectionne
+        // dans "Bons de travaux") - sinon le nouveau BT reste sans topo_ref et
+        // redevient invisible des qu'un filtre par bien est reapplique.
+        const prop=m.propId?S.topology.properties.find(p=>p.id===m.propId):null;
+        const zones=prop?.zones||[];
+        const zone=m.zoneId?zones.find(z=>z.id===m.zoneId):null;
+        const subs=zone?.subZones||[];
+        return `<div class="form-group" id="m-wa-zone-wrap" style="display:${zones.length?'':'none'}"><label>Zone <span style="color:var(--text3);font-weight:400">(optionnel)</span></label>
         <select id="m-wa-zone" onchange="woUpdateSubZone()">
           <option value="">— Aucune —</option>
+          ${zones.map(z=>`<option value="${z.id}" ${m.zoneId===z.id?'selected':''}>${z.name}</option>`).join('')}
         </select>
       </div>
-      <div class="form-group" id="m-wa-sub-wrap" style="display:none"><label>Sous-zone <span style="color:var(--text3);font-weight:400">(optionnel)</span></label>
+      <div class="form-group" id="m-wa-sub-wrap" style="display:${subs.length?'':'none'}"><label>Sous-zone <span style="color:var(--text3);font-weight:400">(optionnel)</span></label>
         <select id="m-wa-sub">
           <option value="">— Aucune —</option>
-        </select>
+          ${subs.map(s=>`<option value="${s.id}" ${m.subId===s.id?'selected':''}>${s.name}</option>`).join('')}
+        </select>`;
+      })()}
       </div>
       <div style="font-size:12px;font-weight:500;color:var(--text2);margin:12px 0 8px">🔧 Équipement concerné</div>
       <div class="form-group"><label>Équipement <span style="color:var(--text3);font-weight:400">(optionnel)</span></label>
@@ -7741,7 +7753,13 @@ function bindAll(){
   if(q('btn-add-asset'))q('btn-add-asset').onclick=()=>{S.modal={type:'add-asset'};render();};
   if(q('btn-add-tool'))q('btn-add-tool').onclick=()=>{S.modal={type:'add-tool'};render();};
   if(q('btn-add-vehicle'))q('btn-add-vehicle').onclick=()=>{S.modal={type:'add-asset',forceCategory:'Véhicule'};render();};
-  if(q('btn-add-wo'))q('btn-add-wo').onclick=()=>{S.modal={type:'add-wo'};render();};
+  if(q('btn-add-wo'))q('btn-add-wo').onclick=()=>{
+    // Reprend le bien/zone/sous-zone actuellement filtres dans "Bons de
+    // travaux" - sinon un BT cree depuis une vue deja localisee se retrouve
+    // sans topo_ref et disparait des qu'on refiltre sur ce bien.
+    const sf=S.woSearch||{};
+    S.modal={type:'add-wo',propId:sf.prop||null,zoneId:sf.zone||null,subId:sf.sub||null};render();
+  };
   if(q('btn-add-wo-asset'))q('btn-add-wo-asset').onclick=()=>{S.modal={type:'add-wo',assetId:S.selectedAsset?.id};render();};
   if(q('btn-add-wo-here'))q('btn-add-wo-here').onclick=()=>{S.modal={type:'add-wo',assetId:S.selectedAsset?.id};render();};
   if(q('btn-add-mt'))q('btn-add-mt').onclick=()=>{S.modal={type:'add-mt'};render();};
