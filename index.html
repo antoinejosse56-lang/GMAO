@@ -4654,10 +4654,10 @@ function renderModal(){
     const c=m.chantier||{};
     html=`${mhd(m.type==='add-chantier'?'Nouveau chantier':'Modifier — '+c.nom)}
     <div class="form-group"><label>Nom *</label><input id="m-chnom" value="${c.nom||''}" placeholder="Ex: Construction extension, Rénovation 3ème étage..."></div>
-    <div class="form-group"><label>Bien / Propriété</label>
+    <div class="form-group"><label>Bien / Zone</label>
       <select id="m-chbien">
         <option value="">— Général / Non lié —</option>
-        ${S.topology.properties.map(p=>`<option value="${p.name}" ${c.bien===p.name?'selected':''}>${p.name}</option>`).join('')}
+        ${(()=>{const opts=[];S.topology.properties.forEach(p=>{opts.push('<option value="'+p.name+'"'+(c.bien===p.name?' selected':'')+'>'+p.name+'</option>');(p.zones||[]).forEach(z=>{const zv=p.name+' - '+z.name;opts.push('<option value="'+zv+'"'+(c.bien===zv?' selected':'')+'>&nbsp;&nbsp;'+p.name+' &rsaquo; '+z.name+'</option>');(z.subZones||[]).forEach(s=>{const sv=p.name+' - '+z.name+' - '+s.name;opts.push('<option value="'+sv+'"'+(c.bien===sv?' selected':'')+'>&nbsp;&nbsp;&nbsp;&nbsp;'+p.name+' &rsaquo; '+z.name+' &rsaquo; '+s.name+'</option>');});});});return opts.join('');})()}
       </select>
     </div>
     <div class="form-group"><label>Description</label><textarea id="m-chdesc">${c.description||''}</textarea></div>
