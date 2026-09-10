@@ -187,6 +187,20 @@ function bienForWorkOrder(wo){
   }
   return wo.topo_ref?[wo.topo_ref.propName,wo.topo_ref.zoneName,wo.topo_ref.subName].filter(Boolean).join(' - '):'';
 }
+// Reconstruit un topo_ref {propId,propName,zoneId,zoneName,subId,subName} a
+// partir d'un texte "Bien - Zone - SousZone" (format utilise par le champ
+// bien des factures) - permet a un BT cree a la volee depuis une facture de
+// rester rattache a son bien/zone, sinon il n'apparait plus dans la liste des
+// BT des qu'un filtre par bien y est applique (topo_ref absent = exclu).
+function resolveTopoRefFromBienStr(bienStr){
+  const parts=(bienStr||'').split(' - ').map(s=>s.trim()).filter(Boolean);
+  if(!parts.length)return null;
+  const prop=S.topology.properties.find(p=>p.name===parts[0]);
+  if(!prop)return null;
+  const zone=parts[1]?(prop.zones||[]).find(z=>z.name===parts[1]):null;
+  const sub=(zone&&parts[2])?(zone.subZones||[]).find(s=>s.name===parts[2]):null;
+  return {propId:prop.id,propName:prop.name,zoneId:zone?.id||null,zoneName:zone?.name||'',subId:sub?.id||null,subName:sub?.name||''};
+}
 // Options <option> pour un select "BT lie", filtrees par bien et/ou chantier
 // choisis (le BT selectionnable doit appartenir a ce chantier, et/ou son
 // chemin topologique doit correspondre au bien choisi ou etre plus precis) -
@@ -8425,7 +8439,9 @@ function bindAll(){
         const title=prompt('Titre du nouveau bon de travaux :');
         if(!title||!title.trim()){sel.value='';return;}
         const chantierId=document.querySelector('.fav-chantier[data-fav-id="'+id+'"]')?.value||null;
-        const rec={title:title.trim(),status:'open',date:NOW,chantier_id:chantierId||null};
+        const bienSel=document.querySelector('.fav-splits[data-fav-id="'+id+'"] .fav-split-bien');
+        const topoRef=bienSel?resolveTopoRefFromBienStr(bienSel.value):null;
+        const rec={title:title.trim(),status:'open',date:NOW,chantier_id:chantierId||null,topo_ref:topoRef};
         const{data,error}=await sb.from('work_orders').insert(rec).select().single();
         if(error){alert('Erreur création BT : '+error.message);sel.value='';return;}
         S.workOrders.unshift(data);
