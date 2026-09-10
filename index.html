@@ -165,7 +165,7 @@ function estPaye(f){return !!f.date_paiement;}
 // Motifs de facture predefinis, utilises pour classer les factures archivees
 // par sous-dossier (facilite la recherche en cas de revente d'un bien/zone).
 // "Autre" reste toujours possible via saisie libre a cote du select.
-const MOTIFS=['Entretien','Rénovation','Travaux','Études','Médicale','Diagnostiques','Achat électroménager','Achat outillage'];
+const MOTIFS=['Entretien','Rénovation','Travaux','Études','Médicale','Diagnostiques','Achat électroménager','Achat outillage','Consommables','Énergie','Eau'];
 // Categories de facture, utilisees pour le filtre de la liste et le formulaire
 // manuel - une seule liste partagee pour eviter les deux copies divergentes.
 const CATS_FACTURE=['Travaux/Artisan','Matériaux','Énergie','Téléphone/Internet','Assurance','Abonnement','Achat','Autre'];
@@ -1403,7 +1403,7 @@ function renderDevisAValider(){
           <td style="vertical-align:top"><input type="number" step="0.01" class="dev-montant" data-dev-id="${d.id}" value="${d.montant_ttc!=null?d.montant_ttc:''}" placeholder="0.00" style="width:90px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px"></td>
           <td style="vertical-align:top"><select class="dev-bien" data-dev-id="${d.id}" style="width:170px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">${bienOptsFor(d.bien||'')}</select></td>
           <td style="vertical-align:top"><select class="dev-chantier" data-dev-id="${d.id}" style="width:150px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">${chantierOptsFor(d.chantier_id||'')}</select></td>
-          <td style="vertical-align:top"><select class="dev-wo" data-dev-id="${d.id}" style="width:200px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">${computeFilteredWoOpts(d.bien||'',d.chantier_id||'',d.wo_id||'')}</select></td>
+          <td style="vertical-align:top"><select class="dev-wo" data-dev-id="${d.id}" style="width:200px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">${computeFilteredWoOpts(d.bien||'',d.chantier_id||'',d.wo_id||'',true)}</select></td>
           <td style="vertical-align:top">
             <select class="dev-motif" data-dev-id="${d.id}" style="width:110px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px;margin-bottom:3px">${motifOptsFor(MOTIFS.includes(d.motif)?d.motif:'')}</select>
             <input class="dev-motif-autre" data-dev-id="${d.id}" value="${(d.motif&&!MOTIFS.includes(d.motif))?d.motif.replace(/"/g,'&quot;'):''}" placeholder="Autre motif..." style="width:110px;padding:4px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:11px">
@@ -2776,17 +2776,30 @@ function renderFactures(){
   </div>`;
 
   if(fTab==='fournisseurs'){
-    const sorted=[...(S.fournisseurs||[])].sort((a,b)=>(a.nom||'').localeCompare(b.nom||''));
+    if(!S.fournisseurTypeFilter)S.fournisseurTypeFilter='all';
+    const tf=S.fournisseurTypeFilter;
+    const FR_TYPES=['Artisan','Société de prestation','Fournisseur de matériel'];
+    const nSansType=(S.fournisseurs||[]).filter(fr=>!fr.type).length;
+    const sorted=[...(S.fournisseurs||[])].filter(fr=>{
+      if(tf==='all')return true;
+      if(tf==='sans')return !fr.type;
+      return fr.type===tf;
+    }).sort((a,b)=>(a.nom||'').localeCompare(b.nom||''));
     return `${tabBar}
     <div class="card">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
         <div class="sec" style="margin:0">📇 Artisans & entreprises (${sorted.length})</div>
         ${isAdmin()?`<button class="btn btn-p btn-sm" id="btn-add-fournisseur">+ Artisan</button>`:''}
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
+        <span class="pill ${tf==='all'?'active':''}" data-fournisseur-type="all">Tous</span>
+        ${FR_TYPES.map(t=>`<span class="pill ${tf===t?'active':''}" data-fournisseur-type="${t}">${t}</span>`).join('')}
+        ${nSansType>0?`<span class="pill ${tf==='sans'?'active':''}" data-fournisseur-type="sans">Non classés (${nSansType})</span>`:''}
       </div>
       ${sorted.length===0?'<div style="text-align:center;padding:20px;color:var(--text2)">Aucun artisan enregistré. Il apparaîtra en suggestion dans le champ "Entreprise" des factures.</div>':''}
       ${sorted.map(fr=>`<div class="row">
         <div class="fg">
-          <div class="fgs">${fr.nom}</div>
+          <div class="fgs">${fr.nom} ${fr.type?`<span class="badge bblue" style="font-size:9px">${fr.type}</span>`:''}</div>
           <div class="fgsub">${[fr.corps_metier,fr.telephone,fr.email].filter(Boolean).join(' · ')||'—'}</div>
         </div>
         ${isAdmin()?`<button class="btn btn-sm" data-edit-fournisseur="${fr.id}">✎</button>`:''}
@@ -4677,6 +4690,14 @@ function renderModal(){
     const fr=m.fournisseur||{};
     html=`${mhd(m.type==='add-fournisseur'?'Nouvel artisan / entreprise':'Modifier — '+fr.nom)}
     <div class="form-group"><label>Nom *</label><input id="m-frnom" value="${fr.nom||''}" placeholder="Ex: Plomberie Martin"></div>
+    <div class="form-group"><label>Type</label>
+      <select id="m-frtype">
+        <option value="" ${!fr.type?'selected':''}>— Non renseigné —</option>
+        <option value="Artisan" ${fr.type==='Artisan'?'selected':''}>Artisan</option>
+        <option value="Société de prestation" ${fr.type==='Société de prestation'?'selected':''}>Société de prestation</option>
+        <option value="Fournisseur de matériel" ${fr.type==='Fournisseur de matériel'?'selected':''}>Fournisseur de matériel</option>
+      </select>
+    </div>
     <div class="g2c">
       <div class="form-group"><label>Corps de métier</label><input id="m-frmetier" value="${fr.corps_metier||''}" placeholder="Ex: Plomberie, Électricité..."></div>
       <div class="form-group"><label>Téléphone</label><input id="m-frtel" value="${fr.telephone||''}"></div>
@@ -6967,6 +6988,7 @@ async function saveModal(){
     const nom=q('m-frnom')?.value?.trim();if(!nom)return alert('Nom requis');
     const rec={
       nom,
+      type:q('m-frtype')?.value||null,
       corps_metier:q('m-frmetier')?.value||null,
       telephone:q('m-frtel')?.value||null,
       email:q('m-fremail')?.value||null,
@@ -8499,7 +8521,7 @@ function bindAll(){
         if(error){alert('Erreur création BT : '+error.message);sel.value='';return;}
         S.workOrders.unshift(data);
         const optHtml=`<option value="${data.id}">${data.title}</option>`;
-        document.querySelectorAll('.fav-wo').forEach(s=>{
+        document.querySelectorAll('.fav-wo, .dev-wo').forEach(s=>{
           s.querySelector('option[value="__new__"]')?.insertAdjacentHTML('afterend',optHtml);
         });
         sel.value=data.id;
@@ -8578,6 +8600,9 @@ function bindAll(){
     if(error){alert('Erreur : '+error.message);return;}
     S.fournisseurs=S.fournisseurs.filter(x=>x.id!==el.dataset.delFournisseur);render();
   });
+  document.querySelectorAll('[data-fournisseur-type]').forEach(el=>el.onclick=()=>{
+    S.fournisseurTypeFilter=el.dataset.fournisseurType;render();
+  });
   const btnAddChantier=document.getElementById('btn-add-chantier');
   if(btnAddChantier)btnAddChantier.onclick=()=>{S.modal={type:'add-chantier'};render();};
   document.querySelectorAll('[data-edit-chantier]').forEach(el=>el.onclick=()=>{
@@ -8649,13 +8674,37 @@ function bindAll(){
     const chantierSel=document.querySelector('.dev-chantier[data-dev-id="'+id+'"]');
     const woSel=document.querySelector('.dev-wo[data-dev-id="'+id+'"]');
     if(!woSel)return;
-    woSel.innerHTML=computeFilteredWoOpts(bienSel?bienSel.value:'',chantierSel?chantierSel.value:'',woSel.value);
+    woSel.innerHTML=computeFilteredWoOpts(bienSel?bienSel.value:'',chantierSel?chantierSel.value:'',woSel.value,true);
   };
   document.querySelectorAll('.dev-bien').forEach(sel=>{
     sel.onchange=()=>updateDevWoFilter(sel.dataset.devId);
   });
   document.querySelectorAll('.dev-chantier').forEach(sel=>{
     sel.onchange=()=>updateDevWoFilter(sel.dataset.devId);
+  });
+  // "+ Nouveau BT" cree le bon de travaux a la volee depuis un devis, meme
+  // principe que pour les factures a valider - repris par le chantier/bien
+  // deja choisis sur la ligne le cas echeant.
+  document.querySelectorAll('.dev-wo').forEach(sel=>{
+    sel.onchange=async()=>{
+      const id=sel.dataset.devId;
+      if(sel.value==='__new__'){
+        const title=prompt('Titre du nouveau bon de travaux :');
+        if(!title||!title.trim()){sel.value='';return;}
+        const chantierId=document.querySelector('.dev-chantier[data-dev-id="'+id+'"]')?.value||null;
+        const bienSel=document.querySelector('.dev-bien[data-dev-id="'+id+'"]');
+        const topoRef=bienSel?resolveTopoRefFromBienStr(bienSel.value):null;
+        const rec={title:title.trim(),status:'open',date:NOW,chantier_id:chantierId||null,topo_ref:topoRef};
+        const{data,error}=await sb.from('work_orders').insert(rec).select().single();
+        if(error){alert('Erreur création BT : '+error.message);sel.value='';return;}
+        S.workOrders.unshift(data);
+        const optHtml=`<option value="${data.id}">${data.title}</option>`;
+        document.querySelectorAll('.dev-wo, .fav-wo').forEach(s=>{
+          s.querySelector('option[value="__new__"]')?.insertAdjacentHTML('afterend',optHtml);
+        });
+        sel.value=data.id;
+      }
+    };
   });
   document.querySelectorAll('[data-devis-valider]').forEach(el=>el.onclick=async()=>{
     const id=el.dataset.devisValider;
