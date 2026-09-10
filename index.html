@@ -2624,7 +2624,7 @@ function renderFactures(){
           <td style="font-size:12px;white-space:nowrap">${f.date?new Date(f.date).toLocaleDateString('fr-FR'):'—'}</td>
           <td style="font-weight:500;font-size:13px">${f.fournisseur||'—'}</td>
           <td><span class="badge bblue" style="font-size:10px">${f.categorie||'—'}</span></td>
-          <td style="font-size:11px;color:var(--text2)">${bien}${wo?`<br><span style="color:var(--blue)">BT: ${wo.title}</span>`:''}</td>
+          <td style="font-size:11px;color:var(--text2)">${bien}${wo?`<br><span style="color:var(--blue)${(canEdit()||isAdmin())?';cursor:pointer;text-decoration:underline':''}" ${(canEdit()||isAdmin())?`data-edit-wo="${wo.id}" title="Modifier ce bon de travaux"`:''}>BT: ${wo.title}</span>`:''}</td>
           <td style="font-size:11px">${f.compte==='savadur'?'🏢 SAVADUR':'🏠 Perso'}</td>
           <td style="font-size:12px">${f.montant_ht>0?fmt(f.montant_ht):'—'}</td>
           <td style="font-size:12px;color:var(--amber)">${f.taux_tva>0?fmt(f.montant_ttc-f.montant_ht)+'<br><span style=\'font-size:10px\'>'+f.taux_tva+'%</span>':'—'}</td>
