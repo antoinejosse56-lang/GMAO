@@ -1429,7 +1429,7 @@ function renderChantiers(){
   if(cTab==='devis'){
     return tabBar+renderDevisAValider();
   }
-  if(!S.chantierFilter)S.chantierFilter={status:'ouvert',year:'',bien:''};
+  if(!S.chantierFilter)S.chantierFilter={status:'ouvert',year:'',propId:'',zoneId:''};
   const cf=S.chantierFilter;
   // Classes par ordre de date de debut (les plus anciens d'abord) - les
   // chantiers sans date sont relegues a la fin plutot qu'exclus.
@@ -1440,23 +1440,47 @@ function renderChantiers(){
     return new Date(a.date_debut)-new Date(b.date_debut);
   });
   const chantierYears=[...new Set(chantiersAll.map(c=>c.date_debut?c.date_debut.slice(0,4):null).filter(Boolean))].sort().reverse();
-  const chantierBiens=[...new Set(chantiersAll.map(c=>c.bien).filter(Boolean))].sort();
+  const cfSelProp = cf.propId ? S.topology.properties.find(p=>p.id===cf.propId) : null;
+  const cfSelZone = cf.zoneId && cfSelProp ? (cfSelProp.zones||[]).find(z=>z.id===cf.zoneId) : null;
+  // "bien" est stocke en texte libre "Prop - Zone - SousZone" - un filtre par
+  // bien seul doit aussi remonter les chantiers situes sur une de ses zones.
+  const cfBienStr = cfSelZone ? cfSelProp.name+' - '+cfSelZone.name : (cfSelProp ? cfSelProp.name : '');
   const chantiers=chantiersAll.filter(c=>{
     if(cf.status!=='all'&&(c.statut||'ouvert')!==cf.status)return false;
     if(cf.year&&(!c.date_debut||!c.date_debut.startsWith(cf.year)))return false;
-    if(cf.bien&&c.bien!==cf.bien)return false;
+    if(cfBienStr){
+      const cb=(c.bien||'').trim();
+      if(cb!==cfBienStr&&!cb.startsWith(cfBienStr+' - '))return false;
+    }
     return true;
   });
-  const filterBar=`<div style="display:flex;gap:6px;margin-bottom:12px;align-items:center;flex-wrap:wrap">
+  const filterBar=`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px;margin-bottom:10px">
+    <div>
+      <div style="font-size:11px;color:var(--text2);margin-bottom:3px">Bien immobilier</div>
+      <select id="chantier-filter-prop" style="width:100%;padding:6px 8px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">
+        <option value="">Tous les biens</option>
+        ${S.topology.properties.map(p=>`<option value="${p.id}" ${cf.propId===p.id?'selected':''}>${p.name}</option>`).join('')}
+      </select>
+    </div>
+    ${cfSelProp?`<div>
+      <div style="font-size:11px;color:var(--text2);margin-bottom:3px">Zone</div>
+      <select id="chantier-filter-zone" style="width:100%;padding:6px 8px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">
+        <option value="">Toutes les zones</option>
+        ${(cfSelProp.zones||[]).map(z=>`<option value="${z.id}" ${cf.zoneId===z.id?'selected':''}>${z.name}</option>`).join('')}
+      </select>
+    </div>`:''}
+    <div>
+      <div style="font-size:11px;color:var(--text2);margin-bottom:3px">Année</div>
+      <select id="chantier-filter-year" style="width:100%;padding:6px 8px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">
+        <option value="">Toutes années</option>
+        ${chantierYears.map(y=>`<option value="${y}" ${cf.year===y?'selected':''}>${y}</option>`).join('')}
+      </select>
+    </div>
+  </div>
+  <div style="display:flex;gap:6px;margin-bottom:12px;align-items:center;flex-wrap:wrap">
     <span class="pill ${cf.status==='ouvert'?'active':''}" data-chantier-status="ouvert">Ouverts</span>
     <span class="pill ${cf.status==='termine'?'active':''}" data-chantier-status="termine">Terminés</span>
     <span class="pill ${cf.status==='all'?'active':''}" data-chantier-status="all">Tous</span>
-    ${chantierYears.length>0?'<span style="color:var(--text3)">|</span>':''}
-    ${chantierYears.map(y=>`<span class="pill ${cf.year===y?'active':''}" data-chantier-year="${y}">${y}</span>`).join('')}
-    ${cf.year?`<span class="pill" data-chantier-year="">Toutes années</span>`:''}
-    ${chantierBiens.length>0?'<span style="color:var(--text3)">|</span>':''}
-    ${chantierBiens.map(b=>`<span class="pill ${cf.bien===b?'active':''}" data-chantier-bien="${b}">${b}</span>`).join('')}
-    ${cf.bien?`<span class="pill" data-chantier-bien="">Tous biens</span>`:''}
   </div>`;
   const html=chantiers.map(c=>{
     const wos=S.workOrders.filter(w=>w.chantier_id===c.id);
@@ -8580,17 +8604,21 @@ function bindAll(){
   });
   document.querySelectorAll('[data-chantier-tab]').forEach(el=>el.onclick=()=>{S.chantierTab=el.dataset.chantierTab;render();});
   document.querySelectorAll('[data-chantier-status]').forEach(el=>el.onclick=()=>{
-    if(!S.chantierFilter)S.chantierFilter={status:'ouvert',year:'',bien:''};
+    if(!S.chantierFilter)S.chantierFilter={status:'ouvert',year:'',propId:'',zoneId:''};
     S.chantierFilter.status=el.dataset.chantierStatus;render();
   });
-  document.querySelectorAll('[data-chantier-year]').forEach(el=>el.onclick=()=>{
-    if(!S.chantierFilter)S.chantierFilter={status:'ouvert',year:'',bien:''};
-    S.chantierFilter.year=el.dataset.chantierYear;render();
-  });
-  document.querySelectorAll('[data-chantier-bien]').forEach(el=>el.onclick=()=>{
-    if(!S.chantierFilter)S.chantierFilter={status:'ouvert',year:'',bien:''};
-    S.chantierFilter.bien=el.dataset.chantierBien;render();
-  });
+  const chantierFilterProp=document.getElementById('chantier-filter-prop');
+  if(chantierFilterProp)chantierFilterProp.onchange=()=>{
+    S.chantierFilter.propId=chantierFilterProp.value;S.chantierFilter.zoneId='';render();
+  };
+  const chantierFilterZone=document.getElementById('chantier-filter-zone');
+  if(chantierFilterZone)chantierFilterZone.onchange=()=>{
+    S.chantierFilter.zoneId=chantierFilterZone.value;render();
+  };
+  const chantierFilterYear=document.getElementById('chantier-filter-year');
+  if(chantierFilterYear)chantierFilterYear.onchange=()=>{
+    S.chantierFilter.year=chantierFilterYear.value;render();
+  };
   const btnAddDevisWo=document.getElementById('btn-add-devis-wo');
   if(btnAddDevisWo)btnAddDevisWo.onclick=()=>{S.modal={type:'add-devis',woId:btnAddDevisWo.dataset.woId};render();};
   document.querySelectorAll('[data-retenir-devis]').forEach(el=>el.onclick=async()=>{
