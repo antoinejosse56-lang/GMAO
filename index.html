@@ -224,6 +224,28 @@ function computeFilteredWoOpts(bienStr, chantierId, selectedWoId, allowNew){
   });
   return html;
 }
+// Options <option> partagees "Bien" (hierarchie bien/zone/sous-zone) et
+// "Chantier" (avec creation rapide), utilisees a la fois par les factures et
+// les devis a valider - evite de dupliquer une 3e fois la meme construction.
+function renderOpts(base,sel){
+  return base.map(o=>'<option value="'+o.v+'"'+(o.v===(sel||'')?' selected':'')+'>'+o.l+'</option>').join('');
+}
+function buildBienOptsBase(){
+  const opts=[{v:'',l:'— Général / Non lié —'}];
+  S.topology.properties.forEach(p=>{
+    opts.push({v:p.name,l:p.name});
+    (p.zones||[]).forEach(z=>{
+      opts.push({v:p.name+' - '+z.name,l:'&nbsp;&nbsp;'+p.name+' &rsaquo; '+z.name});
+      (z.subZones||[]).forEach(s=>{
+        opts.push({v:p.name+' - '+z.name+' - '+s.name,l:'&nbsp;&nbsp;&nbsp;&nbsp;'+p.name+' &rsaquo; '+z.name+' &rsaquo; '+s.name});
+      });
+    });
+  });
+  return opts;
+}
+function buildChantierOptsBase(){
+  return [{v:'',l:'— Aucun chantier —'},{v:'__new__',l:'+ Nouveau chantier…'},...[...S.chantiers].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at)).map(c=>({v:c.id,l:c.nom+(c.statut==='termine'?' (terminé)':'')}))];
+}
 // PostgREST plafonne chaque requete a "Max Rows" (1000 par defaut cote Supabase),
 // meme si .range() en demande plus - il faut paginer cote client pour tout recuperer.
 async function fetchAllRows(table, orderCol, ascending){
@@ -1358,15 +1380,15 @@ function motifOptsFor(sel){
 
 function renderDevisAValider(){
   const pending=(S.devisAValider||[]).filter(d=>d.statut==='en_attente').sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
-  const woOpts=(sel)=>{
-    const sorted=[...S.workOrders].sort((a,b)=>new Date(b.date)-new Date(a.date));
-    return '<option value="">— Sélectionner —</option>'+sorted.map(w=>`<option value="${w.id}" ${sel===w.id?'selected':''}>${w.title}${w.status==='done'?' (terminé)':''}</option>`).join('');
-  };
+  const bienOptsBase=buildBienOptsBase();
+  const bienOptsFor=(sel)=>renderOpts(bienOptsBase,sel);
+  const chantierOptsBase=buildChantierOptsBase();
+  const chantierOptsFor=(sel)=>renderOpts(chantierOptsBase,sel);
   return `<div class="card" style="margin-top:14px">
     <div class="sec" style="margin-bottom:8px">📐 Devis détectés automatiquement, en attente de rattachement à un bon de travaux</div>
     ${pending.length===0?'<div style="text-align:center;padding:20px;color:var(--text2)">Rien à valider — tout est à jour.</div>':''}
     ${pending.length>0?`<div style="overflow-x:auto"><table>
-      <thead><tr><th>Date</th><th>Fichier</th><th>Entreprise</th><th>Montant TTC</th><th>Bon de travaux</th><th>Motif</th><th>Actions</th></tr></thead>
+      <thead><tr><th>Date</th><th>Fichier</th><th>Entreprise</th><th>Montant TTC</th><th>Bien / Zone</th><th>Chantier</th><th>Bon de travaux</th><th>Motif</th><th>Actions</th></tr></thead>
       <tbody>
       ${pending.map(d=>{
         const fileUrl=(d.apercu_pdf_path||d.storage_path)?`${SUPABASE_URL}/storage/v1/object/public/devis-a-valider/${d.apercu_pdf_path||d.storage_path}`:null;
@@ -1379,7 +1401,9 @@ function renderDevisAValider(){
           </td>
           <td style="vertical-align:top"><input class="dev-entreprise" data-dev-id="${d.id}" list="fournisseurs-list" value="${(d.entreprise||'').replace(/"/g,'&quot;')}" placeholder="Entreprise / artisan" style="width:150px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px"></td>
           <td style="vertical-align:top"><input type="number" step="0.01" class="dev-montant" data-dev-id="${d.id}" value="${d.montant_ttc!=null?d.montant_ttc:''}" placeholder="0.00" style="width:90px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px"></td>
-          <td style="vertical-align:top"><select class="dev-wo" data-dev-id="${d.id}" style="width:200px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">${woOpts(d.wo_id)}</select></td>
+          <td style="vertical-align:top"><select class="dev-bien" data-dev-id="${d.id}" style="width:170px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">${bienOptsFor(d.bien||'')}</select></td>
+          <td style="vertical-align:top"><select class="dev-chantier" data-dev-id="${d.id}" style="width:150px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">${chantierOptsFor(d.chantier_id||'')}</select></td>
+          <td style="vertical-align:top"><select class="dev-wo" data-dev-id="${d.id}" style="width:200px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">${computeFilteredWoOpts(d.bien||'',d.chantier_id||'',d.wo_id||'')}</select></td>
           <td style="vertical-align:top">
             <select class="dev-motif" data-dev-id="${d.id}" style="width:110px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px;margin-bottom:3px">${motifOptsFor(MOTIFS.includes(d.motif)?d.motif:'')}</select>
             <input class="dev-motif-autre" data-dev-id="${d.id}" value="${(d.motif&&!MOTIFS.includes(d.motif))?d.motif.replace(/"/g,'&quot;'):''}" placeholder="Autre motif..." style="width:110px;padding:4px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:11px">
@@ -2774,20 +2798,7 @@ function renderFactures(){
     // sinon le rendu devient de plus en plus lent a mesure que le nombre de
     // factures en attente grandit (le cout par ligne etait proportionnel a la
     // taille de ces listes, pas juste au nombre de lignes).
-    const renderOpts=(base,sel)=>base.map(o=>'<option value="'+o.v+'"'+(o.v===(sel||'')?' selected':'')+'>'+o.l+'</option>').join('');
-    const bienOptsBase=(()=>{
-      const opts=[{v:'',l:'— Général / Non lié —'}];
-      S.topology.properties.forEach(p=>{
-        opts.push({v:p.name,l:p.name});
-        (p.zones||[]).forEach(z=>{
-          opts.push({v:p.name+' - '+z.name,l:'&nbsp;&nbsp;'+p.name+' &rsaquo; '+z.name});
-          (z.subZones||[]).forEach(s=>{
-            opts.push({v:p.name+' - '+z.name+' - '+s.name,l:'&nbsp;&nbsp;&nbsp;&nbsp;'+p.name+' &rsaquo; '+z.name+' &rsaquo; '+s.name});
-          });
-        });
-      });
-      return opts;
-    })();
+    const bienOptsBase=buildBienOptsBase();
     const assetOptsBase=[{v:'',l:'— Aucun équipement —'},...S.assets.map(a=>({v:a.id,l:a.name+(a.location?' — '+a.location:'')}))];
     const personneOptsBase=[{v:'',l:'— Aucune personne —'},...S.famille.map(p=>({v:p.id,l:p.prenom+(p.nom?' '+p.nom:'')}))];
     const woOptsBase=[{v:'',l:'— Aucun BT —'},{v:'__new__',l:'+ Nouveau BT…'},...[...S.workOrders].sort((a,b)=>new Date(b.date)-new Date(a.date)).map(w=>({v:w.id,l:w.title+(w.status==='done'?' (terminé)':'')}))];
@@ -2795,7 +2806,7 @@ function renderFactures(){
     const assetOptsFor=(sel)=>renderOpts(assetOptsBase,sel);
     const personneOptsFor=(sel)=>renderOpts(personneOptsBase,sel);
     const woOptsFor=(sel)=>renderOpts(woOptsBase,sel);
-    const chantierOptsBase=[{v:'',l:'— Aucun chantier —'},{v:'__new__',l:'+ Nouveau chantier…'},...[...S.chantiers].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at)).map(c=>({v:c.id,l:c.nom+(c.statut==='termine'?' (terminé)':'')}))];
+    const chantierOptsBase=buildChantierOptsBase();
     const chantierOptsFor=(sel)=>renderOpts(chantierOptsBase,sel);
     // Devine savadur/perso : d'abord via le bien choisi, sinon via une personne
     // liee (une depense pour un membre de la famille est presque toujours
@@ -8601,6 +8612,22 @@ function bindAll(){
     if(error){alert('Erreur : '+error.message);return;}
     S.devis=S.devis.filter(x=>x.id!==el.dataset.delDevis);
     render();
+  });
+  // Choisir un bien et/ou un chantier restreint la liste des BT proposes -
+  // sinon, avec des dizaines de BT, impossible de retrouver le bon (meme
+  // principe que pour les factures a valider).
+  const updateDevWoFilter=(id)=>{
+    const bienSel=document.querySelector('.dev-bien[data-dev-id="'+id+'"]');
+    const chantierSel=document.querySelector('.dev-chantier[data-dev-id="'+id+'"]');
+    const woSel=document.querySelector('.dev-wo[data-dev-id="'+id+'"]');
+    if(!woSel)return;
+    woSel.innerHTML=computeFilteredWoOpts(bienSel?bienSel.value:'',chantierSel?chantierSel.value:'',woSel.value);
+  };
+  document.querySelectorAll('.dev-bien').forEach(sel=>{
+    sel.onchange=()=>updateDevWoFilter(sel.dataset.devId);
+  });
+  document.querySelectorAll('.dev-chantier').forEach(sel=>{
+    sel.onchange=()=>updateDevWoFilter(sel.dataset.devId);
   });
   document.querySelectorAll('[data-devis-valider]').forEach(el=>el.onclick=async()=>{
     const id=el.dataset.devisValider;
