@@ -141,7 +141,28 @@ def process_account(user: str, password: str, seen: set) -> int:
     except imaplib.IMAP4.error as e:
         log(f"  ERREUR connexion {user} : {e}")
         return 0
-    mail.select('"[Gmail]/All Mail"')
+
+    # Le dossier "Tous les messages" change de nom selon la langue du compte
+    # ("[Gmail]/All Mail" en anglais, "[Gmail]/Tous les messages" en francais,
+    # etc.) - on le repere via son attribut IMAP standard \All plutot que par
+    # un nom fige, pour marcher quelle que soit la langue de l'interface.
+    status, folders = mail.list()
+    all_mail_folder = None
+    if status == "OK":
+        for f in folders:
+            decoded = f.decode(errors="ignore")
+            if "\\All" in decoded:
+                all_mail_folder = decoded.rsplit('"/"', 1)[-1].strip().strip('"')
+                break
+    if not all_mail_folder:
+        log(f"  ERREUR : dossier 'Tous les messages' introuvable pour {user}")
+        mail.logout()
+        return 0
+    status, _ = mail.select(f'"{all_mail_folder}"')
+    if status != "OK":
+        log(f"  ERREUR selection du dossier {all_mail_folder} pour {user}")
+        mail.logout()
+        return 0
 
     query = f'(X-GM-RAW "label:\\"{GMAIL_LABEL}\\"")'
     status, data = mail.uid("search", None, query)
