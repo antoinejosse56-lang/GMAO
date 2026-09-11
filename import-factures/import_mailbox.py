@@ -224,11 +224,12 @@ def process_account(user: str, password: str, seen: set) -> int:
             saved_any = True
             imported += 1
 
-        if saved_any:
-            try:
-                mail.uid("store", uid, "-X-GM-LABELS", f'("{GMAIL_LABEL}")')
-            except imaplib.IMAP4.error as e:
-                log(f"  ATTENTION : retrait du libelle echoue pour {message_id} : {e}")
+        if not saved_any:
+            log(f"  ATTENTION : aucune piece jointe exploitable dans \"{subject}\" - libelle retire quand meme")
+        try:
+            mail.uid("store", uid, "-X-GM-LABELS", f'("{GMAIL_LABEL}")')
+        except imaplib.IMAP4.error as e:
+            log(f"  ATTENTION : retrait du libelle echoue pour {message_id} : {e}")
         seen.add(message_id)
 
     mail.logout()
