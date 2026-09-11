@@ -8,6 +8,15 @@ le GMAO.
 Idempotent : un fichier deja connu (meme chemin relatif au dossier surveille)
 n'est jamais retraite, quel que soit son statut (en_attente / valide / rejete).
 
+Detection de doublons par contenu (pas juste par nom de fichier) : la meme
+facture recue sur les 2 boites mail (import_mailbox.py), ou deposee a la main
+dans le dossier puis re-recuperee par le scan Gmail, arrive sous 2 noms de
+fichier differents mais avec un contenu binaire identique. Chaque fichier est
+donc aussi identifie par une empreinte SHA256 (content_hash) ; si elle
+correspond a une empreinte deja connue (n'importe quel statut), la nouvelle
+ligne est inseree directement en statut 'rejete' avec le motif explique dans
+erreur_extraction, plutot que de re-encombrer la file a valider.
+
 Usage :
     pip install -r requirements.txt
     copier .env.example en .env et remplir les valeurs
@@ -16,6 +25,7 @@ Usage :
 A lancer periodiquement via le Planificateur de taches Windows (pas de
 processus en tache de fond requis - un passage = un scan complet).
 """
+import hashlib
 import mimetypes
 import os
 import re
@@ -200,6 +210,31 @@ def fetch_known_rows() -> dict:
             break
         offset += page_size
     return known
+
+
+def fetch_known_hashes() -> set:
+    """Renvoie l'ensemble des empreintes SHA256 deja en base, tous statuts
+    confondus - sert a reperer un contenu deja recu sous un autre nom de
+    fichier (2 boites mail, depot manuel puis re-scan Gmail...)."""
+    hashes = set()
+    offset = 0
+    page_size = 1000
+    while True:
+        resp = requests.get(
+            f"{SUPABASE_URL}/rest/v1/{TABLE}",
+            params={"select": "content_hash"},
+            headers={**HEADERS, "Range-Unit": "items", "Range": f"{offset}-{offset+page_size-1}"},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        page = resp.json()
+        for row in page:
+            if row.get("content_hash"):
+                hashes.add(row["content_hash"])
+        if len(page) < page_size:
+            break
+        offset += page_size
+    return hashes
 
 
 def sanitize_folder_name(name: str) -> str:
@@ -519,7 +554,7 @@ def generate_pdf_preview(path: Path, storage_path: str, word_converter: "LazyWor
     return pdf_storage_path
 
 
-def process_file(path: Path, chemin_relatif: str, word_converter: "LazyWordConverter" = None):
+def process_file(path: Path, chemin_relatif: str, word_converter: "LazyWordConverter" = None, known_hashes: set = None):
     log(f"Nouveau fichier : {chemin_relatif}")
     ext = path.suffix.lower()
     content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
@@ -537,6 +572,7 @@ def process_file(path: Path, chemin_relatif: str, word_converter: "LazyWordConve
         "montant_ttc": None,
         "date_facture": None,
         "erreur_extraction": None,
+        "content_hash": None,
     }
 
     try:
@@ -544,6 +580,27 @@ def process_file(path: Path, chemin_relatif: str, word_converter: "LazyWordConve
     except OSError as e:
         row["erreur_extraction"] = f"Fichier illisible sur le disque : {e}"
         insert_row(row)
+        return
+
+    content_hash = hashlib.sha256(content).hexdigest()
+    row["content_hash"] = content_hash
+    is_duplicate = known_hashes is not None and content_hash in known_hashes
+    if known_hashes is not None:
+        known_hashes.add(content_hash)
+
+    if is_duplicate:
+        row["erreur_extraction"] = (
+            "Doublon detecte automatiquement (meme contenu qu'un fichier deja recu, "
+            "probablement recu sur les 2 boites mail ou deja depose a la main)"
+        )
+        row["statut"] = "rejete"
+        try:
+            upload_to_storage(storage_path, content, content_type)
+            row["storage_path"] = storage_path
+        except Exception as e:
+            row["erreur_extraction"] += f" (upload echoue : {e})"
+        insert_row(row)
+        log(f"  -> doublon detecte, rejete automatiquement (hash {content_hash[:8]}...)")
         return
 
     try:
@@ -658,7 +715,8 @@ def main():
         sys.exit(f"Dossier introuvable ou inaccessible : {source_dir}")
 
     known_rows = fetch_known_rows()
-    log(f"{len(known_rows)} fichier(s) deja connu(s) en base.")
+    known_hashes = fetch_known_hashes()
+    log(f"{len(known_rows)} fichier(s) deja connu(s) en base ({len(known_hashes)} empreinte(s) de contenu).")
 
     candidates = [
         p for p in sorted(watch_path.iterdir())
@@ -675,7 +733,7 @@ def main():
                 continue
             nouveaux += 1
             try:
-                process_file(p, chemin_relatif, word_converter)
+                process_file(p, chemin_relatif, word_converter, known_hashes)
             except Exception as e:
                 log(f"  ERREUR inattendue sur {p.name} : {e}")
     finally:

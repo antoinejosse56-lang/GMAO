@@ -21,6 +21,7 @@ Usage :
 A lancer periodiquement via le Planificateur de taches Windows, en parallele
 de import_factures.py (deux taches distinctes, memes dependances).
 """
+import hashlib
 import mimetypes
 import os
 import shutil
@@ -93,6 +94,30 @@ def fetch_known_rows() -> dict:
     return known
 
 
+def fetch_known_hashes() -> set:
+    """Meme principe que dans import_factures.py : reperer un devis deja recu
+    sous un autre nom de fichier (2 boites mail, depot manuel + re-scan Gmail)."""
+    hashes = set()
+    offset = 0
+    page_size = 1000
+    while True:
+        resp = requests.get(
+            f"{SUPABASE_URL}/rest/v1/{TABLE}",
+            params={"select": "content_hash"},
+            headers={**HEADERS, "Range-Unit": "items", "Range": f"{offset}-{offset+page_size-1}"},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        page = resp.json()
+        for row in page:
+            if row.get("content_hash"):
+                hashes.add(row["content_hash"])
+        if len(page) < page_size:
+            break
+        offset += page_size
+    return hashes
+
+
 def archive_path_for(bien: str, motif: str) -> Path:
     """Meme logique que archive_path_for dans import_factures.py, dupliquee ici
     pour utiliser DEVIS_ARCHIVE_DIR au lieu de ARCHIVE_DIR (constante differente,
@@ -155,7 +180,7 @@ def insert_row(row: dict):
         raise RuntimeError(f"insert {TABLE} echoue ({resp.status_code}) : {resp.text[:300]}")
 
 
-def process_file(path: Path, chemin_relatif: str, word_converter: LazyWordConverter = None):
+def process_file(path: Path, chemin_relatif: str, word_converter: LazyWordConverter = None, known_hashes: set = None):
     log(f"Nouveau fichier : {chemin_relatif}")
     ext = path.suffix.lower()
     content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
@@ -171,6 +196,7 @@ def process_file(path: Path, chemin_relatif: str, word_converter: LazyWordConver
         "montant_ttc": None,
         "date_devis": None,
         "erreur_extraction": None,
+        "content_hash": None,
     }
 
     try:
@@ -178,6 +204,27 @@ def process_file(path: Path, chemin_relatif: str, word_converter: LazyWordConver
     except OSError as e:
         row["erreur_extraction"] = f"Fichier illisible sur le disque : {e}"
         insert_row(row)
+        return
+
+    content_hash = hashlib.sha256(content).hexdigest()
+    row["content_hash"] = content_hash
+    is_duplicate = known_hashes is not None and content_hash in known_hashes
+    if known_hashes is not None:
+        known_hashes.add(content_hash)
+
+    if is_duplicate:
+        row["erreur_extraction"] = (
+            "Doublon detecte automatiquement (meme contenu qu'un fichier deja recu, "
+            "probablement recu sur les 2 boites mail ou deja depose a la main)"
+        )
+        row["statut"] = "rejete"
+        try:
+            upload_to_storage(storage_path, content, content_type)
+            row["storage_path"] = storage_path
+        except Exception as e:
+            row["erreur_extraction"] += f" (upload echoue : {e})"
+        insert_row(row)
+        log(f"  -> doublon detecte, rejete automatiquement (hash {content_hash[:8]}...)")
         return
 
     try:
@@ -263,7 +310,8 @@ def main():
         sys.exit(f"Dossier introuvable ou inaccessible : {WATCH_DIR}")
 
     known_rows = fetch_known_rows()
-    log(f"{len(known_rows)} fichier(s) deja connu(s) en base.")
+    known_hashes = fetch_known_hashes()
+    log(f"{len(known_rows)} fichier(s) deja connu(s) en base ({len(known_hashes)} empreinte(s) de contenu).")
 
     candidates = [
         p for p in sorted(watch_path.iterdir())
@@ -280,7 +328,7 @@ def main():
                 continue
             nouveaux += 1
             try:
-                process_file(p, chemin_relatif, word_converter)
+                process_file(p, chemin_relatif, word_converter, known_hashes)
             except Exception as e:
                 log(f"  ERREUR inattendue sur {p.name} : {e}")
     finally:
