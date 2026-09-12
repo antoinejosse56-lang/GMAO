@@ -2681,10 +2681,20 @@ function renderLocatif(){
         +'<div class="card" style="margin-bottom:10px"><div style="overflow-x:auto"><table style="min-width:560px"><thead><tr><th style="font-size:10px">Émise le</th><th style="font-size:10px">Locataire</th><th style="font-size:10px">Local</th><th style="font-size:10px;text-align:right">TF année/n-1</th><th style="font-size:10px;text-align:right">Augmentation</th><th style="font-size:10px;text-align:right">Total facturé</th><th style="font-size:10px">Actions</th></tr></thead><tbody>'+rows+'</tbody></table></div></div>'
         +'<div class="card" style="background:var(--bg2);margin-bottom:20px"><div style="display:flex;justify-content:space-between;font-weight:700"><span>Total '+year+'</span><span>'+fmt(gT)+'</span></div></div>';
     }
-    return tabBar+yearBar
-      +'<div class="card" style="margin-bottom:16px">'+buildQttBlock(rpByBien)+'</div>'
-      +'<div class="card" style="margin-bottom:16px">'+buildRelBlock(relByBien)+'</div>'
-      +'<div class="card">'+buildTfBlock()+'</div>';
+    const emisesType=S.emisesType||'all';
+    const emisesFilterBar=`<div class="form-group" style="max-width:260px;margin-bottom:14px">
+      <label>Afficher</label>
+      <select id="emises-type-filter">
+        <option value="all" ${emisesType==='all'?'selected':''}>Tout</option>
+        <option value="quittances" ${emisesType==='quittances'?'selected':''}>Quittances de loyer</option>
+        <option value="eau" ${emisesType==='eau'?'selected':''}>Factures eau</option>
+        <option value="tf" ${emisesType==='tf'?'selected':''}>Taxe foncière</option>
+      </select>
+    </div>`;
+    return tabBar+yearBar+emisesFilterBar
+      +((emisesType==='all'||emisesType==='quittances')?'<div class="card" style="margin-bottom:16px">'+buildQttBlock(rpByBien)+'</div>':'')
+      +((emisesType==='all'||emisesType==='eau')?'<div class="card" style="margin-bottom:16px">'+buildRelBlock(relByBien)+'</div>':'')
+      +((emisesType==='all'||emisesType==='tf')?'<div class="card">'+buildTfBlock()+'</div>':'');
   }
 
 
@@ -8124,6 +8134,8 @@ function bindAll(){
   document.querySelectorAll('[data-loc-tab]').forEach(el=>el.onclick=()=>{S.locatifTab=el.dataset.locTab;render();});
   document.querySelectorAll('[data-loc-year]').forEach(el=>el.onclick=()=>{S.locatifYear=parseInt(el.dataset.locYear);render();});
   document.querySelectorAll('[data-sel-tenant]').forEach(el=>el.onclick=()=>{S.selTenantLoyer=el.dataset.selTenant;render();});
+  const emisesTypeFilter=document.getElementById('emises-type-filter');
+  if(emisesTypeFilter)emisesTypeFilter.onchange=()=>{S.emisesType=emisesTypeFilter.value;render();};
 
   // Valider loyer (montant = loyer_ref par défaut)
   document.querySelectorAll('[data-pay-loyer]').forEach(el=>el.onclick=async()=>{
