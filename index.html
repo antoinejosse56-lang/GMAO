@@ -165,7 +165,46 @@ function estPaye(f){return !!f.date_paiement;}
 // Motifs de facture predefinis, utilises pour classer les factures archivees
 // par sous-dossier (facilite la recherche en cas de revente d'un bien/zone).
 // "Autre" reste toujours possible via saisie libre a cote du select.
-const MOTIFS=['Entretien','Rénovation','Travaux','Études','Médicale','Diagnostiques','Achat électroménager','Achat outillage','Consommables','Énergie','Eau'];
+const MOTIFS=['Entretien','Rénovation','Travaux','Études','Médicale','Diagnostiques','Achat électroménager','Achat outillage','Consommables','Énergie','Eau','Taxe foncière'];
+// Tarif moyen (TTC/m3) a repercuter aux locataires pour leur consommation
+// d'eau, deduit de la derniere facture d'eau reelle enregistree (montant_ttc
+// / consommation_m3) plutot que ressaisi a la main a chaque releve - evite
+// l'oubli de mise a jour quand le tarif de l'agglo augmente.
+function lastTarifEau(){
+  const facts=(S.factures||[]).filter(f=>f.motif==='Eau'&&f.consommation_m3>0&&f.montant_ttc>0)
+    .sort((a,b)=>new Date(b.date)-new Date(a.date));
+  const f=facts[0];
+  if(!f)return null;
+  return {tarif:Math.round((f.montant_ttc/f.consommation_m3)*1000)/1000,facture:f};
+}
+// Montant total de taxe fonciere enregistre pour l'immeuble Dubail pour une
+// annee donnee (somme si plusieurs lignes, ex: acompte + solde).
+function tfTotalForYear(year){
+  const facts=(S.factures||[]).filter(f=>f.motif==='Taxe foncière'&&dubailFilter(f.bien||'')&&(f.date||'').startsWith(String(year)));
+  if(!facts.length)return null;
+  return Math.round(facts.reduce((s,f)=>s+(f.montant_ttc||0),0)*100)/100;
+}
+// Determine si une regularisation TF est due pour un locataire commercial :
+// bail toujours actif, surface renseignee, anniversaire du bail deja passe
+// cette annee, et la TF de l'annee suivant la derniere regularisation est
+// disponible. Ne calcule jamais rien pour un locataire parti (actif=false) -
+// on ne facture pas retroactivement quelqu'un qui n'occupe plus le local.
+function tfRegulStatus(tenant){
+  if(tenant.actif===false||!tenant.tf_surface_m2||!tenant.tf_surface_totale_m2||!tenant.date_entree)return null;
+  const today=new Date();
+  const entree=new Date(tenant.date_entree);
+  const anniversaireCetteAnnee=new Date(today.getFullYear(),entree.getMonth(),entree.getDate());
+  if(anniversaireCetteAnnee>today)return null; // anniversaire pas encore passe cette annee
+  const derniereAnnee=tenant.tf_dernier_regul_annee||entree.getFullYear();
+  const anneeACalculer=derniereAnnee+1;
+  if(anneeACalculer>today.getFullYear())return null; // deja a jour
+  const tfAnnee=tfTotalForYear(anneeACalculer);
+  const tfPrecedente=tfTotalForYear(anneeACalculer-1);
+  if(tfAnnee==null||tfPrecedente==null)return null; // facture TF pas encore recue/validee
+  const fraction=tenant.tf_surface_m2/tenant.tf_surface_totale_m2;
+  const augmentationAnnuelleHT=Math.round((tfAnnee-tfPrecedente)*fraction*100)/100;
+  return {annee:anneeACalculer,tfAnnee,tfPrecedente,fraction,augmentationAnnuelleHT};
+}
 // Categories de facture, utilisees pour le filtre de la liste et le formulaire
 // manuel - une seule liste partagee pour eviter les deux copies divergentes.
 const CATS_FACTURE=['Travaux/Artisan','Matériaux','Énergie','Téléphone/Internet','Assurance','Abonnement','Achat','Autre'];
@@ -311,7 +350,7 @@ let S = {
   // data
   users: [], assets: [], tasks: [], tools: [], loans: [],
   workOrders: [], maintenanceTemplates: [], topology: {properties: []},
-  factures: [], facturesAValider: [], fournisseurs: [], chantiers: [], devis: [], devisAValider: [], bienDocuments: [], revenues: [], finTab: 'overview', reservations: [], resaYear: new Date().getFullYear(), taxeSejourTaux: 5, taxeSejourPlafond: 4.60, compteurs: [], releves: [], rangements: [], famille: [], consommables: [], crecheSaisies: [], ecoleSaisies: [], familleTab: 'membres', finFactCpte: 'savadur', familleEnfant: null
+  factures: [], facturesAValider: [], fournisseurs: [], chantiers: [], devis: [], devisAValider: [], bienDocuments: [], revenues: [], finTab: 'overview', reservations: [], resaYear: new Date().getFullYear(), taxeSejourTaux: 5, taxeSejourPlafond: 4.60, compteurs: [], releves: [], rangements: [], famille: [], consommables: [], crecheSaisies: [], ecoleSaisies: [], familleTab: 'membres', finFactCpte: 'savadur', familleEnfant: null, tfRegularisations: []
 };
 
 async function loadAll() {
@@ -330,7 +369,7 @@ async function loadAll() {
     const test = await sb.from('users').select('count', {count:'exact',head:true});
     if (test.error) { showError(test.error.message || JSON.stringify(test.error)); return; }
 
-    const [u, a, t, tl, l, wo, mt, topo, rev, cpt, rel, ten, rp, wr, rng, fam, crecheRes, ecoleRes, conso, facturesRes, resaRes, favRes, fournRes, chantiersRes, devisRes, devisAvRes, bienDocsRes] = await Promise.all([
+    const [u, a, t, tl, l, wo, mt, topo, rev, cpt, rel, ten, rp, wr, rng, fam, crecheRes, ecoleRes, conso, facturesRes, resaRes, favRes, fournRes, chantiersRes, devisRes, devisAvRes, bienDocsRes, tfRegulRes] = await Promise.all([
       sb.from('users').select('*'),
       sb.from('assets').select('*'),
       sb.from('tasks').select('*'),
@@ -357,7 +396,8 @@ async function loadAll() {
       sb.from('chantiers').select('*').order('created_at',{ascending:false}),
       sb.from('devis').select('*'),
       fetchAllRows('devis_a_valider','created_at',false),
-      sb.from('bien_documents').select('*').order('created_at',{ascending:false})
+      sb.from('bien_documents').select('*').order('created_at',{ascending:false}),
+      sb.from('tf_regularisations').select('*')
     ]);
 
     // Only block on critical tables
@@ -403,6 +443,8 @@ async function loadAll() {
     S.devisAValider = devisAvRes?.error ? [] : (devisAvRes?.data || []);
     if (bienDocsRes?.error) console.warn('Table bien_documents non disponible:', bienDocsRes.error.message);
     S.bienDocuments = bienDocsRes?.error ? [] : (bienDocsRes?.data || []);
+    if (tfRegulRes?.error) console.warn('Table tf_regularisations non disponible:', tfRegulRes.error.message);
+    S.tfRegularisations = tfRegulRes?.error ? [] : (tfRegulRes?.data || []);
     const loadedTopo = topo.data?.[0]?.data;
     S.topoId = topo.data?.[0]?.id;
     if(loadedTopo?.properties?.length){
@@ -2106,7 +2148,17 @@ function renderLocatif(){
     <div class="tab ${tab==='emises'?'active':''}" data-loc-tab="emises">Émises</div>
   </div>`;
 
-  const yearBar = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+  // Rappel des regularisations de taxe fonciere dues (anniversaire du bail
+  // passe + nouvelle TF disponible) - jamais de calcul pour un bail parti.
+  const tfDues=tenants.map(t=>({t,due:tfRegulStatus(t)})).filter(x=>x.due);
+  const tfReminderBar=tfDues.length?`<div style="background:var(--amber-bg);border:0.5px solid var(--amber);border-radius:var(--radius);padding:10px 14px;margin-bottom:14px">
+    ${tfDues.map(({t,due})=>`<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:12px;padding:3px 0">
+      <span>💶 Régularisation taxe foncière <b>${due.annee}</b> due pour <b>${t.nom}</b> (${t.logement||''}) — augmentation estimée : ${new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(due.augmentationAnnuelleHT)} HT/an</span>
+      <button class="btn btn-sm btn-p" data-open-regul-tf="${t.id}">Générer la lettre</button>
+    </div>`).join('')}
+  </div>`:'';
+
+  const yearBar = `${tfReminderBar}<div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
     <span style="font-size:12px;color:var(--text2)">Année :</span>
     ${[2024,2025,2026,2027].map(y=>`<span class="pill ${year===y?'active':''}" data-loc-year="${y}">${y}</span>`).join('')}
   </div>`;
@@ -2606,9 +2658,33 @@ function renderLocatif(){
       const gT=biens.reduce((s,b)=>s+Object.keys(byBien[b]).reduce((s2,z)=>s2+byBien[b][z].reduce((s3,r)=>{const co=Math.round(((r.nouvel_index||0)-(r.ancien_index||0))*1000)/1000;return s3+Math.round(co*(r.prix_unitaire||r._cpt?.prix_unitaire||0)*100)/100;},0),0),0);
       return '<div style="font-size:14px;font-weight:700;color:'+color+';margin-bottom:10px;padding-bottom:8px;border-bottom:2px solid '+color+'">'+title+'</div>'+bHtml+'<div class="card" style="background:var(--bg2);margin-bottom:20px"><div style="display:flex;justify-content:space-between;font-weight:700"><span>Total '+year+'</span><span>'+fmt(gT)+'</span></div></div>';
     }
+    function buildTfBlock(){
+      const color='#BA7517';const title='Régularisations taxe foncière';
+      const items=(S.tfRegularisations||[]).filter(r=>r.annee===year&&(!dubailTenantIds||dubailTenantIds.includes(r.tenant_id)))
+        .sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
+      if(!items.length)return '<div style="padding:16px;text-align:center;color:var(--text2)">Aucune régularisation taxe foncière émise en '+year+'</div>';
+      const rows=items.map(function(r){
+        const t=S.tenants.find(x=>x.id===r.tenant_id);
+        return '<tr>'
+          +'<td style="font-size:11px;white-space:nowrap">'+dateLabel(r.created_at)+'</td>'
+          +'<td>'+(t?.nom||'—')+'</td>'
+          +'<td style="font-size:11px;color:var(--text2)">'+(t?.logement||'')+'</td>'
+          +'<td style="text-align:right;font-size:11px">'+fmt(r.tf_annee)+' vs '+fmt(r.tf_annee_precedente)+'</td>'
+          +'<td style="text-align:right;font-size:11px">'+fmt(r.augmentation_annuelle_ht)+' HT/an'+(r.nb_mois_augmentation<12?' ('+r.nb_mois_augmentation+' mois fact.)':'')+'</td>'
+          +'<td style="text-align:right;font-weight:600">'+fmt(r.total_ttc)+'</td>'
+          +'<td style="text-align:center;white-space:nowrap">'
+            +(t?'<button class="btn btn-sm" data-print-tf="'+r.id+'" style="font-size:10px;padding:2px 5px" title="Réouvrir la lettre">&#128438;</button>':'')
+          +'</td></tr>';
+      }).join('');
+      const gT=items.reduce((s,r)=>s+(r.total_ttc||0),0);
+      return '<div style="font-size:14px;font-weight:700;color:'+color+';margin-bottom:10px;padding-bottom:8px;border-bottom:2px solid '+color+'">'+title+'</div>'
+        +'<div class="card" style="margin-bottom:10px"><div style="overflow-x:auto"><table style="min-width:560px"><thead><tr><th style="font-size:10px">Émise le</th><th style="font-size:10px">Locataire</th><th style="font-size:10px">Local</th><th style="font-size:10px;text-align:right">TF année/n-1</th><th style="font-size:10px;text-align:right">Augmentation</th><th style="font-size:10px;text-align:right">Total facturé</th><th style="font-size:10px">Actions</th></tr></thead><tbody>'+rows+'</tbody></table></div></div>'
+        +'<div class="card" style="background:var(--bg2);margin-bottom:20px"><div style="display:flex;justify-content:space-between;font-weight:700"><span>Total '+year+'</span><span>'+fmt(gT)+'</span></div></div>';
+    }
     return tabBar+yearBar
       +'<div class="card" style="margin-bottom:16px">'+buildQttBlock(rpByBien)+'</div>'
-      +'<div class="card">'+buildRelBlock(relByBien)+'</div>';
+      +'<div class="card" style="margin-bottom:16px">'+buildRelBlock(relByBien)+'</div>'
+      +'<div class="card">'+buildTfBlock()+'</div>';
   }
 
 
@@ -2912,7 +2988,8 @@ function renderFactures(){
             <td style="vertical-align:top"><select class="fav-chantier" data-fav-id="${f.id}" style="width:150px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">${chantierOptsFor(f.chantier_id||'')}</select></td>
             <td style="vertical-align:top">
               <select class="fav-motif" data-fav-id="${f.id}" style="width:110px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px;margin-bottom:3px">${motifOptsFor(MOTIFS.includes(f.motif)?f.motif:'')}</select>
-              <input class="fav-motif-autre" data-fav-id="${f.id}" value="${(f.motif&&!MOTIFS.includes(f.motif))?f.motif.replace(/"/g,'&quot;'):''}" placeholder="Autre motif..." style="width:110px;padding:4px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:11px">
+              <input class="fav-motif-autre" data-fav-id="${f.id}" value="${(f.motif&&!MOTIFS.includes(f.motif))?f.motif.replace(/"/g,'&quot;'):''}" placeholder="Autre motif..." style="width:110px;padding:4px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:11px;margin-bottom:3px">
+              <input type="number" step="1" class="fav-conso-eau" data-fav-id="${f.id}" value="${f.consommation_m3||''}" placeholder="Conso eau (m³)" title="Si c'est une facture d'eau : consommation totale indiquée sur la facture, pour calculer le tarif moyen au m³" style="width:110px;padding:4px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:11px">
             </td>
             <td style="vertical-align:top"><select class="fav-compte" data-fav-id="${f.id}" style="width:110px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">${compteOptsFor(compteGuess(f))}</select></td>
             <td style="vertical-align:top"><input type="date" class="fav-date-paiement" data-fav-id="${f.id}" style="width:130px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px"></td>
@@ -5999,6 +6076,15 @@ function renderModal(){
       <div class="form-group"><label>Date d'entrée</label><input id="m-tent" type="date" value="${t.date_entree||''}" autocomplete="off"></div>
       <div class="form-group"><label>Date de sortie</label><input id="m-tsort" type="date" value="${t.date_sortie||''}" autocomplete="off"></div>
     </div>
+    ${t.type_bail==='commercial'?`
+    <div class="sec" style="margin-top:8px;margin-bottom:8px">💶 Régularisation taxe foncière</div>
+    <div class="g2c">
+      <div class="form-group"><label>Surface du local (m²)</label><input id="m-ttf-surf" type="number" step="0.1" value="${t.tf_surface_m2||''}" placeholder="Ex: 72"></div>
+      <div class="form-group"><label>Surface totale de l'immeuble (m²)</label><input id="m-ttf-tot" type="number" step="0.1" value="${t.tf_surface_totale_m2||''}" placeholder="Ex: 483"></div>
+    </div>
+    <div class="form-group"><label>Dernière année déjà régularisée</label><input id="m-ttf-annee" type="number" value="${t.tf_dernier_regul_annee||''}" placeholder="Ex: 2025"></div>
+    <div style="font-size:11px;color:var(--text2);margin-top:-6px;margin-bottom:10px">Renseignez la surface pour activer le calcul automatique de la part d'augmentation de taxe foncière (le rappel apparaîtra à l'anniversaire du bail dès qu'une année n'est pas encore régularisée).</div>
+    `:''}
     <div class="form-group"><label>Bénéficiaire CAF</label>
       <select id="m-tcaf"><option value="false" ${!t.caf?'selected':''}>Non</option><option value="true" ${t.caf?'selected':''}>Oui</option></select>
     </div>
@@ -6228,6 +6314,8 @@ function renderModal(){
     const cpt = S.compteurs.find(c=>c.id===m.cptId)||{};
     const lastRel = S.releves.filter(r=>r.compteur_id===m.cptId).sort((a,b)=>new Date(b.date)-new Date(a.date))[0];
     const tenant = cpt.tenant_id?S.tenants.find(t=>t.id===cpt.tenant_id):null;
+    const tarifEau = lastTarifEau();
+    const prixDefaut = tarifEau?tarifEau.tarif:(cpt.prix_unitaire||lastRel?.prix_unitaire||0);
     html=`${mhd('Nouveau relevé — '+(cpt.name||''))}
     <div class="form-group"><label>Compteur</label><select id="m-rcpt">
       ${S.compteurs.map(c=>`<option value="${c.id}" ${c.id===m.cptId?'selected':''}>${c.name}${c.tenant_id?(()=>{const t=S.tenants.find(x=>x.id===c.tenant_id);return t?' — '+t.nom:'';})():''}</option>`).join('')}
@@ -6244,12 +6332,44 @@ function renderModal(){
       <div class="form-group"><label>Nouvel index *</label><input id="m-rnew" type="number" step="0.001" placeholder="Ex: 285.30" autofocus></div>
     </div>
     <div class="g2c">
-      <div class="form-group"><label>Prix unitaire (€/${cpt.unite||'m³'})</label><input id="m-rprix" type="number" step="0.001" value="${cpt.prix_unitaire||lastRel?.prix_unitaire||0}" placeholder="Ex: 3.50"></div>
+      <div class="form-group"><label>Prix unitaire (€/${cpt.unite||'m³'})</label><input id="m-rprix" type="number" step="0.001" value="${prixDefaut}" placeholder="Ex: 3.50"></div>
       <div class="form-group"><label>Notes</label><input id="m-rnotes" placeholder="Remarques..."></div>
     </div>
+    ${tarifEau?`<div style="background:var(--bg2);padding:8px 12px;border-radius:var(--radius);font-size:11px;color:var(--text2);margin-bottom:10px">
+      💧 Tarif moyen calculé à partir de la dernière facture d'eau enregistrée (${tarifEau.facture.fournisseur||''}, ${dateLabel(tarifEau.facture.date)}) : ${new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR',minimumFractionDigits:3}).format(tarifEau.facture.montant_ttc)} / ${tarifEau.facture.consommation_m3} m³.
+    </div>`:''}
     ${tenant?.email?`<div style="background:#e8f5e9;padding:8px 12px;border-radius:var(--radius);font-size:12px;margin-top:8px">
       📧 Une facture eau sera générée et envoyée à <b>${tenant.email}</b> à la validation.
     </div>`:''}
+    ${mf}`;
+  }
+
+  if(m.type==='regul-tf'){
+    const t=S.tenants.find(x=>x.id===m.tenantId)||{};
+    const due=tfRegulStatus(t)||m.due;
+    const fmt2=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(n||0);
+    const moisNoms=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+    const moisAnniv=moisNoms[new Date(t.date_entree).getMonth()];
+    const monthlyHT=Math.round((due.augmentationAnnuelleHT/12)*100)/100;
+    const augHT=due._augHT!=null?due._augHT:due.augmentationAnnuelleHT;
+    const regulHT=due._regulHT!=null?due._regulHT:monthlyHT;
+    html=`${mhd('💶 Régularisation taxe foncière '+due.annee+' — '+t.nom)}
+    <div style="background:var(--bg2);padding:10px 12px;border-radius:var(--radius);margin-bottom:12px;font-size:12px">
+      TF ${due.annee} : <b>${fmt2(due.tfAnnee)}</b> — TF ${due.annee-1} : <b>${fmt2(due.tfPrecedente)}</b> — Part locataire : <b>${t.tf_surface_m2}/${t.tf_surface_totale_m2}</b><br>
+      Augmentation annuelle (part locataire) : <b>${fmt2(due.augmentationAnnuelleHT)} HT</b> soit ${fmt2(monthlyHT)} HT/mois
+    </div>
+    <div class="g2c">
+      <div class="form-group"><label>Augmentation ${due.annee} HT — nb de mois à facturer</label>
+        <input id="m-tf-mois" type="number" min="1" max="12" value="12" oninput="document.getElementById('m-tf-aug').value=Math.round((${monthlyHT})*this.value*100)/100">
+      </div>
+      <div class="form-group"><label>Montant HT correspondant</label><input id="m-tf-aug" type="number" step="0.01" value="${augHT}"></div>
+    </div>
+    <div class="form-group"><label>Régularisation d'un mois (rattrapage ${moisAnniv} ${due.annee}) — HT</label>
+      <input id="m-tf-regul" type="number" step="0.01" value="${regulHT}">
+    </div>
+    <div style="background:var(--bg2);padding:8px 12px;border-radius:var(--radius);font-size:11px;color:var(--text2)">
+      TVA 20% appliquée automatiquement sur les 2 lignes. La charge mensuelle de ${t.nom} sera augmentée de ${fmt2(monthlyHT)} HT à partir de la validation.
+    </div>
     ${mf}`;
   }
 
@@ -7223,6 +7343,9 @@ async function saveModal(){
       bail_url:q('m-tbail-url')?.value||'',edl_url:q('m-tedl-url')?.value||'',
       assurance_url:q('m-tassur-url')?.value||'',
       date_entree:q('m-tent')?.value||null,date_sortie:q('m-tsort')?.value||null,
+      tf_surface_m2:parseFloat(q('m-ttf-surf')?.value)||null,
+      tf_surface_totale_m2:parseFloat(q('m-ttf-tot')?.value)||null,
+      tf_dernier_regul_annee:parseInt(q('m-ttf-annee')?.value)||null,
       notes:q('m-tnotes')?.value||''};
     if(m.type==='add-tenant'){
       const {data,error}=await sb.from('tenants').insert(rec).select().single();
@@ -7381,6 +7504,34 @@ async function saveModal(){
       mb.contrat_ecole=upd;
     }
     S.familleEnfant=membId;
+  }
+
+  if(m.type==='regul-tf'){
+    const t=S.tenants.find(x=>x.id===m.tenantId);
+    if(!t)return;
+    const due=tfRegulStatus(t)||m.due;
+    if(!due)return alert('Régularisation introuvable (données modifiées entre-temps)');
+    const augHT=parseFloat(q('m-tf-aug')?.value);
+    const regulHT=parseFloat(q('m-tf-regul')?.value);
+    const nbMois=parseFloat(q('m-tf-mois')?.value)||12;
+    if(isNaN(augHT)||isNaN(regulHT))return alert('Montants requis');
+    const monthlyHT=Math.round((due.augmentationAnnuelleHT/12)*100)/100;
+    const augTTC=Math.round(augHT*1.2*100)/100;
+    const regulTTC=Math.round(regulHT*1.2*100)/100;
+    const totalTTC=Math.round((augTTC+regulTTC)*100)/100;
+    const rec={
+      tenant_id:t.id,annee:due.annee,tf_annee:due.tfAnnee,tf_annee_precedente:due.tfPrecedente,
+      augmentation_annuelle_ht:due.augmentationAnnuelleHT,nb_mois_augmentation:nbMois,
+      augmentation_ht:augHT,augmentation_ttc:augTTC,regul_mois_ht:regulHT,regul_mois_ttc:regulTTC,total_ttc:totalTTC
+    };
+    const{data,error}=await sb.from('tf_regularisations').insert(rec).select().single();
+    if(error){alert('Erreur enregistrement régularisation : '+error.message);return;}
+    S.tfRegularisations=[data,...(S.tfRegularisations||[])];
+    const newCharges=Math.round(((t.charges||0)+monthlyHT)*100)/100;
+    const{error:updErr}=await sb.from('tenants').update({charges:newCharges,tf_dernier_regul_annee:due.annee}).eq('id',t.id);
+    if(updErr){alert('Régularisation enregistrée, mais erreur de mise à jour de la charge mensuelle : '+updErr.message);}
+    else{t.charges=newCharges;t.tf_dernier_regul_annee=due.annee;}
+    genRegulTFPDF(t,due,{augHT,augTTC,regulHT,regulTTC,totalTTC,nbMois});
   }
 
   closeModal();
@@ -7543,6 +7694,49 @@ function genFactureEauPDF(tenant, releves, mois, annee){
   w.document.write(html);
   w.document.close();
   setTimeout(()=>w.print(),500);
+}
+
+// Lettre de regularisation annuelle de taxe fonciere pour un local commercial,
+// sur le meme modele que les courriers envoyes manuellement jusqu'ici (BAAM,
+// SARL ANNA) : augmentation annuelle au prorata de surface + un mois de
+// rattrapage, HT/TVA/TTC.
+function genRegulTFPDF(tenant, due, montants){
+  const fmt=n=>new Intl.NumberFormat("fr-FR",{style:"currency",currency:"EUR"}).format(n||0);
+  const moisNoms=["Janvier","Février","Mars","Avril","Mai","Juin","Juillet","Août","Septembre","Octobre","Novembre","Décembre"];
+  const moisAnniv=moisNoms[new Date(tenant.date_entree).getMonth()];
+  const {augHT,augTTC,regulHT,regulTTC,totalTTC,nbMois}=montants;
+  // Mois a partir duquel le nouveau montant mensuel s'applique : celui indique
+  // explicitement par le montant (cas particulier, ex: bail demarre en cours
+  // d'annee) sinon le mois suivant l'anniversaire du bail par defaut.
+  const moisApplication=montants.moisApplication||(moisNoms[(new Date(tenant.date_entree).getMonth()+1)%12]+" "+(new Date(tenant.date_entree).getMonth()===11?due.annee+1:due.annee));
+  const loyerTTC=Math.round((tenant.loyer_ref||0)*1.2*100)/100;
+  const chargesTTC=Math.round((tenant.charges||0)*1.2*100)/100;
+  const totalMensuelTTC=Math.round((loyerTTC+chargesTTC)*100)/100;
+  const html="<!DOCTYPE html><html><head><meta charset=\"utf-8\">"
+    +"<title>Régularisation taxe foncière</title>"
+    +"<style>body{font-family:Arial,sans-serif;margin:0;padding:40px;color:#222;font-size:13px}"
+    +".title{text-align:center;font-size:18px;font-weight:700;margin-bottom:30px}"
+    +"table{width:100%;border-collapse:collapse;margin:16px 0}"
+    +"td,th{padding:8px 10px;border:1px solid #ddd;font-size:12px}"
+    +"th{background:#cfe8ff;font-weight:600;text-align:left}"
+    +".total{font-weight:700;background:#cfe8ff}"
+    +"@media print{body{padding:20px}}</style></head><body>"
+    +"<div class=\"title\">Régularisation taxe foncière "+due.annee+"</div>"
+    +"<p>J&amp;A SAVADUR<br>29 RUE AMIRAL BOUVET<br>56100 LORIENT<br>savadur56@gmail.com<br>0630370688</p>"
+    +"<p><strong>"+tenant.nom+"</strong><br>"+(tenant.logement||"").replace(/^.*—\s*/,"")+"<br>56100 Lorient</p>"
+    +"<p><strong>Facture régularisation taxe foncière "+due.annee+"</strong></p>"
+    +"<table><thead><tr><th>Description</th><th style=\"text-align:right\">Prix HT</th><th style=\"text-align:right\">TVA</th><th style=\"text-align:right\">Prix TTC</th></tr></thead><tbody>"
+    +"<tr><td>Augmentation taxe foncière "+due.annee+(nbMois<12?" ("+nbMois+" mois)":"")+"</td><td style=\"text-align:right\">"+fmt(augHT)+"</td><td style=\"text-align:right\">"+fmt(augTTC-augHT)+"</td><td style=\"text-align:right\">"+fmt(augTTC)+"</td></tr>"
+    +"<tr><td>Régul TF "+moisAnniv+" "+due.annee+"</td><td style=\"text-align:right\">"+fmt(regulHT)+"</td><td style=\"text-align:right\">"+fmt(regulTTC-regulHT)+"</td><td style=\"text-align:right\">"+fmt(regulTTC)+"</td></tr>"
+    +"</tbody><tfoot><tr class=\"total\"><td colspan=\"3\">TOTAL</td><td style=\"text-align:right\">"+fmt(totalTTC)+"</td></tr></tfoot></table>"
+    +"<p>À compter de <strong>"+moisApplication+"</strong>, le nouveau montant mensuel total à verser (loyer + charges, TTC) sera de <strong>"+fmt(totalMensuelTTC)+"</strong> (loyer : "+fmt(loyerTTC)+" — charges : "+fmt(chargesTTC)+").</p>"
+    +"<p>En vous souhaitant bonne réception,</p>"
+    +"<p>SCI J&amp;A SAVADUR<br>savadur56@gmail.com<br>JOSSE Antoine<br>Gérant<br>06.30.37.06.88</p>"
+    +"<div style=\"margin-top:24px\" class=\"no-print\"><button onclick=\"window.print()\" style=\"padding:8px 16px\">🖨 Imprimer / PDF</button></div>"
+    +"</body></html>";
+  const w=window.open("","_blank","width=800,height=900");
+  w.document.write(html);
+  w.document.close();
 }
 
 
@@ -8219,6 +8413,12 @@ function bindAll(){
   const btnAddRelAny=document.getElementById('btn-add-releve-any');
   if(btnAddRelAny)btnAddRelAny.onclick=()=>{S.modal={type:'add-releve',cptId:S.compteurs[0]?.id};render();};
   document.querySelectorAll('[data-add-releve]').forEach(el=>el.onclick=()=>{S.modal={type:'add-releve',cptId:el.dataset.addReleve};render();});
+  document.querySelectorAll('[data-open-regul-tf]').forEach(el=>el.onclick=()=>{
+    const t=S.tenants.find(x=>x.id===el.dataset.openRegulTf);
+    const due=t&&tfRegulStatus(t);
+    if(!due){alert('Régularisation introuvable (donnée modifiée entre-temps, rechargez la page)');return;}
+    S.modal={type:'regul-tf',tenantId:t.id,due};render();
+  });
   document.querySelectorAll('[data-edit-cpt]').forEach(el=>el.onclick=()=>{const c=S.compteurs.find(x=>x.id===el.dataset.editCpt);if(c){S.modal={type:'edit-cpt',cpt:c};render();}});
   document.querySelectorAll('[data-del-cpt]').forEach(el=>el.onclick=async()=>{
     if(!confirm('Supprimer ce compteur et tous ses relevés ?'))return;
@@ -8318,6 +8518,7 @@ function bindAll(){
     const dateFacture=document.querySelector('.fav-date[data-fav-id="'+id+'"]')?.value||'';
     const datePaiement=document.querySelector('.fav-date-paiement[data-fav-id="'+id+'"]')?.value||'';
     const compteFav=document.querySelector('.fav-compte[data-fav-id="'+id+'"]')?.value||'savadur';
+    const consoEau=parseFloat(document.querySelector('.fav-conso-eau[data-fav-id="'+id+'"]')?.value)||null;
     if(!entreprise){alert('Entreprise requise avant validation');return;}
     if(!montant||montant<=0){alert('Montant TTC requis avant validation');return;}
     if(!compteFav){alert('Compte requis avant validation');return;}
@@ -8369,7 +8570,7 @@ function bindAll(){
       const rec={fournisseur:entreprise,date:dateFacture||new Date().toISOString().slice(0,10),montant_ttc:part.montant,
         bien:part.bien||null,asset_id:assetId||null,famille_id:familleId||null,description:description||null,
         motif:motif||null,wo_id:woId||null,chantier_id:chantierId||null,document_url:documentUrl,compte:compteFav,rapproche:false,
-        date_paiement:datePaiement||null};
+        date_paiement:datePaiement||null,consommation_m3:motif==='Eau'?consoEau:null};
       const{data,error}=await sb.from('factures').insert(rec).select().single();
       if(error){alert(`Erreur enregistrement facture (${part.bien||'sans bien'}) : `+error.message);return;}
       S.factures=[data,...(S.factures||[])];
@@ -8813,6 +9014,15 @@ function bindAll(){
     if(!tenant)return;
     const dateStr=r.date?new Date(r.date).toLocaleDateString('fr-FR',{month:'long',year:'numeric'}):'';
     genFactureEauPDF(tenant,[r],dateStr,'');
+  });
+  document.querySelectorAll('[data-print-tf]').forEach(el=>el.onclick=()=>{
+    const r=(S.tfRegularisations||[]).find(x=>x.id===el.dataset.printTf);
+    if(!r)return;
+    const tenant=S.tenants.find(t=>t.id===r.tenant_id);
+    if(!tenant)return;
+    const due={annee:r.annee,tfAnnee:r.tf_annee,tfPrecedente:r.tf_annee_precedente};
+    const montants={augHT:r.augmentation_ht,augTTC:r.augmentation_ttc,regulHT:r.regul_mois_ht,regulTTC:r.regul_mois_ttc,totalTTC:r.total_ttc,nbMois:r.nb_mois_augmentation};
+    genRegulTFPDF(tenant,due,montants);
   });
   document.querySelectorAll('[data-relance-releve]').forEach(el=>el.onclick=async()=>{
     const r=S.releves.find(x=>x.id===el.dataset.relanceReleve);
