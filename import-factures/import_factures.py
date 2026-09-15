@@ -61,9 +61,15 @@ SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
 WATCH_DIR = os.environ.get("WATCH_DIR", "")
 # Optionnel : si renseigne, les fichiers dont la facture a ete validee dans le GMAO
-# sont deplaces du dossier de transit vers ARCHIVE_DIR/<savadur|perso>/<bien>/<zone>/.
+# sont copies du dossier de transit vers ARCHIVE_DIR/<savadur|perso>/<bien>/<zone>/.
 # Laisser vide pour desactiver l'archivage automatique.
 ARCHIVE_DIR = os.environ.get("ARCHIVE_DIR", "")
+# Prefixe ajoute (sur place, sans deplacer) au nom du fichier original une fois
+# archive - le dossier de transit sert aussi de file d'attente manuelle vers
+# Dext, donc on ne doit jamais en retirer un fichier tout seul : l'utilisateur
+# doit pouvoir le mettre dans Dext puis le supprimer lui-meme en toute
+# confiance, en sachant grace a ce prefixe qu'il est deja bien enregistre.
+PROCESSED_MARKER = "[GMAO OK] "
 
 BUCKET = "factures-a-valider"
 TABLE = "factures_a_valider"
@@ -282,15 +288,24 @@ def archive_filename_for(original_ext: str, entreprise: str, date_facture: str, 
 
 
 def archive_validated_files(watch_path: Path, known_rows: dict):
-    """Deplace vers ARCHIVE_DIR les fichiers encore presents dans le dossier de
+    """Copie vers ARCHIVE_DIR les fichiers encore presents dans le dossier de
     transit dont la facture correspondante a ete validee dans le GMAO. Ne touche
     pas aux fichiers en_attente ou rejetes - uniquement statut == 'valide'.
-    Renomme au passage au format 'NOM ENTREPRISE.DATE.Description.ext'."""
+    Renomme la copie au format 'NOM ENTREPRISE.DATE.Description.ext'.
+
+    L'original N'EST JAMAIS SUPPRIME NI DEPLACE : ce dossier sert aussi de
+    file d'attente manuelle vers Dext, donc le fichier doit rester disponible
+    pour que l'utilisateur puisse encore le deposer la-bas. Il est seulement
+    renomme sur place avec PROCESSED_MARKER en prefixe, pour indiquer sans
+    ambiguite qu'il a deja ete enregistre dans le GMAO et peut etre supprime
+    en toute confiance une fois envoye a Dext."""
     if not ARCHIVE_DIR:
         return
-    moved = 0
+    copied = 0
     for p in sorted(watch_path.iterdir()):
         if not p.is_file() or p.suffix.lower() not in ALLOWED_EXTENSIONS:
+            continue
+        if p.name.startswith(PROCESSED_MARKER):
             continue
         info = known_rows.get(p.name)
         if not info or info.get("statut") != "valide":
@@ -303,13 +318,15 @@ def archive_validated_files(watch_path: Path, known_rows: dict):
             log(f"  ARCHIVAGE ignore (deja present a destination) : {p.name} -> {new_name}")
             continue
         try:
-            shutil.move(str(p), str(dest))
-            moved += 1
-            log(f"Archive : {p.name} -> {dest}")
+            shutil.copy2(str(p), str(dest))
+            marked = p.with_name(PROCESSED_MARKER + p.name)
+            p.rename(marked)
+            copied += 1
+            log(f"Copie archivee : {p.name} -> {dest} (original conserve, renomme : {marked.name})")
         except OSError as e:
             log(f"  ERREUR archivage {p.name} : {e}")
-    if moved:
-        log(f"{moved} fichier(s) archive(s).")
+    if copied:
+        log(f"{copied} fichier(s) copie(s) vers l'archive (originaux conserves dans {watch_path}).")
 
 
 class LazyWordConverter:
@@ -720,7 +737,7 @@ def main():
 
     candidates = [
         p for p in sorted(watch_path.iterdir())
-        if p.is_file() and p.suffix.lower() in ALLOWED_EXTENSIONS
+        if p.is_file() and p.suffix.lower() in ALLOWED_EXTENSIONS and not p.name.startswith(PROCESSED_MARKER)
     ]
     log(f"{len(candidates)} fichier(s) eligible(s) trouve(s) dans {source_dir}")
 
