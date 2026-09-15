@@ -1942,8 +1942,12 @@ function renderTopology(){
         </div>`).join('')}
         ${allDocs.length===0?'<div style="font-size:11px;color:var(--text2)">Aucun document (DPE, diagnostic amiante/plomb...).</div>':''}
       </div>`:''}
-      ${bienStr&&matchingTenants.length>0?`<div class="card" style="padding:12px;margin-top:10px">
-        <div class="sec" style="margin:0 0 8px">🕐 Historique des locataires (${matchingTenants.length})</div>
+      ${bienStr?`<div class="card" style="padding:12px;margin-top:10px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <div class="sec" style="margin:0">🕐 Historique des locataires (${matchingTenants.length})</div>
+          ${canEdit()?`<button class="btn btn-sm btn-p" data-add-tenant-for="${bienStr.replace(/ - /g,' — ').replace(/"/g,'&quot;')}">+ Nouveau locataire</button>`:''}
+        </div>
+        <div style="font-size:11px;color:var(--text2);margin-bottom:6px">Un locataire qui part ne doit jamais être modifié pour en accueillir un nouveau : passez-le en "Parti" puis utilisez ce bouton pour créer une fiche séparée, sinon son bail et son historique sont perdus.</div>
         ${matchingTenants.map(t=>`<div class="row">
           <div class="fg">
             <div class="fgs" style="font-size:12px">${t.nom}${t.actif!==false?' <span class="badge bgreen" style="font-size:9px">Actuel</span>':' <span class="badge bgray" style="font-size:9px">Parti</span>'}</div>
@@ -1952,6 +1956,7 @@ function renderTopology(){
           ${t.bail_url?`<a href="${t.bail_url}" target="_blank" class="btn btn-sm">📄 Bail</a>`:''}
           ${canEdit()?`<button class="btn btn-sm" data-edit-tenant="${t.id}">✎</button>`:''}
         </div>`).join('')}
+        ${matchingTenants.length===0?'<div style="font-size:11px;color:var(--text2)">Aucun locataire enregistré pour ce logement.</div>':''}
       </div>`:''}
     </div>`;
   }
@@ -9048,6 +9053,18 @@ function bindAll(){
       S.modal={type:'edit-tenant',tenant:t};render();
       setTimeout(()=>updateTenantZonesFull(existingZone,existingSub),200);
     }});
+  document.querySelectorAll('[data-add-tenant-for]').forEach(el=>el.onclick=()=>{
+    const logStr=el.dataset.addTenantFor||'';
+    const sep=logStr.includes(' — ')?' — ':' - ';
+    const parts=logStr.split(sep);
+    const existingZone=parts[1]||'';
+    const existingSub=parts[2]||'';
+    // Nouvelle fiche locataire pre-remplie avec ce logement (jamais une
+    // modification de la fiche existante) : preserve le bail et
+    // l'historique du locataire qui part, voir la carte "Historique".
+    S.modal={type:'add-tenant',tenant:{logement:logStr}};render();
+    setTimeout(()=>updateTenantZonesFull(existingZone,existingSub),200);
+  });
   document.querySelectorAll('[data-del-tenant]').forEach(el=>el.onclick=async()=>{
     if(!confirm('Supprimer ce locataire ?'))return;
     await sb.from('tenants').delete().eq('id',el.dataset.delTenant);
