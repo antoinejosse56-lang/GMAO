@@ -557,7 +557,7 @@ async function loadAll() {
     const test = await sb.from('users').select('count', {count:'exact',head:true});
     if (test.error) { showError(test.error.message || JSON.stringify(test.error)); return; }
 
-    const [u, a, t, tl, l, wo, mt, topo, rev, cpt, rel, ten, rp, wr, rng, fam, crecheRes, ecoleRes, conso, facturesRes, resaRes, favRes, fournRes, chantiersRes, devisRes, devisAvRes, bienDocsRes, tfRegulRes, logFichesRes, logEdlRes] = await Promise.all([
+    const [u, a, t, tl, l, wo, mt, topo, rev, cpt, rel, ten, rp, rng, fam, crecheRes, ecoleRes, conso, facturesRes, resaRes, favRes, fournRes, chantiersRes, devisRes, devisAvRes, bienDocsRes, tfRegulRes, logFichesRes, logEdlRes] = await Promise.all([
       sb.from('users').select('*'),
       sb.from('assets').select('*'),
       sb.from('tasks').select('*'),
@@ -571,7 +571,6 @@ async function loadAll() {
       sb.from('releves').select('*').order('date', {ascending: false}),
       sb.from('tenants').select('*'),
       sb.from('rent_payments').select('*'),
-      sb.from('water_readings').select('*'),
       sb.from('rangements').select('*').order('nom'),
       sb.from('famille').select('*').order('prenom'),
       sb.from('creche_saisies').select('*').order('annee',{ascending:false}).order('mois',{ascending:false}).order('jour',{ascending:false}),
@@ -595,7 +594,7 @@ async function loadAll() {
       if (res.error) { showError(`Table "${name}" : ${res.error.message}`); return; }
     }
     // Non-blocking tables
-    for (const [name, res] of [['tasks',t],['tools',tl],['loans',l],['maintenance_templates',mt],['topology',topo],['revenues',rev],['compteurs',cpt],['releves',rel],['tenants',ten],['rent_payments',rp],['water_readings',wr]]) {
+    for (const [name, res] of [['tasks',t],['tools',tl],['loans',l],['maintenance_templates',mt],['topology',topo],['revenues',rev],['compteurs',cpt],['releves',rel],['tenants',ten],['rent_payments',rp]]) {
       if (res.error) { console.warn(`Table "${name}" non disponible:`, res.error.message); }
     }
     // Rangements — non-bloquant si table pas encore créée
@@ -613,7 +612,6 @@ async function loadAll() {
     S.releves = rel.error ? [] : (rel.data || []);
     S.tenants = ten.error ? [] : (ten.data || []);
     S.rentPayments = rp.error ? [] : (rp.data || []);
-    S.waterReadings = wr.error ? [] : (wr.data || []);
     S.rangements = rng.error ? [] : (rng.data || []);
     S.famille = fam.error ? [] : (fam.data || []);
     S.crecheSaisies = crecheRes?.error ? [] : (crecheRes?.data || []);
@@ -963,8 +961,6 @@ function renderApp(){
     workorders: canEdit()?`<button class="btn btn-p" id="btn-add-wo">+ Bon de travaux</button>`:'',
     chantiers: isAdmin()?`<button class="btn btn-p" id="btn-add-chantier">+ Chantier</button>`:'',
     vehicles: isAdmin()?`<button class="btn btn-p" id="btn-add-vehicle">+ Véhicule</button>`:'',
-    locatif: isAdmin()?`<button class="btn btn-p" id="btn-add-tenant">+ Locataire</button>`:'',
-    eau: isAdmin()?`<button class="btn btn-p" id="btn-add-water">+ Relevé eau</button>`:'',
     locatif: isAdmin()?`<button class="btn btn-p" id="btn-add-tenant">+ Locataire</button>`:'',
     finances: isAdmin()?`<button class="btn btn-p" id="btn-add-revenue">+ Revenu locatif</button>`:'',
     maintenance: isAdmin()?`<button class="btn btn-p" id="btn-add-mt">+ Gamme</button>`:'',
@@ -6628,59 +6624,6 @@ function renderModal(){
     ${mf}`;
   }
 
-  if(m.type==='add-water'||m.type==='edit-water'){
-    const w=m.water||{};
-    const moisList=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
-    html=`${mhd(m.type==='add-water'?'Nouveau relevé eau':'Modifier relevé')}
-    <div class="g2c">
-      <div class="form-group"><label>Logement *</label><input id="m-wlog" value="${w.logement||''}" placeholder="Ex: Appartement 1"></div>
-      <div class="form-group"><label>Locataire</label><select id="m-wten">
-        <option value="">— Sélectionner —</option>
-        ${S.tenants.map(t=>`<option value="${t.id}" ${w.tenant_id===t.id?'selected':''}>${t.nom} (${t.logement})</option>`).join('')}
-      </select></div>
-    </div>
-    <div class="g2c">
-      <div class="form-group"><label>Mois</label><select id="m-wmois">${moisList.map(mo=>`<option ${w.mois===mo?'selected':''}>${mo}</option>`).join('')}</select></div>
-      <div class="form-group"><label>Année</label><select id="m-wannee"><option ${w.annee===2025?'selected':''}>2025</option><option ${w.annee===2026||!w.annee?'selected':''}>2026</option></select></div>
-    </div>
-    <div class="g2c">
-      <div class="form-group"><label>Ancien index (m³)</label><input id="m-wanc" type="number" step="0.001" value="${w.ancien_index||''}"></div>
-      <div class="form-group"><label>Nouvel index (m³)</label><input id="m-wnouv" type="number" step="0.001" value="${w.nouvel_index||''}"></div>
-    </div>
-    <div class="g2c">
-      <div class="form-group"><label>Prix unitaire (€/m³)</label><input id="m-wprix" type="number" step="0.01" value="${w.prix_unitaire||0}"></div>
-      <div class="form-group"><label>Montant facturé (€)</label><input id="m-wmnt" type="number" step="0.01" value="${w.montant||0}"></div>
-    </div>
-    <div class="g2c">
-      <div class="form-group"><label>Date paiement</label><input id="m-wdate" type="date" value="${w.date_paiement||''}"></div>
-      <div class="form-group"><label>Payé</label><select id="m-wpaye"><option value="false" ${!w.paye?'selected':''}>Non</option><option value="true" ${w.paye?'selected':''}>Oui</option></select></div>
-    </div>
-    ${mf}`;
-  }
-
-
-
-  if(m.type==='add-water'){
-    html=`${mhd('Nouveau relevé eau')}
-    <div class="form-group"><label>Logement *</label><select id="m-wat-log">
-      ${(S.locatif?.logements||[]).map(l=>`<option value="${l.id}">${l.name}</option>`).join('')}
-    </select></div>
-    <div class="g2c">
-      <div class="form-group"><label>Année</label><input id="m-wat-year" type="number" value="${new Date().getFullYear()}"></div>
-      <div class="form-group"><label>Période</label><select id="m-wat-period"><option>Janvier</option><option>Mars</option><option>Juin</option><option>Décembre</option></select></div>
-    </div>
-    <div class="g2c">
-      <div class="form-group"><label>Ancien index (m³)</label><input id="m-wat-old" type="number" step="0.001"></div>
-      <div class="form-group"><label>Nouvel index (m³)</label><input id="m-wat-new" type="number" step="0.001"></div>
-    </div>
-    <div class="g2c">
-      <div class="form-group"><label>Prix/m³ (€)</label><input id="m-wat-prix" type="number" step="0.0001"></div>
-      <div class="form-group"><label>Montant facturé (€)</label><input id="m-wat-mnt" type="number" step="0.01"></div>
-    </div>
-    <div class="form-group"><label>Date paiement</label><input id="m-wat-date" type="date"></div>
-    ${mf}`;
-  }
-
   if(m.type==='remb-dette'){
     const t=m.tenant||{};
     const fmt2=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(n||0);
@@ -9774,9 +9717,6 @@ function bindAll(){
     };
   }
 
-  const btnAddWater=q('btn-add-water');
-  if(btnAddWater)btnAddWater.onclick=()=>{S.modal={type:'add-water'};render();};
-
   // Import Excel data
   const btnImport=q('btn-import-tenants');
   if(btnImport)btnImport.onclick=async()=>{
@@ -9836,14 +9776,6 @@ function bindAll(){
     if(!confirm('Supprimer ce locataire ?'))return;
     await sb.from('tenants').delete().eq('id',el.dataset.delTenant);
     S.tenants=S.tenants.filter(t=>t.id!==el.dataset.delTenant);render();});
-
-  document.querySelectorAll('[data-edit-water]').forEach(el=>el.onclick=()=>{
-    const w=S.waterReadings.find(x=>x.id===el.dataset.editWater);
-    if(w){S.modal={type:'edit-water',water:w};render();}});
-  document.querySelectorAll('[data-del-water]').forEach(el=>el.onclick=async()=>{
-    if(!confirm('Supprimer ce relevé ?'))return;
-    await sb.from('water_readings').delete().eq('id',el.dataset.delWater);
-    S.waterReadings=S.waterReadings.filter(w=>w.id!==el.dataset.delWater);render();});
 
   // Quittances
   document.querySelectorAll('[data-mark-paid]').forEach(el=>el.onclick=async()=>{
