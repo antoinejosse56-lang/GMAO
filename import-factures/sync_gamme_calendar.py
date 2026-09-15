@@ -119,28 +119,46 @@ def ensure_user_calendar(token, user):
     return calendar_id
 
 
-def wo_event_body(wo, asset_name):
+def wo_event_body(wo, asset_name, is_new):
     tr = wo.get("topo_ref") or {}
     location = " › ".join(tr[k] for k in ("propName", "zoneName", "subName") if tr.get(k))
+    original_due = wo.get("due_date") or wo.get("date")
     description_lines = [wo.get("description") or ""]
     if location:
         description_lines.append(f"Localisation : {location}")
     if asset_name:
         description_lines.append(f"Équipement : {asset_name}")
+    if original_due:
+        description_lines.append(f"Échéance d'origine : {original_due}")
     description_lines.append("Généré depuis une gamme d'entretien GMAO Pro.")
-    day = wo.get("due_date") or wo.get("date") or datetime.now().strftime("%Y-%m-%d")
-    end_day = (datetime.strptime(day, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
+    # Les vraies Google Tasks ne peuvent pas etre partagees entre comptes
+    # (contrairement a un agenda Calendar), donc on simule leur comportement
+    # avec un evenement horaire que le script redate sur AUJOURD'HUI a chaque
+    # execution tant que le BT reste ouvert : il ne disparait jamais avant
+    # d'etre marque termine dans GMAO Pro, comme une tache en retard.
+    # Une seule notification est envoyee, a la creation (quelques minutes
+    # apres, pour un rappel quasi immediat). Les jours suivants, l'evenement
+    # est simplement redate a 11h sans reminder - il reste visible dans
+    # l'agenda mais ne redeclenche plus d'alerte.
+    now = datetime.now()
+    if is_new:
+        start_time = now + timedelta(minutes=2)
+        reminders = {"useDefault": False, "overrides": [{"method": "popup", "minutes": 0}]}
+    else:
+        start_time = now.replace(hour=11, minute=0, second=0, microsecond=0)
+        reminders = {"useDefault": False, "overrides": []}
+    end_time = start_time + timedelta(minutes=15)
     return {
         "summary": f"🔧 {wo['title']}",
         "description": "\n".join(l for l in description_lines if l),
-        "start": {"date": day},
-        "end": {"date": end_day},
-        "reminders": {"useDefault": True},
+        "start": {"dateTime": start_time.strftime("%Y-%m-%dT%H:%M:%S"), "timeZone": "Europe/Paris"},
+        "end": {"dateTime": end_time.strftime("%Y-%m-%dT%H:%M:%S"), "timeZone": "Europe/Paris"},
+        "reminders": reminders,
     }
 
 
-def upsert_event(token, calendar_id, wo, asset_name, existing_ids):
-    body = wo_event_body(wo, asset_name)
+def upsert_event(token, calendar_id, wo, asset_name, existing_ids, is_new):
+    body = wo_event_body(wo, asset_name, is_new)
     event_id = existing_ids.get(calendar_id)
     if event_id:
         resp = requests.put(
@@ -244,7 +262,7 @@ def main():
             calendar_id = ensure_user_calendar(token, user)
             if not calendar_id:
                 continue
-            event_id = upsert_event(token, calendar_id, wo, asset_name, existing_ids)
+            event_id = upsert_event(token, calendar_id, wo, asset_name, existing_ids, is_new)
             updated_ids[calendar_id] = event_id
 
         if updated_ids != existing_ids:
