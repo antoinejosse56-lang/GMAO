@@ -6139,6 +6139,17 @@ function renderModal(){
     const isSortie=m.edlType==='sortie';
     const entreeRef=edl.linkedEntree||null;
     const logFicheE=t.logement?findLogementFiche(t.logement):null;
+    // Assurance habitation : bloque la signature (comme les diagnostics sur
+    // le bail) tant qu'aucune attestation n'est enregistree pour ce
+    // locataire, avec le meme mecanisme de contournement volontaire
+    // (case + motif obligatoire, trace dans les observations du document
+    // final). Applique aux deux types (entree/sortie) par simplicite : une
+    // fois renseignee ou contournee a l'entree, la sortie n'est de toute
+    // facon plus bloquee.
+    const hasAssurance=!!t.assurance_url;
+    const assuranceOverrideChecked=!!edl._assuranceOverride;
+    const assuranceOverrideReason=(edl._assuranceOverrideReason||'').trim();
+    const canSaveEdl=(!isSortie||!!entreeRef)&&(hasAssurance||(assuranceOverrideChecked&&assuranceOverrideReason));
     const refData=(itemKey)=>entreeRef?(entreeRef.data||{})[itemKey]:null;
     const itemRow=(room,itemKey)=>{
       const key=room.key+'.'+itemKey;
@@ -6166,6 +6177,23 @@ function renderModal(){
     };
     html=`${mhd((isSortie?'📋 État des lieux de SORTIE':"📋 État des lieux d'ENTRÉE")+(t.nom?' — '+t.nom:''))}
     ${isSortie&&!entreeRef?`<div class="alert-r">⚠ Aucun état des lieux d'entrée trouvé pour ce locataire — impossible de comparer. Générez d'abord l'état des lieux d'entrée.</div>`:''}
+    ${!hasAssurance?`<div class="alert-r" id="edl-assurance-alert">
+      ⚠ Aucune attestation d'assurance habitation enregistrée pour ce locataire.
+      <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">
+        <button type="button" class="btn btn-sm" onclick="document.getElementById('edl-assurance-file').click()">📷 Ajouter l'attestation</button>
+        <input type="file" accept="image/*,application/pdf" capture="environment" id="edl-assurance-file" data-assurance-upload="${t.id}" style="display:none">
+      </div>
+      <div style="margin-top:10px;padding-top:10px;border-top:0.5px solid #F7C1C1">
+        <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;font-weight:500">
+          <input type="checkbox" id="edl-assurance-override" ${assuranceOverrideChecked?'checked':''} onchange="S.modal.edl={...S.modal.edl,_assuranceOverride:this.checked};render()">
+          Passer outre volontairement (cas de force majeure)
+        </label>
+        ${assuranceOverrideChecked?`<div class="form-group" style="margin-top:6px">
+          <label style="font-size:11px">Motif (obligatoire — sera indiqué dans les observations)</label>
+          <input id="edl-assurance-override-reason" value="${assuranceOverrideReason}" oninput="S.modal.edl={...S.modal.edl,_assuranceOverride:true,_assuranceOverrideReason:this.value};var ok=${(!isSortie||!!entreeRef)?'true':'false'}&&this.value.trim().length>0;var pb=document.getElementById('btn-preview-edl'),sb2=document.getElementById('btn-save-edl');if(pb)pb.disabled=!ok;if(sb2)sb2.disabled=!ok;">
+        </div>`:''}
+      </div>
+    </div>`:''}
     <div class="g2c">
       <div class="form-group"><label>Date</label><input id="edl-date" type="date" value="${edl.date||new Date().toISOString().slice(0,10)}"></div>
       <div class="form-group"><label>Logement</label><input value="${t.logement||''}" readonly style="background:var(--bg2)"></div>
@@ -6246,8 +6274,8 @@ function renderModal(){
     </div>
 
     <div style="display:flex;gap:8px;margin-top:12px">
-      <button type="button" class="btn btn-sm" id="btn-preview-edl" style="flex:1" ${isSortie&&!entreeRef?'disabled':''}>👁 Prévisualiser</button>
-      <button type="button" class="btn btn-sm btn-p" id="btn-save-edl" style="flex:1" ${isSortie&&!entreeRef?'disabled':''}>✓ Enregistrer l'état des lieux signé</button>
+      <button type="button" class="btn btn-sm" id="btn-preview-edl" style="flex:1" ${!canSaveEdl?'disabled':''}>👁 Prévisualiser</button>
+      <button type="button" class="btn btn-sm btn-p" id="btn-save-edl" style="flex:1" ${!canSaveEdl?'disabled':''}>✓ Enregistrer l'état des lieux signé</button>
     </div>
     ${mf}`;
   }
@@ -6309,7 +6337,13 @@ function renderModal(){
     const overrideChecked=!!bailPrev._diagOverride;
     const overrideReason=(bailPrev._diagOverrideReason||'').trim();
     const canGenerate=!!logFicheB&&(missingOrExpired.length===0||(overrideChecked&&overrideReason));
-    const bail=m.bail||{
+    // Si un brouillon (ou un bail deja signe, pour amendement) existe deja
+    // pour ce locataire, on repart de tenant.bail_data plutot que de
+    // champs vides - collectBailFormData() y a deja tout ecrit par le
+    // passe, donc rouvrir ce formulaire ne fait jamais ressaisir ce qui a
+    // deja ete prepare. Seuls les paraphes/signatures ne sont jamais
+    // repris (on veut toujours un nouveau tracé physique).
+    const bail=m.bail||t.bail_data||{
       type_bail:t.type_bail||'habitation',
       loyer_ref:t.loyer_ref||0,
       charges:t.charges||0,
@@ -6317,7 +6351,9 @@ function renderModal(){
       date_entree:t.date_entree||'',
       duree:t.type_bail==='commercial'?'9 ans':'3 ans',
     };
+    const isDraftPending=!!t.bail_data&&!t.bail_url;
     html=`${mhd('📝 Générer le bail'+(t.nom?' — '+t.nom:''))}
+    ${isDraftPending?`<div style="font-size:12px;background:var(--bg2);color:var(--text2);padding:8px 10px;border-radius:var(--radius);margin-bottom:10px">📝 Brouillon enregistré — prêt à être signé.</div>`:''}
     <div style="display:flex;gap:8px;margin-bottom:12px">
       <button type="button" class="btn btn-sm ${bail.type_bail!=='commercial'?'btn-p':''}" onclick="S.modal.bail={...S.modal.bail,type_bail:'habitation'};render()">Habitation (loi Alur)</button>
       <button type="button" class="btn btn-sm ${bail.type_bail==='commercial'?'btn-p':''}" onclick="S.modal.bail={...S.modal.bail,type_bail:'commercial'};render()">Commercial</button>
@@ -6460,7 +6496,11 @@ function renderModal(){
       ⚠ Signature électronique simple (paraphe/signature dessinés) — usage courant pour un bail entre particuliers, mais ne constitue pas une signature électronique qualifiée au sens juridique strict.
     </div>
     ${!canGenerate?`<div style="font-size:11px;color:var(--red);margin-top:8px">La fiche du logement et tous les diagnostics obligatoires doivent être complets et à jour avant de pouvoir générer ce bail.</div>`:''}
-    <div style="display:flex;gap:8px;margin-top:12px">
+    <div style="font-size:11px;color:var(--text2);margin-top:10px">Pas besoin d'attendre la signature pour tout préparer : le brouillon se garde et se retrouve automatiquement à la prochaine ouverture de ce bail.</div>
+    <div style="display:flex;gap:8px;margin-top:6px">
+      <button type="button" class="btn btn-sm" id="btn-draft-bail" style="flex:1">💾 Enregistrer comme brouillon</button>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:8px">
       <button type="button" class="btn btn-sm" id="btn-preview-bail" style="flex:1" ${!canGenerate?'disabled':''}>👁 Prévisualiser</button>
       <button type="button" class="btn btn-sm btn-p" id="btn-save-bail" style="flex:1" ${!canGenerate?'disabled':''}>✓ Enregistrer le bail signé</button>
     </div>
@@ -8759,6 +8799,33 @@ async function deleteIdentitePhoto(tenantId,photoId){
   document.querySelector('[data-identite-row="'+photoId+'"]')?.remove();
 }
 
+// Attestation d'assurance habitation, capturee directement depuis le
+// bandeau bloquant de l'etat des lieux - un seul lien par locataire
+// (contrairement aux pieces d'identite), donc simple ecrasement de
+// tenants.assurance_url. Debloque les boutons Previsualiser/Enregistrer
+// par manipulation DOM directe plutot qu'un render() complet, pour ne pas
+// effacer un paraphe/signature deja trace dans le formulaire ouvert.
+async function uploadAssuranceFile(tenantId,fileInput){
+  const file=fileInput.files?.[0];
+  if(!file)return;
+  const t=S.tenants.find(x=>x.id===tenantId);
+  if(!t){alert('Locataire introuvable');return;}
+  const ext=(file.name.split('.').pop()||'jpg').toLowerCase();
+  const path='assurance/'+tenantId+'/'+Date.now()+'.'+ext;
+  const{error}=await sb.storage.from('documents-locataires').upload(path,file,{contentType:file.type||'image/jpeg',cacheControl:'0'});
+  if(error){alert('Erreur upload : '+error.message);return;}
+  const{data:pub}=sb.storage.from('documents-locataires').getPublicUrl(path);
+  const freshUrl=pub.publicUrl+'?v='+Date.now();
+  const{error:updErr}=await sb.from('tenants').update({assurance_url:freshUrl}).eq('id',tenantId);
+  if(updErr){alert('Erreur enregistrement : '+updErr.message);return;}
+  t.assurance_url=freshUrl;
+  document.getElementById('edl-assurance-alert')?.remove();
+  const stillBlockedBySortie=S.modal?.edlType==='sortie'&&!S.modal?.edl?.linkedEntree;
+  const pb=document.getElementById('btn-preview-edl'),sb2=document.getElementById('btn-save-edl');
+  if(pb)pb.disabled=stillBlockedBySortie;
+  if(sb2)sb2.disabled=stillBlockedBySortie;
+}
+
 // Lit l'etat courant du formulaire d'etat des lieux directement dans le DOM
 // (meme raison que collectBailFormData : les champs texte ne sont pas
 // synchronises en continu avec S.modal.edl, seules les photos le sont).
@@ -8796,7 +8863,7 @@ function collectEdlFormData(){
       autre_nb:q('edl-cles-autre-nb'),autre_label:q('edl-cles-autre-label'),
     },
     data,
-    observations:q('edl-observations'),
+    observations:q('edl-observations')+(edl._assuranceOverride&&edl._assuranceOverrideReason?(q('edl-observations')?' | ':'')+'Assurance habitation non fournie à ce jour : '+edl._assuranceOverrideReason+'.':''),
     paraphe_bailleur:sigDataUrl('edl-paraphe-bailleur'),
     paraphe_locataire:sigDataUrl('edl-paraphe-locataire'),
     sig_bailleur:sigDataUrl('edl-sig-bailleur'),
@@ -9549,6 +9616,19 @@ function bindAll(){
 
   if(S.modal?.type==='bail-form'){
     ['bail-paraphe-bailleur','bail-paraphe-locataire','bail-sig-bailleur','bail-sig-locataire','bail-paraphe-garant','bail-sig-garant'].forEach(initSigCanvas);
+    const btnDraftBail=document.getElementById('btn-draft-bail');
+    if(btnDraftBail)btnDraftBail.onclick=async()=>{
+      const t=S.modal.tenant;
+      if(!t){alert('Locataire introuvable');return;}
+      btnDraftBail.disabled=true;btnDraftBail.textContent='⏳ Enregistrement...';
+      try{
+        const bail=collectBailFormData();
+        const{error}=await sb.from('tenants').update({bail_data:bail}).eq('id',t.id);
+        if(error){alert('Erreur : '+error.message);return;}
+        t.bail_data=bail;
+        alert('✓ Brouillon enregistré. Il sera repris automatiquement à la prochaine ouverture de ce bail — il ne restera plus qu\'à signer.');
+      }finally{btnDraftBail.disabled=false;btnDraftBail.textContent='💾 Enregistrer comme brouillon';}
+    };
     const btnPreviewBail=document.getElementById('btn-preview-bail');
     if(btnPreviewBail)btnPreviewBail.onclick=async()=>{
       const tChk=S.modal.tenant||{};
@@ -9621,8 +9701,12 @@ function bindAll(){
       const [roomKey,itemKey]=el.dataset.edlPhoto.split('.');
       uploadEdlPhoto(S.modal.edl.id,roomKey,itemKey,el);
     });
+    document.querySelectorAll('[data-assurance-upload]').forEach(el=>el.onchange=()=>uploadAssuranceFile(el.dataset.assuranceUpload,el));
     const btnPreviewEdl=document.getElementById('btn-preview-edl');
     if(btnPreviewEdl)btnPreviewEdl.onclick=async()=>{
+      const tChkA=S.modal.tenant||{};
+      const assuranceOkChk=S.modal.edl?._assuranceOverride&&(S.modal.edl?._assuranceOverrideReason||'').trim();
+      if(!tChkA.assurance_url&&!assuranceOkChk){alert("Assurance habitation non enregistrée pour ce locataire (ou motif de contournement manquant).");return;}
       if(!sigDataUrl('edl-paraphe-bailleur')||!sigDataUrl('edl-paraphe-locataire')){
         if(!confirm('Le paraphe du bailleur ou du locataire est vide. Continuer quand même ?'))return;
       }
@@ -9639,6 +9723,8 @@ function bindAll(){
     if(btnSaveEdl)btnSaveEdl.onclick=async()=>{
       const t=S.modal.tenant;
       if(!t){alert('Locataire introuvable');return;}
+      const assuranceOkSave=S.modal.edl?._assuranceOverride&&(S.modal.edl?._assuranceOverrideReason||'').trim();
+      if(!t.assurance_url&&!assuranceOkSave){alert("Assurance habitation non enregistrée pour ce locataire (ou motif de contournement manquant).");return;}
       if(!sigDataUrl('edl-sig-bailleur')||!sigDataUrl('edl-sig-locataire')){
         alert('Les 2 signatures (bailleur et locataire) sont requises avant enregistrement.');return;
       }
