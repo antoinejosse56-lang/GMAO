@@ -1814,10 +1814,12 @@ function renderTopology(){
     // "bien" doit remonter les documents de tous les locataires en dessous.
     const normSep=s=>(s||'').replace(/—/g,'-').replace(/\s*-\s*/g,' - ').trim();
     const normBien=normSep(bienStr);
-    const tenantDocs=[];
-    (S.tenants||[]).forEach(t=>{
+    const matchingTenants=(S.tenants||[]).filter(t=>{
       const normLog=normSep(t.logement);
-      if(!normLog||(normLog!==normBien&&!normLog.startsWith(normBien+' - ')))return;
+      return normLog&&(normLog===normBien||normLog.startsWith(normBien+' - '));
+    }).sort((a,b)=>new Date(b.date_entree||b.created_at||0)-new Date(a.date_entree||a.created_at||0));
+    const tenantDocs=[];
+    matchingTenants.forEach(t=>{
       if(t.bail_url)tenantDocs.push({type:'Bail — '+t.nom,date:t.date_entree,document_url:t.bail_url,fromTenant:true});
       Object.entries(DIAG_LABELS).forEach(([k,label])=>{
         const dd=t.bail_data?.['diag_'+k];
@@ -1876,6 +1878,17 @@ function renderTopology(){
           ${canEdit()&&!d.fromTenant?`<button class="btn btn-d btn-sm" data-del-bien-doc="${d.id}">✕</button>`:''}
         </div>`).join('')}
         ${allDocs.length===0?'<div style="font-size:11px;color:var(--text2)">Aucun document (DPE, diagnostic amiante/plomb...).</div>':''}
+      </div>`:''}
+      ${bienStr&&matchingTenants.length>0?`<div class="card" style="padding:12px;margin-top:10px">
+        <div class="sec" style="margin:0 0 8px">🕐 Historique des locataires (${matchingTenants.length})</div>
+        ${matchingTenants.map(t=>`<div class="row">
+          <div class="fg">
+            <div class="fgs" style="font-size:12px">${t.nom}${t.actif!==false?' <span class="badge bgreen" style="font-size:9px">Actuel</span>':' <span class="badge bgray" style="font-size:9px">Parti</span>'}</div>
+            <div class="fgsub">${t.date_entree?'Entrée '+dateLabel(t.date_entree):''}${t.date_sortie?' · Sortie '+dateLabel(t.date_sortie):''}</div>
+          </div>
+          ${t.bail_url?`<a href="${t.bail_url}" target="_blank" class="btn btn-sm">📄 Bail</a>`:''}
+          ${canEdit()?`<button class="btn btn-sm" data-edit-tenant="${t.id}">✎</button>`:''}
+        </div>`).join('')}
       </div>`:''}
     </div>`;
   }
