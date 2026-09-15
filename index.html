@@ -220,7 +220,10 @@ function bienForWorkOrder(wo){
   if(wo.chantier_id){
     const chantier=S.chantiers.find(c=>c.id===wo.chantier_id);
     if(chantier){
-      const segments=[wo.topo_ref?.propName||'',chantier.nom,wo.title].filter(Boolean);
+      // chantier.bien est la source fiable du bien reel (un chantier neuf n'a
+      // souvent pas de topo_ref sur ses BT) - on ne retombe sur le topo_ref du
+      // BT que si le chantier lui-meme n'a pas de bien renseigne.
+      const segments=[chantier.bien||wo.topo_ref?.propName||'',chantier.nom,wo.title].filter(Boolean);
       return segments.join(' - ');
     }
   }
@@ -247,8 +250,13 @@ function resolveTopoRefFromBienStr(bienStr){
 function computeFilteredWoOpts(bienStr, chantierId, selectedWoId, allowNew){
   const bien=(bienStr||'').trim();
   let list=[...S.workOrders];
-  if(chantierId) list=list.filter(w=>w.chantier_id===chantierId);
-  if(bien){
+  // Un chantier determine deja pleinement le perimetre des BT concernes -
+  // filtrer EN PLUS par bien exclurait a tort les BT de chantier sans
+  // topo_ref (frequent pour une construction neuve), donc le chantier prime
+  // et remplace le filtre par bien plutot que de s'y ajouter.
+  if(chantierId){
+    list=list.filter(w=>w.chantier_id===chantierId);
+  } else if(bien){
     list=list.filter(w=>{
       const tr=w.topo_ref;
       if(!tr)return false;
@@ -1587,6 +1595,7 @@ function renderChantiers(){
         ${devisDirects.map(d=>`<div class="row">
           <div class="fg"><div class="fgs">${d.entreprise||'—'}${d.retenu?' <span class=\"badge bgreen\" style=\"font-size:9px\">retenu</span>':''}</div><div class="fgsub">${parseFloat(d.montant_ttc||0).toFixed(2)}€${d.date_devis?' · '+dateLabel(d.date_devis):''}</div></div>
           ${d.document_url?`<a href="${d.document_url}" target="_blank" class="btn btn-sm">👁 Voir</a>`:''}
+          <button class="btn btn-sm" data-link-devis-bt="${d.id}" data-chantier-id="${c.id}" title="Associer ce devis à un bon de travaux">✎</button>
         </div>`).join('')}`:''}
     </div>`;
   }).join('');
@@ -6391,6 +6400,21 @@ function renderModal(){
     ${mf}`;
   }
 
+  if(m.type==='link-devis-bt'){
+    const d=S.devis.find(x=>x.id===m.devisId)||{};
+    const chantier=S.chantiers.find(c=>c.id===m.chantierId);
+    html=`${mhd('Associer à un bon de travaux')}
+    <div style="background:var(--bg2);padding:10px 12px;border-radius:var(--radius);margin-bottom:12px;font-size:12px">
+      Devis <b>${d.entreprise||'—'}</b> — ${parseFloat(d.montant_ttc||0).toFixed(2)}€${d.date_devis?' · '+dateLabel(d.date_devis):''}<br>
+      Chantier : <b>${chantier?.nom||'—'}</b>
+    </div>
+    <div class="form-group"><label>Bon de travaux *</label>
+      <select id="m-ldb-wo">${computeFilteredWoOpts('',m.chantierId,d.wo_id||'',false)}</select>
+    </div>
+    <div style="font-size:11px;color:var(--text2)">Seuls les BT de ce chantier sont proposés. Une fois associé, ce devis n'apparaîtra plus dans "Devis liés directement".</div>
+    ${mf}`;
+  }
+
   if(m.type==='add-revenue'){
     html=`${mhd('Nouveau revenu locatif')}
     <div class="form-group"><label>Bien *</label>
@@ -7524,6 +7548,15 @@ async function saveModal(){
     S.familleEnfant=membId;
   }
 
+  if(m.type==='link-devis-bt'){
+    const woId=q('m-ldb-wo')?.value||'';
+    if(!woId)return alert('Sélectionnez un bon de travaux');
+    const{error}=await sb.from('devis').update({wo_id:woId,chantier_id:null}).eq('id',m.devisId);
+    if(error){alert('Erreur : '+error.message);return;}
+    const d=S.devis.find(x=>x.id===m.devisId);
+    if(d){d.wo_id=woId;d.chantier_id=null;}
+  }
+
   if(m.type==='regul-tf'){
     const t=S.tenants.find(x=>x.id===m.tenantId);
     if(!t)return;
@@ -8567,7 +8600,7 @@ function bindAll(){
       // BT pour le remplacer.
       if(!bien&&chantierId){
         const chantierDirect=S.chantiers.find(c=>c.id===chantierId);
-        if(chantierDirect)bien=chantierDirect.nom;
+        if(chantierDirect)bien=chantierDirect.bien?(chantierDirect.bien+' - '+chantierDirect.nom):chantierDirect.nom;
       }
       if(!bien&&!assetId&&!familleId&&!woId&&!chantierId){alert('Sélectionnez au moins un bien, un équipement, une personne, un bon de travaux ou un chantier avant validation');return;}
       parts=[{bien,montant}];
@@ -8829,6 +8862,9 @@ function bindAll(){
   document.querySelectorAll('[data-edit-chantier]').forEach(el=>el.onclick=()=>{
     const c=S.chantiers.find(x=>x.id===el.dataset.editChantier);
     if(c){S.modal={type:'edit-chantier',chantier:c};render();}
+  });
+  document.querySelectorAll('[data-link-devis-bt]').forEach(el=>el.onclick=()=>{
+    S.modal={type:'link-devis-bt',devisId:el.dataset.linkDevisBt,chantierId:el.dataset.chantierId};render();
   });
   document.querySelectorAll('[data-del-chantier]').forEach(el=>el.onclick=async()=>{
     if(!confirm('Supprimer ce chantier ? Les bons de travaux rattachés ne seront pas supprimés, juste détachés.'))return;
