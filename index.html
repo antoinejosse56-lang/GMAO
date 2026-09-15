@@ -33,6 +33,7 @@
 </script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="https://apis.google.com/js/api.js"></script>
 <style>
@@ -308,6 +309,56 @@ async function fetchAllRows(table, orderCol, ascending){
   return {data:all, error:null};
 }
 function uid(){return 'x'+Math.random().toString(36).slice(2,9);}
+// Capture de paraphe/signature sur canvas (Pointer Events - unifie souris,
+// tactile et stylet en une seule API, cohérent avec touch-action:none deja
+// pose sur ces canvas). Idempotent : reappeler sur un canvas deja initialise
+// ne double pas les listeners (utile puisque render() peut re-render le
+// modal sans recreer le DOM a chaque frappe).
+function initSigCanvas(canvasId){
+  const canvas=document.getElementById(canvasId);
+  // Le flag est pose sur l'element DOM lui-meme (pas un Set global d'ids) :
+  // fermer puis rouvrir le modal recree un nouveau <canvas> avec le meme id,
+  // qui doit etre reinitialise - un Set global le bloquerait a tort.
+  if(!canvas||canvas.dataset.sigInit)return;
+  canvas.dataset.sigInit='1';
+  const ctx=canvas.getContext('2d');
+  ctx.lineWidth=2;ctx.lineCap='round';ctx.lineJoin='round';ctx.strokeStyle='#1a1a1a';
+  let drawing=false,lastX=0,lastY=0;
+  function pos(e){
+    const r=canvas.getBoundingClientRect();
+    return [(e.clientX-r.left)*(canvas.width/r.width),(e.clientY-r.top)*(canvas.height/r.height)];
+  }
+  canvas.addEventListener('pointerdown',e=>{
+    drawing=true;canvas.setPointerCapture(e.pointerId);
+    [lastX,lastY]=pos(e);
+  });
+  canvas.addEventListener('pointermove',e=>{
+    if(!drawing)return;
+    const [x,y]=pos(e);
+    ctx.beginPath();ctx.moveTo(lastX,lastY);ctx.lineTo(x,y);ctx.stroke();
+    [lastX,lastY]=[x,y];
+  });
+  const stop=()=>{drawing=false;};
+  canvas.addEventListener('pointerup',stop);
+  canvas.addEventListener('pointerleave',stop);
+  canvas.addEventListener('pointercancel',stop);
+}
+function clearSig(canvasId){
+  const canvas=document.getElementById(canvasId);
+  if(!canvas)return;
+  canvas.getContext('2d').clearRect(0,0,canvas.width,canvas.height);
+}
+// Un canvas jamais dessine reste entierement blanc/transparent - on ne veut
+// pas l'inserer dans le PDF genere (page avec un rectangle blanc inutile),
+// donc on detecte s'il contient reellement un trait avant de l'exporter.
+function sigDataUrl(canvasId){
+  const canvas=document.getElementById(canvasId);
+  if(!canvas)return null;
+  const ctx=canvas.getContext('2d');
+  const data=ctx.getImageData(0,0,canvas.width,canvas.height).data;
+  for(let i=3;i<data.length;i+=4){if(data[i]!==0)return canvas.toDataURL('image/png');}
+  return null;
+}
 function daysUntil(d){if(!d)return null;return Math.ceil((new Date(d)-new Date())/86400000);}
 function dateLabel(d){if(!d)return '—';return new Date(d).toLocaleDateString('fr-FR');}
 // Resout l'intervenant assigne a une gamme (mt.assigned_to peut etre un id,
@@ -5989,14 +6040,18 @@ function renderModal(){
     </div>
     <div class="form-group"><label>Lieu de signature</label><input id="bail-lieu-sig" value="${bail.lieu_sig||'Lorient'}" placeholder="Ville"></div>
 
-    <div class="sec" style="margin-top:12px;margin-bottom:8px">📎 Annexes et diagnostics <span style="font-size:11px;color:var(--text2)">(coller les liens Drive/URL de vos PDFs)</span></div>
-    ${diagDocs.map(d=>`<div class="form-group" style="margin-bottom:6px">
+    <div class="sec" style="margin-top:12px;margin-bottom:8px">📎 Annexes et diagnostics</div>
+    ${diagDocs.map(d=>{
+      const doc=bail['diag_'+d.key];
+      return `<div class="form-group" style="margin-bottom:6px">
       <label style="font-size:11px">${d.label}</label>
-      <div style="display:flex;gap:6px">
-        <input id="bail-diag-${d.key}-url" value="${(bail['diag_'+d.key]?.url)||''}" placeholder="URL Drive ou laisser vide" style="flex:1">
-        <input id="bail-diag-${d.key}-date" type="date" value="${(bail['diag_'+d.key]?.date)||''}" style="width:130px" title="Date de validité">
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <input type="file" accept="application/pdf,image/*" id="bail-diag-${d.key}-file" data-diag-upload="${d.key}" style="flex:1;min-width:160px">
+        <input id="bail-diag-${d.key}-date" type="date" value="${doc?.date||''}" style="width:130px" title="Date de validité">
+        <span id="bail-diag-${d.key}-status" style="font-size:11px">${doc?.url?`✓ <a href="${doc.url}" target="_blank">Voir le fichier</a>`:''}</span>
       </div>
-    </div>`).join('')}
+    </div>`;
+    }).join('')}
 
     <div class="sec" style="margin-top:12px;margin-bottom:8px">✍ Paraphe et signature</div>
     <p style="font-size:12px;color:var(--text2);margin-bottom:8px">Le paraphe sera reproduit automatiquement sur toutes les sections du bail. La signature sera apposée à la fin du document.</p>
@@ -6024,8 +6079,12 @@ function renderModal(){
         <button type="button" class="btn btn-sm" style="margin-top:4px" onclick="clearSig('bail-sig-locataire')">↺ Effacer</button>
       </div>
     </div>
+    <div style="font-size:11px;color:var(--text2);background:var(--bg2);padding:8px 10px;border-radius:var(--radius);margin-top:10px">
+      ⚠ Signature électronique simple (paraphe/signature dessinés) — usage courant pour un bail entre particuliers, mais ne constitue pas une signature électronique qualifiée au sens juridique strict.
+    </div>
     <div style="display:flex;gap:8px;margin-top:12px">
       <button type="button" class="btn btn-sm" id="btn-preview-bail" style="flex:1">👁 Prévisualiser</button>
+      <button type="button" class="btn btn-sm btn-p" id="btn-save-bail" style="flex:1">✓ Enregistrer le bail signé</button>
     </div>
     ${mf}`;
   }
@@ -7790,6 +7849,152 @@ function genRegulTFPDF(tenant, due, montants){
   w.document.close();
 }
 
+// Upload immediat d'un diagnostic (DPE, electrique...) choisi dans le
+// formulaire de bail vers le bucket documents-locataires - stocke dans
+// S.modal.bail plutot que redessine en entier (evite d'effacer les autres
+// champs deja remplis, puisque ce formulaire n'est pas controle/synchronise
+// en continu avec le DOM - voir collectBailFormData).
+async function uploadDiagFile(key, fileInput){
+  const file=fileInput.files?.[0];
+  if(!file)return;
+  const t=S.modal.tenant;
+  if(!t?.id){alert('Enregistrez d\'abord le locataire avant d\'ajouter des diagnostics.');return;}
+  const statusEl=document.getElementById('bail-diag-'+key+'-status');
+  if(statusEl)statusEl.textContent='⏳ Envoi...';
+  const ext=(file.name.split('.').pop()||'pdf').toLowerCase();
+  const path=t.id+'/diag_'+key+'.'+ext;
+  const{error}=await sb.storage.from('documents-locataires').upload(path,file,{upsert:true,contentType:file.type||'application/pdf'});
+  if(error){if(statusEl)statusEl.textContent='';alert('Erreur upload : '+error.message);return;}
+  const{data:pub}=sb.storage.from('documents-locataires').getPublicUrl(path);
+  const dateVal=document.getElementById('bail-diag-'+key+'-date')?.value||'';
+  S.modal.bail={...(S.modal.bail||{}),['diag_'+key]:{url:pub.publicUrl,date:dateVal}};
+  if(statusEl)statusEl.innerHTML='✓ <a href="'+pub.publicUrl+'" target="_blank">Voir le fichier</a>';
+}
+
+// Lit l'etat courant du formulaire directement dans le DOM (plutot que
+// S.modal.bail, qui n'est mis a jour que pour les diagnostics uploades) -
+// necessaire car les champs texte de ce formulaire ne sont pas synchronises
+// en continu avec S.modal.bail (voir le bouton habitation/commercial qui
+// reinitialise S.modal.bail sans capturer la saisie en cours).
+function collectBailFormData(){
+  const q=id=>document.getElementById(id)?.value||'';
+  const bail=S.modal.bail||{};
+  const diagKeys=['dpe','elec','gaz','plomb','amiante','erp','bruit','surface'];
+  const out={
+    type_bail:bail.type_bail||'habitation',
+    adresse:q('bail-adresse'),appt:q('bail-appt'),type_logement:q('bail-type'),surface:q('bail-surface'),
+    etage:q('bail-etage'),annexes:q('bail-annexes'),
+    bailleur_nom:q('bail-bailleur-nom'),bailleur_rep:q('bail-bailleur-rep'),bailleur_adr:q('bail-bailleur-adr'),
+    loc_nom:q('bail-loc-nom'),loc_nais:q('bail-loc-nais'),loc_lieu_nais:q('bail-loc-lieu-nais'),loc_natio:q('bail-loc-natio'),
+    loc_email:q('bail-loc-email'),loc_tel:q('bail-loc-tel'),loc_adr:q('bail-loc-adr'),
+    gar_nom:q('bail-gar-nom'),gar_lien:q('bail-gar-lien'),gar_adr:q('bail-gar-adr'),
+    loyer_ref:parseFloat(q('bail-loyer'))||0,charges:parseFloat(q('bail-charges'))||0,
+    caution:parseFloat(q('bail-caution'))||0,paiement:q('bail-paiement'),
+    date_entree:q('bail-date-entree'),duree:q('bail-duree'),lieu_sig:q('bail-lieu-sig'),
+  };
+  diagKeys.forEach(k=>{
+    const existing=bail['diag_'+k];
+    const dateVal=q('bail-diag-'+k+'-date');
+    if(existing?.url)out['diag_'+k]={url:existing.url,date:dateVal||existing.date||''};
+  });
+  out.paraphe_bailleur=sigDataUrl('bail-paraphe-bailleur');
+  out.paraphe_locataire=sigDataUrl('bail-paraphe-locataire');
+  out.sig_bailleur=sigDataUrl('bail-sig-bailleur');
+  out.sig_locataire=sigDataUrl('bail-sig-locataire');
+  return out;
+}
+
+// Genere le bail en PDF reel (jsPDF) avec pagination automatique, le
+// paraphe des 2 parties reproduit sur CHAQUE page, et les signatures sur la
+// derniere page - contrairement a un simple apercu HTML/print, jsPDF donne
+// un controle exact du decoupage en pages necessaire pour ce tamponnage.
+function genBailPDF(bail,tenant){
+  const {jsPDF}=window.jspdf;
+  const doc=new jsPDF({unit:'mm',format:'a4'});
+  const pageW=210,pageH=297,marginX=20,marginTop=20,marginBottom=25;
+  let y=marginTop;
+  const fmt=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(n||0);
+  const dl=d=>d?new Date(d).toLocaleDateString('fr-FR'):'—';
+  const isComm=bail.type_bail==='commercial';
+
+  function ensureSpace(h){
+    if(y+h>pageH-marginBottom){doc.addPage();y=marginTop;}
+  }
+  function title(txt){
+    ensureSpace(12);
+    doc.setFont('helvetica','bold');doc.setFontSize(13);
+    doc.text(txt,marginX,y);y+=8;
+    doc.setFont('helvetica','normal');doc.setFontSize(10);
+  }
+  function para(txt){
+    const lines=doc.splitTextToSize(txt,pageW-2*marginX);
+    lines.forEach(line=>{ensureSpace(5.5);doc.text(line,marginX,y);y+=5.5;});
+    y+=2;
+  }
+
+  doc.setFont('helvetica','bold');doc.setFontSize(16);
+  doc.text(isComm?'BAIL COMMERCIAL':'CONTRAT DE LOCATION (loi du 6 juillet 1989)',pageW/2,y,{align:'center'});
+  y+=12;
+  doc.setFont('helvetica','normal');doc.setFontSize(10);
+
+  title('Entre les soussignés');
+  para('Le bailleur : '+(bail.bailleur_nom||'—')+(bail.bailleur_rep?', représenté par '+bail.bailleur_rep:'')+', domicilié '+(bail.bailleur_adr||'—')+'.');
+  para('Le locataire : '+(bail.loc_nom||'—')+(bail.loc_nais?', né(e) le '+dl(bail.loc_nais)+(bail.loc_lieu_nais?' à '+bail.loc_lieu_nais:''):'')+(bail.loc_natio?', de nationalité '+bail.loc_natio:'')+', demeurant actuellement '+(bail.loc_adr||'—')+'.');
+  if(bail.gar_nom){
+    para('Le garant : '+bail.gar_nom+(bail.gar_lien?' ('+bail.gar_lien+')':'')+', domicilié '+(bail.gar_adr||'—')+', qui se porte caution solidaire du présent contrat.');
+  }
+  para('Il a été convenu ce qui suit :');
+
+  title('Article 1 — Désignation du logement');
+  para('Le bailleur donne à bail au locataire, qui accepte, les locaux ci-après désignés : '+(bail.adresse||'—')+(bail.appt?', '+bail.appt:'')+'.');
+  para('Type de logement : '+(bail.type_logement||'—')+'. Surface habitable : '+(bail.surface?bail.surface+' m²':'non communiquée')+'. Étage : '+(bail.etage||'—')+'. Annexes/dépendances : '+(bail.annexes||'aucune')+'.');
+
+  title('Article 2 — Durée du contrat');
+  para('Le présent contrat est conclu pour une durée de '+(bail.duree||'—')+' à compter du '+dl(bail.date_entree)+'.');
+
+  title('Article 3 — Conditions financières');
+  para('Loyer mensuel'+(isComm?' hors taxes':' hors charges')+' : '+fmt(bail.loyer_ref)+'. Charges mensuelles : '+fmt(bail.charges)+'.'+(isComm?' La TVA au taux en vigueur s\'applique en sus.':''));
+  para('Modalités de paiement : '+(bail.paiement||'—')+'.');
+  para('Dépôt de garantie versé à la signature : '+fmt(bail.caution)+', restitué dans les conditions légales après état des lieux de sortie, déduction faite des sommes dues au bailleur.');
+
+  title('Article 4 — Obligations des parties');
+  para("Le locataire s'engage à payer le loyer et les charges aux termes convenus, à user paisiblement des locaux loués, à répondre des dégradations survenues pendant la durée du contrat, à s'assurer contre les risques locatifs et à en justifier à la demande du bailleur, et à ne céder ni sous-louer le logement sans l'accord écrit du bailleur.");
+  para("Le bailleur s'engage à délivrer un logement décent et en bon état d'usage, à assurer au locataire une jouissance paisible du logement, et à entretenir les locaux en état de servir à l'usage prévu.");
+
+  title('Article 5 — Diagnostics et annexes');
+  const diagLabels={dpe:'DPE — Diagnostic de performance énergétique',elec:'Diagnostic électrique',gaz:'Diagnostic gaz',plomb:'Constat de risque d\'exposition au plomb (CREP)',amiante:'Diagnostic amiante',erp:'État des risques et pollutions (ERP)',bruit:'Information bruit / zone aéroportuaire',surface:'Mesurage loi Carrez / Boutin'};
+  const diagPresent=Object.keys(diagLabels).filter(k=>bail['diag_'+k]?.url);
+  if(diagPresent.length){
+    para('Les diagnostics suivants sont annexés au présent contrat et disponibles dans GMAO Pro :');
+    diagPresent.forEach(k=>para('- '+diagLabels[k]+(bail['diag_'+k].date?' (validité : '+dl(bail['diag_'+k].date)+')':'')));
+  } else {
+    para("Aucun diagnostic n'a été joint électroniquement à ce contrat au moment de sa génération.");
+  }
+
+  title('Fait à '+(bail.lieu_sig||'—')+', le '+new Date().toLocaleDateString('fr-FR'));
+  para("Chaque partie reconnaît avoir lu et accepté les termes du présent contrat, en foi de quoi elle appose son paraphe sur chaque page et sa signature ci-dessous.");
+  ensureSpace(45);
+  const sigY=y+8;
+  if(bail.sig_bailleur){doc.addImage(bail.sig_bailleur,'PNG',marginX,sigY,55,25);}
+  if(bail.sig_locataire){doc.addImage(bail.sig_locataire,'PNG',pageW-marginX-55,sigY,55,25);}
+  doc.setFontSize(9);
+  doc.text('Le bailleur',marginX,sigY+30);
+  doc.text('Le locataire',pageW-marginX-55,sigY+30);
+
+  // Paraphe sur chaque page (y compris la derniere, qui porte deja la
+  // signature complete - convention courante malgre la redondance).
+  const totalPages=doc.internal.getNumberOfPages();
+  for(let p=1;p<=totalPages;p++){
+    doc.setPage(p);
+    if(bail.paraphe_bailleur)doc.addImage(bail.paraphe_bailleur,'PNG',marginX,pageH-18,20,7);
+    if(bail.paraphe_locataire)doc.addImage(bail.paraphe_locataire,'PNG',pageW-marginX-20,pageH-18,20,7);
+    doc.setFontSize(8);doc.setTextColor(150);
+    doc.text('Page '+p+'/'+totalPages,pageW/2,pageH-10,{align:'center'});
+    doc.setTextColor(0);
+  }
+  return doc;
+}
+
 
 async function sendFactureEauRelance(tenant, releve, cpt, isRelance){
   const isDubail=dubailFilter(tenant.logement||"");
@@ -8349,7 +8554,41 @@ function bindAll(){
     const t=S.modal?.tenant||null;
     S.modal={type:'bail-form',tenant:t};render();
   };
-  
+
+  if(S.modal?.type==='bail-form'){
+    ['bail-paraphe-bailleur','bail-paraphe-locataire','bail-sig-bailleur','bail-sig-locataire'].forEach(initSigCanvas);
+    document.querySelectorAll('[data-diag-upload]').forEach(el=>el.onchange=()=>uploadDiagFile(el.dataset.diagUpload,el));
+    const btnPreviewBail=document.getElementById('btn-preview-bail');
+    if(btnPreviewBail)btnPreviewBail.onclick=()=>{
+      const bail=collectBailFormData();
+      if(!sigDataUrl('bail-paraphe-bailleur')||!sigDataUrl('bail-paraphe-locataire')){
+        if(!confirm('Le paraphe du bailleur ou du locataire est vide. Continuer quand même ?'))return;
+      }
+      const doc=genBailPDF(bail,S.modal.tenant||{});
+      window.open(doc.output('bloburl'),'_blank');
+    };
+    const btnSaveBail=document.getElementById('btn-save-bail');
+    if(btnSaveBail)btnSaveBail.onclick=async()=>{
+      const t=S.modal.tenant;
+      if(!t){alert('Locataire introuvable');return;}
+      if(!sigDataUrl('bail-sig-bailleur')||!sigDataUrl('bail-sig-locataire')){
+        alert('Les 2 signatures (bailleur et locataire) sont requises avant enregistrement.');return;
+      }
+      const bail=collectBailFormData();
+      const doc=genBailPDF(bail,t);
+      const blob=doc.output('blob');
+      const path=t.id+'/bail.pdf';
+      const{error:upErr}=await sb.storage.from('documents-locataires').upload(path,blob,{upsert:true,contentType:'application/pdf'});
+      if(upErr){alert('Erreur upload : '+upErr.message);return;}
+      const{data:pub}=sb.storage.from('documents-locataires').getPublicUrl(path);
+      const{error}=await sb.from('tenants').update({bail_url:pub.publicUrl,bail_data:bail}).eq('id',t.id);
+      if(error){alert('Bail généré mais erreur enregistrement fiche locataire : '+error.message);return;}
+      t.bail_url=pub.publicUrl;t.bail_data=bail;
+      alert('✓ Bail enregistré et signé.');
+      closeModal();render();
+    };
+  }
+
   const btnAddWater=q('btn-add-water');
   if(btnAddWater)btnAddWater.onclick=()=>{S.modal={type:'add-water'};render();};
 
