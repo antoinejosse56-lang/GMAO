@@ -366,8 +366,22 @@ function daysUntil(d){if(!d)return null;return Math.ceil((new Date(d)-new Date()
 // tant qu'aucune renovation ne les remet en cause). ERP = 6 mois seulement,
 // bien plus court que les autres, a ne pas oublier lors d'un changement de
 // locataire ou d'un simple renouvellement periodique.
-const DIAG_VALIDITY_MONTHS={dpe:120,elec:72,gaz:72,plomb:72,amiante:null,erp:6,bruit:null,surface:null};
+const DIAG_VALIDITY_MONTHS={dpe:120,elec:72,gaz:72,plomb:72,amiante:null,erp:6,bruit:null,surface:null,termites:6};
 const DIAG_LABELS={dpe:'DPE — Diagnostic de performance énergétique',elec:'Diagnostic électrique',gaz:'Diagnostic gaz',plomb:"Constat de risque d'exposition au plomb (CREP)",amiante:'Diagnostic amiante',erp:'État des risques et pollutions (ERP)',bruit:'Information bruit / zone aéroportuaire',surface:'Mesurage loi Carrez / Boutin'};
+// Fait le lien entre le libelle "type" choisi dans le formulaire "+ Document"
+// (fiche du bien) et la clef de validite utilisee par DIAG_VALIDITY_MONTHS -
+// permet de calculer automatiquement la date d'expiration au lieu de la
+// laisser a la saisie manuelle (souvent oubliee).
+const DOC_TYPE_TO_DIAG_KEY={'DPE':'dpe','Diagnostic amiante':'amiante','Diagnostic plomb':'plomb','Diagnostic électricité':'elec','Diagnostic gaz':'gaz','Diagnostic termites':'termites','ERP':'erp','Carrez':'surface'};
+function updateBienDocExpiry(){
+  const type=document.getElementById('m-bdoctype')?.value;
+  const dateVal=document.getElementById('m-bdocdate')?.value;
+  const expInput=document.getElementById('m-bdocexp');
+  const key=DOC_TYPE_TO_DIAG_KEY[type];
+  if(!expInput||!key||!dateVal)return;
+  const exp=diagExpiry(dateVal,key);
+  expInput.value=exp?exp.toISOString().slice(0,10):'';
+}
 function diagExpiry(dateStr,key){
   const months=DIAG_VALIDITY_MONTHS[key];
   if(!dateStr||months==null)return null;
@@ -378,7 +392,31 @@ function diagIsExpired(dateStr,key){
   const exp=diagExpiry(dateStr,key);
   return exp?exp<new Date():false;
 }
+// Diagnostics legalement obligatoires pour signer un bail d'habitation
+// (bruit/surface restent situationnels, non bloquants). Utilise pour
+// determiner si un bail peut etre genere pour ce logement.
+const REQUIRED_DIAG_KEYS=['dpe','elec','gaz','plomb','amiante','erp'];
+function logementDiagStatus(bienStr){
+  const norm=normBienSep(bienStr);
+  const docs=(S.bienDocuments||[]).filter(d=>normBienSep(d.bien)===norm);
+  return REQUIRED_DIAG_KEYS.map(key=>{
+    const matching=docs.filter(d=>DOC_TYPE_TO_DIAG_KEY[d.type]===key).sort((a,b)=>new Date(b.date||0)-new Date(a.date||0));
+    const doc=matching[0]||null;
+    const expired=doc?(doc.date_expiry?new Date(doc.date_expiry)<new Date():false):false;
+    return {key,label:DIAG_LABELS[key],doc,missing:!doc,expired};
+  });
+}
 function dateLabel(d){if(!d)return '—';return new Date(d).toLocaleDateString('fr-FR');}
+// Normalise le separateur d'un chemin "bien" pour comparaison : le champ
+// logement d'un locataire utilise un tiret cadratin (—) alors que le chemin
+// topologique (bienStr) utilise un tiret simple (" - ") - meme physique,
+// notation differente selon l'origine. Utilise partout ou l'on doit relier
+// un locataire/une fiche logement a son noeud topologique.
+function normBienSep(s){return (s||'').replace(/—/g,'-').replace(/\s*-\s*/g,' - ').trim();}
+function findLogementFiche(bienStr){
+  const norm=normBienSep(bienStr);
+  return (S.logementFiches||[]).find(f=>normBienSep(f.bien)===norm);
+}
 // Resout l'intervenant assigne a une gamme (mt.assigned_to peut etre un id,
 // un nom ou un email selon comment il a ete saisi) vers {by_user,by_email} a
 // stocker sur le BT genere - necessaire pour notifier/synchroniser au calendrier
@@ -435,7 +473,7 @@ let S = {
   // data
   users: [], assets: [], tasks: [], tools: [], loans: [],
   workOrders: [], maintenanceTemplates: [], topology: {properties: []},
-  factures: [], facturesAValider: [], fournisseurs: [], chantiers: [], devis: [], devisAValider: [], bienDocuments: [], revenues: [], finTab: 'overview', reservations: [], resaYear: new Date().getFullYear(), taxeSejourTaux: 5, taxeSejourPlafond: 4.60, compteurs: [], releves: [], rangements: [], famille: [], consommables: [], crecheSaisies: [], ecoleSaisies: [], familleTab: 'membres', finFactCpte: 'savadur', familleEnfant: null, tfRegularisations: []
+  factures: [], facturesAValider: [], fournisseurs: [], chantiers: [], devis: [], devisAValider: [], bienDocuments: [], revenues: [], finTab: 'overview', reservations: [], resaYear: new Date().getFullYear(), taxeSejourTaux: 5, taxeSejourPlafond: 4.60, compteurs: [], releves: [], rangements: [], famille: [], consommables: [], crecheSaisies: [], ecoleSaisies: [], familleTab: 'membres', finFactCpte: 'savadur', familleEnfant: null, tfRegularisations: [], logementFiches: []
 };
 
 async function loadAll() {
@@ -454,7 +492,7 @@ async function loadAll() {
     const test = await sb.from('users').select('count', {count:'exact',head:true});
     if (test.error) { showError(test.error.message || JSON.stringify(test.error)); return; }
 
-    const [u, a, t, tl, l, wo, mt, topo, rev, cpt, rel, ten, rp, wr, rng, fam, crecheRes, ecoleRes, conso, facturesRes, resaRes, favRes, fournRes, chantiersRes, devisRes, devisAvRes, bienDocsRes, tfRegulRes] = await Promise.all([
+    const [u, a, t, tl, l, wo, mt, topo, rev, cpt, rel, ten, rp, wr, rng, fam, crecheRes, ecoleRes, conso, facturesRes, resaRes, favRes, fournRes, chantiersRes, devisRes, devisAvRes, bienDocsRes, tfRegulRes, logFichesRes] = await Promise.all([
       sb.from('users').select('*'),
       sb.from('assets').select('*'),
       sb.from('tasks').select('*'),
@@ -482,7 +520,8 @@ async function loadAll() {
       sb.from('devis').select('*'),
       fetchAllRows('devis_a_valider','created_at',false),
       sb.from('bien_documents').select('*').order('created_at',{ascending:false}),
-      sb.from('tf_regularisations').select('*')
+      sb.from('tf_regularisations').select('*'),
+      sb.from('logement_fiches').select('*')
     ]);
 
     // Only block on critical tables
@@ -530,6 +569,8 @@ async function loadAll() {
     S.bienDocuments = bienDocsRes?.error ? [] : (bienDocsRes?.data || []);
     if (tfRegulRes?.error) console.warn('Table tf_regularisations non disponible:', tfRegulRes.error.message);
     S.tfRegularisations = tfRegulRes?.error ? [] : (tfRegulRes?.data || []);
+    if (logFichesRes?.error) console.warn('Table logement_fiches non disponible:', logFichesRes.error.message);
+    S.logementFiches = logFichesRes?.error ? [] : (logFichesRes?.data || []);
     const loadedTopo = topo.data?.[0]?.data;
     S.topoId = topo.data?.[0]?.id;
     if(loadedTopo?.properties?.length){
@@ -1806,16 +1847,16 @@ function renderTopology(){
     if(!nodeAssetId && !nodeName) return '';
     const asset = nodeAssetId ? S.assets.find(a=>a.id===nodeAssetId) : null;
     const ts = S.topoState;
-    const docs = (S.bienDocuments||[]).filter(d=>d.bien===bienStr);
+    const docs = (S.bienDocuments||[]).filter(d=>normBienSep(d.bien)===normBienSep(bienStr));
+    const logFiche = bienStr?findLogementFiche(bienStr):null;
     // Baux/diagnostics generes depuis la fiche locataire (voir bail-form) -
     // le champ logement du locataire utilise un tiret cadratin (—) alors que
     // bienStr (chemin topologique) utilise un tiret simple, d'ou la
     // normalisation avant comparaison. Correspondance par prefixe : la vue
     // "bien" doit remonter les documents de tous les locataires en dessous.
-    const normSep=s=>(s||'').replace(/—/g,'-').replace(/\s*-\s*/g,' - ').trim();
-    const normBien=normSep(bienStr);
+    const normBien=normBienSep(bienStr);
     const matchingTenants=(S.tenants||[]).filter(t=>{
-      const normLog=normSep(t.logement);
+      const normLog=normBienSep(t.logement);
       return normLog&&(normLog===normBien||normLog.startsWith(normBien+' - '));
     }).sort((a,b)=>new Date(b.date_entree||b.created_at||0)-new Date(a.date_entree||a.created_at||0));
     const tenantDocs=[];
@@ -1867,6 +1908,21 @@ function renderTopology(){
           ${hist.length===0?'<div style="font-size:11px;color:var(--text2)">Aucune intervention.</div>':''}
         </div>
       </div>
+      ${bienStr?`<div class="card" style="padding:12px;margin-top:10px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <div class="sec" style="margin:0">🏠 Fiche du logement</div>
+          ${canEdit()?`<button class="btn btn-sm btn-p" data-edit-logement-fiche="${bienStr.replace(/"/g,'&quot;')}">✎ ${logFiche?'Modifier':'Renseigner'}</button>`:''}
+        </div>
+        ${logFiche?`<div style="font-size:12px;line-height:1.7">
+          ${logFiche.adresse||bienStr}${logFiche.appt?', '+logFiche.appt:''}${logFiche.etage?' · '+logFiche.etage:''}<br>
+          ${logFiche.type_logement?logFiche.type_logement+' · ':''}${logFiche.type_habitat||'—'} · ${logFiche.regime||'—'} · Construit : ${logFiche.periode_construction||'—'}<br>
+          ${logFiche.surface?logFiche.surface+' m²':'Surface —'} · ${logFiche.nb_pieces||'—'} pièce(s) · Chauffage ${logFiche.chauffage||'—'} · Eau chaude ${logFiche.eau_chaude||'—'}<br>
+          ${logFiche.annexes?'Annexes : '+logFiche.annexes+'<br>':''}
+          ${logFiche.equipements?'Équipements : '+logFiche.equipements+'<br>':''}
+          ${logFiche.parties_communes?'Parties communes : '+logFiche.parties_communes+'<br>':''}
+          ${logFiche.tic?'TIC : '+logFiche.tic:''}
+        </div>`:'<div style="font-size:11px;color:var(--text2)">Non renseignée — nécessaire pour générer un bail sans ressaisir ces informations à chaque locataire.</div>'}
+      </div>`:''}
       ${bienStr?`<div class="card" style="padding:12px;margin-top:10px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
           <div class="sec" style="margin:0">📄 Documents (${allDocs.length})</div>
@@ -4939,16 +4995,22 @@ function renderModal(){
     const DOC_TYPES=['DPE','Diagnostic amiante','Diagnostic plomb','Diagnostic électricité','Diagnostic gaz','Diagnostic termites','ERP','Carrez','Autre'];
     html=`${mhd((m.type==='add-bien-document'?'Nouveau document — ':'Modifier — ')+(m.bien||d.bien||''))}
     <div class="form-group"><label>Type</label>
-      <select id="m-bdoctype">
+      <select id="m-bdoctype" onchange="updateBienDocExpiry()">
         ${DOC_TYPES.map(t=>`<option value="${t}" ${d.type===t?'selected':''}>${t}</option>`).join('')}
       </select>
       <input id="m-bdoctype-autre" value="${(d.type&&!DOC_TYPES.includes(d.type))?d.type:''}" placeholder="Autre type (si non listé)" style="margin-top:6px">
     </div>
     <div class="g2c">
-      <div class="form-group"><label>Date du document</label><input id="m-bdocdate" type="date" value="${d.date||NOW}"></div>
-      <div class="form-group"><label>Date d'expiration (optionnel)</label><input id="m-bdocexp" type="date" value="${d.date_expiry||''}"></div>
+      <div class="form-group"><label>Date du document</label><input id="m-bdocdate" type="date" value="${d.date||NOW}" onchange="updateBienDocExpiry()"></div>
+      <div class="form-group"><label>Date d'expiration</label><input id="m-bdocexp" type="date" value="${d.date_expiry||''}" title="Calculée automatiquement selon le type, modifiable"></div>
     </div>
-    <div class="form-group"><label>Lien du document (optionnel)</label>
+    <div class="form-group"><label>Fichier</label>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <input type="file" accept="application/pdf,image/*" id="m-bdocfile" data-bien-doc-upload="${(m.bien||d.bien||'').replace(/"/g,'&quot;')}" style="flex:1;min-width:160px">
+        <span id="m-bdocfile-status" style="font-size:11px">${d.document_url?`✓ <a href="${d.document_url}" target="_blank">Voir le fichier actuel</a>`:''}</span>
+      </div>
+    </div>
+    <div class="form-group"><label>Ou lien du document (Drive/URL)</label>
       <div style="display:flex;gap:6px">
         <input id="m-bdocurl" value="${d.document_url||''}" placeholder="https://drive.google.com/..." style="flex:1">
         <button type="button" class="btn btn-p" onclick="openDrivePicker(f=>{document.getElementById('m-bdocurl').value=f.url;})">📁</button>
@@ -6008,15 +6070,15 @@ function renderModal(){
 
   if(m.type==='bail-form'){
     const t=m.tenant||{};
-    // Reprend les caracteristiques fixes de CE logement (et les diagnostics,
-    // meme perimes - affiches en rouge pour rappel) depuis le dernier bail
-    // genere pour un precedent occupant du meme logement : evite de tout
-    // ressaisir (etage, equipements...) a chaque nouveau locataire. Les
-    // informations propres au nouveau locataire ne sont jamais reprises
-    // ainsi - elles viennent uniquement de sa propre fiche (t.*).
-    const prevOccupant=t.logement?S.tenants.filter(x=>x.id!==t.id&&x.logement===t.logement&&x.bail_data)
-      .sort((a,b)=>new Date(b.date_sortie||b.created_at||0)-new Date(a.date_sortie||a.created_at||0))[0]:null;
-    const prevBail=prevOccupant?.bail_data||{};
+    // Les caracteristiques fixes du logement et les diagnostics ne sont plus
+    // ressaisis ici : ils viennent de la fiche du bien/zone (Topologie),
+    // seule source pour ces informations, communes a tous les locataires
+    // successifs de ce meme logement. Ce formulaire n'edite plus que ce qui
+    // est propre a CE bail (locataire, conditions financieres, duree).
+    const logFicheB=t.logement?findLogementFiche(t.logement):null;
+    const diagStatusList=t.logement?logementDiagStatus(t.logement):[];
+    const missingOrExpired=diagStatusList.filter(d=>d.missing||d.expired);
+    const canGenerate=!!logFicheB&&missingOrExpired.length===0;
     const bail=m.bail||{
       type_bail:t.type_bail||'habitation',
       loyer_ref:t.loyer_ref||0,
@@ -6024,74 +6086,37 @@ function renderModal(){
       caution:t.caution||0,
       date_entree:t.date_entree||'',
       duree:t.type_bail==='commercial'?'9 ans':'3 ans',
-      adresse:prevBail.adresse,appt:prevBail.appt,type_logement:prevBail.type_logement,surface:prevBail.surface,
-      etage:prevBail.etage,annexes:prevBail.annexes,type_habitat:prevBail.type_habitat,regime:prevBail.regime,
-      periode_construction:prevBail.periode_construction,nb_pieces:prevBail.nb_pieces,chauffage:prevBail.chauffage,
-      eau_chaude:prevBail.eau_chaude,equipements:prevBail.equipements,parties_communes:prevBail.parties_communes,
-      tic:prevBail.tic,bailleur_nom:prevBail.bailleur_nom,bailleur_rep:prevBail.bailleur_rep,bailleur_adr:prevBail.bailleur_adr,
-      lieu_sig:prevBail.lieu_sig,jour_paiement:prevBail.jour_paiement,lieu_paiement:prevBail.lieu_paiement,
-      ...Object.fromEntries(Object.keys(DIAG_LABELS).filter(k=>prevBail['diag_'+k]?.url).map(k=>['diag_'+k,prevBail['diag_'+k]])),
     };
-    const diagDocs=[
-      {key:'dpe',label:'DPE — Diagnostic de performance énergétique'},
-      {key:'elec',label:'Diagnostic électrique'},
-      {key:'gaz',label:'Diagnostic gaz'},
-      {key:'plomb',label:"Constat de risque d'exposition au plomb (CREP)"},
-      {key:'amiante',label:'Diagnostic amiante'},
-      {key:'erp',label:'État des risques et pollutions (ERP)'},
-      {key:'bruit',label:'Information bruit / zone aéroportuaire'},
-      {key:'surface',label:'Mesurage loi Carrez / Boutin'},
-    ];
     html=`${mhd('📝 Générer le bail'+(t.nom?' — '+t.nom:''))}
     <div style="display:flex;gap:8px;margin-bottom:12px">
       <button type="button" class="btn btn-sm ${bail.type_bail!=='commercial'?'btn-p':''}" onclick="S.modal.bail={...S.modal.bail,type_bail:'habitation'};render()">Habitation (loi Alur)</button>
       <button type="button" class="btn btn-sm ${bail.type_bail==='commercial'?'btn-p':''}" onclick="S.modal.bail={...S.modal.bail,type_bail:'commercial'};render()">Commercial</button>
     </div>
 
-    <div class="sec" style="margin-bottom:8px">🏠 Le logement</div>
-    <div class="g2c">
-      <div class="form-group"><label>Adresse complète *</label><input id="bail-adresse" value="${bail.adresse||t.logement||'26 rue Général Dubail'}" placeholder="N° appt, 26 rue Général Dubail, 56100 Lorient"></div>
-      <div class="form-group"><label>N° appartement / désignation</label><input id="bail-appt" value="${bail.appt||''}" placeholder="Ex: Appt 12, RDC gauche..."></div>
+    <div class="sec" style="margin-bottom:8px">🏠 Le logement <span style="font-size:11px;color:var(--text2);text-transform:none;font-weight:400">(fiche du bien — Topologie)</span></div>
+    ${!logFicheB?`<div class="alert-r">
+      ⚠ Fiche du logement non renseignée pour "${t.logement||'ce logement'}". Le bail ne peut pas être généré.
+      <button type="button" class="btn btn-sm" style="margin-top:6px" data-edit-logement-fiche="${(t.logement||'').replace(/"/g,'&quot;')}">Renseigner la fiche du logement</button>
+    </div>`:`<div style="background:var(--bg2);padding:10px 12px;border-radius:var(--radius);font-size:12px;line-height:1.7;margin-bottom:6px">
+      ${logFicheB.adresse||t.logement}${logFicheB.appt?', '+logFicheB.appt:''}${logFicheB.etage?' · '+logFicheB.etage:''}<br>
+      ${logFicheB.type_logement?logFicheB.type_logement+' · ':''}${logFicheB.type_habitat||'—'} · ${logFicheB.regime||'—'} · Construit : ${logFicheB.periode_construction||'—'}<br>
+      ${logFicheB.surface?logFicheB.surface+' m²':'Surface —'} · ${logFicheB.nb_pieces||'—'} pièce(s) · Chauffage ${logFicheB.chauffage||'—'} · Eau chaude ${logFicheB.eau_chaude||'—'}
+      ${logFicheB.annexes?'<br>Annexes : '+logFicheB.annexes:''}
     </div>
-    <div class="g2c">
-      <div class="form-group"><label>Type de logement</label><input id="bail-type" value="${bail.type_logement||'T3 — Appartement vide'}" placeholder="T3, T2, Studio..."></div>
-      <div class="form-group"><label>Surface habitable (m²)</label><input id="bail-surface" type="number" value="${bail.surface||''}"></div>
+    <button type="button" class="btn btn-sm" style="margin-bottom:6px" data-edit-logement-fiche="${(t.logement||'').replace(/"/g,'&quot;')}">✎ Modifier depuis la fiche du bien</button>`}
+
+    <div class="sec" style="margin-top:12px;margin-bottom:8px">📎 Diagnostics obligatoires <span style="font-size:11px;color:var(--text2);text-transform:none;font-weight:400">(fiche du bien — Topologie)</span></div>
+    <div style="margin-bottom:6px">
+      ${diagStatusList.map(d=>`<div class="row">
+        <div class="fg"><div class="fgs" style="font-size:12px${d.missing||d.expired?';color:var(--red)':''}">${d.label}${d.missing?' <span class="badge bred" style="font-size:9px">Manquant</span>':d.expired?' <span class="badge bred" style="font-size:9px">Expiré</span>':' <span class="badge bgreen" style="font-size:9px">Valide</span>'}</div>
+        ${d.doc?`<div class="fgsub">${dateLabel(d.doc.date)}${d.doc.date_expiry?' · expire '+dateLabel(d.doc.date_expiry):''}</div>`:''}</div>
+        ${d.doc?.document_url?`<a href="${d.doc.document_url}" target="_blank" class="btn btn-sm">👁 Voir</a>`:''}
+      </div>`).join('')}
     </div>
-    <div class="g2c">
-      <div class="form-group"><label>Étage</label><input id="bail-etage" value="${bail.etage||''}" placeholder="2ème étage, RDC..."></div>
-      <div class="form-group"><label>Cave / Parking inclus</label><input id="bail-annexes" value="${bail.annexes||''}" placeholder="Cave n°3, aucun..."></div>
-    </div>
-    ${bail.type_bail!=='commercial'?`
-    <div class="g2c">
-      <div class="form-group"><label>Type d'habitat</label><select id="bail-type-habitat">
-        <option ${(bail.type_habitat||'Immeuble collectif')==='Immeuble collectif'?'selected':''}>Immeuble collectif</option>
-        <option ${bail.type_habitat==='Immeuble individuel'?'selected':''}>Immeuble individuel</option>
-      </select></div>
-      <div class="form-group"><label>Régime juridique de l'immeuble</label><select id="bail-regime">
-        <option ${(bail.regime||'Mono propriété')==='Mono propriété'?'selected':''}>Mono propriété</option>
-        <option ${bail.regime==='Copropriété'?'selected':''}>Copropriété</option>
-      </select></div>
-    </div>
-    <div class="g2c">
-      <div class="form-group"><label>Période de construction</label><select id="bail-periode-construction">
-        ${['Avant 1949','De 1949 à 1974','De 1975 à 1989','De 1989 à 2005','Depuis 2005'].map(p=>`<option ${(bail.periode_construction||'De 1949 à 1974')===p?'selected':''}>${p}</option>`).join('')}
-      </select></div>
-      <div class="form-group"><label>Nombre de pièces principales</label><input id="bail-nb-pieces" type="number" value="${bail.nb_pieces||''}"></div>
-    </div>
-    <div class="g2c">
-      <div class="form-group"><label>Chauffage</label><select id="bail-chauffage">
-        <option ${(bail.chauffage||'Individuel')==='Individuel'?'selected':''}>Individuel</option>
-        <option ${bail.chauffage==='Collectif'?'selected':''}>Collectif</option>
-      </select></div>
-      <div class="form-group"><label>Eau chaude sanitaire</label><select id="bail-eau-chaude">
-        <option ${(bail.eau_chaude||'Individuelle')==='Individuelle'?'selected':''}>Individuelle</option>
-        <option ${bail.eau_chaude==='Collective'?'selected':''}>Collective</option>
-      </select></div>
-    </div>
-    <div class="form-group"><label>Équipements du logement</label><input id="bail-equipements" value="${bail.equipements||''}" placeholder="Cuisine équipée, ballon eau chaude, VMC..."></div>
-    <div class="form-group"><label>Parties/équipements communs de l'immeuble</label><input id="bail-parties-communes" value="${bail.parties_communes||''}" placeholder="Ascenseur, local poubelle, garage à vélo..."></div>
-    <div class="form-group"><label>Accès technologies (TV, internet...)</label><input id="bail-tic" value="${bail.tic||''}" placeholder="Prise TV, fibre disponible..."></div>
-    `:''}
+    ${missingOrExpired.length>0?`<div class="alert-r">
+      ⚠ ${missingOrExpired.length} diagnostic(s) manquant(s) ou expiré(s) — le bail ne peut pas être généré tant qu'ils ne sont pas à jour.
+      <button type="button" class="btn btn-sm" style="margin-top:6px" data-add-bien-doc="${(t.logement||'').replace(/"/g,'&quot;')}">+ Ajouter un document</button>
+    </div>`:''}
 
     <div class="sec" style="margin-top:12px;margin-bottom:8px">🏢 Le bailleur</div>
     <div class="g2c">
@@ -6154,28 +6179,8 @@ function renderModal(){
     </div>
     <div class="form-group"><label>Lieu de signature</label><input id="bail-lieu-sig" value="${bail.lieu_sig||'Lorient'}" placeholder="Ville"></div>
 
-    <div class="sec" style="margin-top:12px;margin-bottom:8px">📎 Annexes et diagnostics</div>
-    ${diagDocs.map(d=>{
-      const doc=bail['diag_'+d.key];
-      const expired=doc?.date?diagIsExpired(doc.date,d.key):false;
-      const exp=doc?.date?diagExpiry(doc.date,d.key):null;
-      const statusHtml=doc?.url
-        ?(expired
-          ?`<span style="color:var(--red)">⚠ À revalider (expiré depuis le ${dateLabel(exp)})</span> <a href="${doc.url}" target="_blank">Voir l'ancien fichier</a>`
-          :`✓ <a href="${doc.url}" target="_blank">Voir le fichier</a>${exp?` <span style="color:var(--text2)">(valide jusqu'au ${dateLabel(exp)})</span>`:''}`)
-        :'';
-      return `<div class="form-group" style="margin-bottom:6px">
-      <label style="font-size:11px">${d.label}</label>
-      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-        <input type="file" accept="application/pdf,image/*" id="bail-diag-${d.key}-file" data-diag-upload="${d.key}" style="flex:1;min-width:160px">
-        <input id="bail-diag-${d.key}-date" type="date" value="${doc?.date||''}" style="width:130px" title="Date d'établissement">
-        <span id="bail-diag-${d.key}-status" style="font-size:11px">${statusHtml}</span>
-      </div>
-    </div>`;
-    }).join('')}
-
     <div class="sec" style="margin-top:12px;margin-bottom:8px">✍ Paraphe et signature</div>
-    <p style="font-size:12px;color:var(--text2);margin-bottom:8px">Le paraphe sera reproduit automatiquement sur toutes les sections du bail. La signature sera apposée à la fin du document.</p>
+    <p style="font-size:12px;color:var(--text2);margin-bottom:8px">Le paraphe sera reproduit automatiquement sur toutes les pages du bail (et de ses annexes). La signature sera apposée à la fin du document.</p>
     <div class="g2c">
       <div class="form-group">
         <label>Paraphe du bailleur <span style="font-size:10px;color:var(--text2)">(sera reproduit sur chaque section)</span></label>
@@ -6203,9 +6208,10 @@ function renderModal(){
     <div style="font-size:11px;color:var(--text2);background:var(--bg2);padding:8px 10px;border-radius:var(--radius);margin-top:10px">
       ⚠ Signature électronique simple (paraphe/signature dessinés) — usage courant pour un bail entre particuliers, mais ne constitue pas une signature électronique qualifiée au sens juridique strict.
     </div>
+    ${!canGenerate?`<div style="font-size:11px;color:var(--red);margin-top:8px">La fiche du logement et tous les diagnostics obligatoires doivent être complets et à jour avant de pouvoir générer ce bail.</div>`:''}
     <div style="display:flex;gap:8px;margin-top:12px">
-      <button type="button" class="btn btn-sm" id="btn-preview-bail" style="flex:1">👁 Prévisualiser</button>
-      <button type="button" class="btn btn-sm btn-p" id="btn-save-bail" style="flex:1">✓ Enregistrer le bail signé</button>
+      <button type="button" class="btn btn-sm" id="btn-preview-bail" style="flex:1" ${!canGenerate?'disabled':''}>👁 Prévisualiser</button>
+      <button type="button" class="btn btn-sm btn-p" id="btn-save-bail" style="flex:1" ${!canGenerate?'disabled':''}>✓ Enregistrer le bail signé</button>
     </div>
     ${mf}`;
   }
@@ -6581,6 +6587,51 @@ function renderModal(){
     <div style="background:var(--bg2);padding:8px 12px;border-radius:var(--radius);font-size:11px;color:var(--text2)">
       TVA 20% appliquée automatiquement sur les 2 lignes. La charge mensuelle de ${t.nom} sera augmentée de ${fmt2(monthlyHT)} HT à partir de la validation.
     </div>
+    ${mf}`;
+  }
+
+  if(m.type==='logement-fiche-form'){
+    const f=findLogementFiche(m.bien)||{};
+    html=`${mhd('🏠 Fiche du logement — '+m.bien)}
+    <div class="g2c">
+      <div class="form-group"><label>Adresse complète</label><input id="lf-adresse" value="${f.adresse||m.bien}" placeholder="N° appt, rue, 56100 Lorient"></div>
+      <div class="form-group"><label>N° appartement / désignation</label><input id="lf-appt" value="${f.appt||''}" placeholder="Ex: Appt 12, RDC gauche..."></div>
+    </div>
+    <div class="g2c">
+      <div class="form-group"><label>Type de logement</label><input id="lf-type-logement" value="${f.type_logement||''}" placeholder="T3, T2, Studio..."></div>
+      <div class="form-group"><label>Étage</label><input id="lf-etage" value="${f.etage||''}" placeholder="2ème étage, RDC..."></div>
+    </div>
+    <div class="form-group"><label>Cave / Parking inclus</label><input id="lf-annexes" value="${f.annexes||''}" placeholder="Cave n°3, aucun..."></div>
+    <div class="g2c">
+      <div class="form-group"><label>Type d'habitat</label><select id="lf-type-habitat">
+        <option ${(f.type_habitat||'Immeuble collectif')==='Immeuble collectif'?'selected':''}>Immeuble collectif</option>
+        <option ${f.type_habitat==='Immeuble individuel'?'selected':''}>Immeuble individuel</option>
+      </select></div>
+      <div class="form-group"><label>Régime juridique de l'immeuble</label><select id="lf-regime">
+        <option ${(f.regime||'Mono propriété')==='Mono propriété'?'selected':''}>Mono propriété</option>
+        <option ${f.regime==='Copropriété'?'selected':''}>Copropriété</option>
+      </select></div>
+    </div>
+    <div class="g2c">
+      <div class="form-group"><label>Période de construction</label><select id="lf-periode">
+        ${['Avant 1949','De 1949 à 1974','De 1975 à 1989','De 1989 à 2005','Depuis 2005'].map(p=>`<option ${(f.periode_construction||'De 1949 à 1974')===p?'selected':''}>${p}</option>`).join('')}
+      </select></div>
+      <div class="form-group"><label>Nombre de pièces principales</label><input id="lf-nb-pieces" type="number" value="${f.nb_pieces||''}"></div>
+    </div>
+    <div class="g2c">
+      <div class="form-group"><label>Surface habitable (m²)</label><input id="lf-surface" type="number" value="${f.surface||''}"></div>
+      <div class="form-group"><label>Chauffage</label><select id="lf-chauffage">
+        <option ${(f.chauffage||'Individuel')==='Individuel'?'selected':''}>Individuel</option>
+        <option ${f.chauffage==='Collectif'?'selected':''}>Collectif</option>
+      </select></div>
+    </div>
+    <div class="form-group"><label>Eau chaude sanitaire</label><select id="lf-eau-chaude">
+      <option ${(f.eau_chaude||'Individuelle')==='Individuelle'?'selected':''}>Individuelle</option>
+      <option ${f.eau_chaude==='Collective'?'selected':''}>Collective</option>
+    </select></div>
+    <div class="form-group"><label>Équipements du logement</label><input id="lf-equipements" value="${f.equipements||''}" placeholder="Cuisine équipée, ballon eau chaude, VMC..."></div>
+    <div class="form-group"><label>Parties/équipements communs de l'immeuble</label><input id="lf-parties-communes" value="${f.parties_communes||''}" placeholder="Ascenseur, local poubelle, garage à vélo..."></div>
+    <div class="form-group"><label>Accès technologies (TV, internet...)</label><input id="lf-tic" value="${f.tic||''}" placeholder="Prise TV, fibre disponible..."></div>
     ${mf}`;
   }
 
@@ -7741,6 +7792,30 @@ async function saveModal(){
     if(d){d.wo_id=woId;d.chantier_id=null;}
   }
 
+  if(m.type==='logement-fiche-form'){
+    // Reutilise l'orthographe EXACTE deja enregistree pour ce logement si une
+    // fiche existe deja (bien.tenant utilise un tiret cadratin, bien.topologie
+    // un tiret simple - findLogementFiche compare en normalisant, mais
+    // l'upsert lui doit cibler la meme valeur litterale que celle deja en
+    // base, sinon onConflict:'bien' cree une 2e ligne au lieu de mettre a
+    // jour la premiere).
+    const existingFiche=findLogementFiche(m.bien);
+    const targetBien=existingFiche?.bien||m.bien;
+    const rec={
+      bien:targetBien,
+      adresse:q('lf-adresse'),appt:q('lf-appt'),type_logement:q('lf-type-logement'),etage:q('lf-etage'),annexes:q('lf-annexes'),
+      type_habitat:q('lf-type-habitat'),regime:q('lf-regime'),periode_construction:q('lf-periode'),
+      nb_pieces:parseInt(q('lf-nb-pieces'))||null,surface:parseFloat(q('lf-surface'))||null,
+      chauffage:q('lf-chauffage'),eau_chaude:q('lf-eau-chaude'),
+      equipements:q('lf-equipements'),parties_communes:q('lf-parties-communes'),tic:q('lf-tic'),
+      updated_at:new Date().toISOString(),
+    };
+    const{data,error}=await sb.from('logement_fiches').upsert(rec,{onConflict:'bien'}).select().single();
+    if(error){alert('Erreur : '+error.message);return;}
+    const idx=S.logementFiches.findIndex(f=>f.bien===targetBien);
+    if(idx>=0)S.logementFiches[idx]=data;else S.logementFiches.push(data);
+  }
+
   if(m.type==='regul-tf'){
     const t=S.tenants.find(x=>x.id===m.tenantId);
     if(!t)return;
@@ -7974,32 +8049,29 @@ function genRegulTFPDF(tenant, due, montants){
   w.document.close();
 }
 
-// Upload immediat d'un diagnostic (DPE, electrique...) choisi dans le
-// formulaire de bail vers le bucket documents-locataires - stocke dans
-// S.modal.bail plutot que redessine en entier (evite d'effacer les autres
-// champs deja remplis, puisque ce formulaire n'est pas controle/synchronise
-// en continu avec le DOM - voir collectBailFormData).
-async function uploadDiagFile(key, fileInput){
+// Upload d'un document/diagnostic depuis la fiche du bien (formulaire
+// "+ Document") - stocke dans le meme bucket que les documents locataires,
+// sous un chemin propre au bien plutot qu'a un locataire (ces documents
+// sont desormais rattaches au logement, independamment de qui l'occupe).
+async function uploadBienDocFile(bien,fileInput){
   const file=fileInput.files?.[0];
   if(!file)return;
-  const t=S.modal.tenant;
-  if(!t?.id){alert('Enregistrez d\'abord le locataire avant d\'ajouter des diagnostics.');return;}
-  const statusEl=document.getElementById('bail-diag-'+key+'-status');
+  const statusEl=document.getElementById('m-bdocfile-status');
   if(statusEl)statusEl.textContent='⏳ Envoi...';
+  const slug=sanitizeFolderName(bien).replace(/\s+/g,'_');
   const ext=(file.name.split('.').pop()||'pdf').toLowerCase();
-  const path=t.id+'/diag_'+key+'.'+ext;
-  const{error}=await sb.storage.from('documents-locataires').upload(path,file,{upsert:true,contentType:file.type||'application/pdf',cacheControl:'0'});
+  const path='biens/'+slug+'/'+Date.now()+'.'+ext;
+  const{error}=await sb.storage.from('documents-locataires').upload(path,file,{contentType:file.type||'application/pdf',cacheControl:'0'});
   if(error){if(statusEl)statusEl.textContent='';alert('Erreur upload : '+error.message);return;}
   const{data:pub}=sb.storage.from('documents-locataires').getPublicUrl(path);
-  // Cache-busting : un upsert ecrase le fichier a la meme URL, mais le CDN
-  // Supabase peut encore servir une version en cache sans ce parametre -
-  // c'est ce qui causait "l'apercu est bon mais pas le fichier enregistre".
   const freshUrl=pub.publicUrl+'?v='+Date.now();
-  const dateVal=document.getElementById('bail-diag-'+key+'-date')?.value||'';
-  S.modal.bail={...(S.modal.bail||{}),['diag_'+key]:{url:freshUrl,date:dateVal}};
-  const exp=dateVal?diagExpiry(dateVal,key):null;
-  if(statusEl)statusEl.innerHTML=exp?'✓ <a href="'+freshUrl+'" target="_blank">Voir le fichier</a> <span style="color:var(--text2)">(valide jusqu\'au '+dateLabel(exp)+')</span>':'✓ <a href="'+freshUrl+'" target="_blank">Voir le fichier</a>';
+  const urlInput=document.getElementById('m-bdocurl');
+  if(urlInput)urlInput.value=freshUrl;
+  if(statusEl)statusEl.innerHTML='✓ <a href="'+freshUrl+'" target="_blank">Voir le fichier</a>';
 }
+// Meme nettoyage de nom que cote Python (import_factures.py) pour un chemin
+// de stockage lisible et sans caracteres interdits.
+function sanitizeFolderName(name){return (name||'').replace(/[<>:"/\\|?*]/g,'_').trim();}
 
 // Lit l'etat courant du formulaire directement dans le DOM (plutot que
 // S.modal.bail, qui n'est mis a jour que pour les diagnostics uploades) -
@@ -8009,11 +8081,18 @@ async function uploadDiagFile(key, fileInput){
 function collectBailFormData(){
   const q=id=>document.getElementById(id)?.value||'';
   const bail=S.modal.bail||{};
-  const diagKeys=['dpe','elec','gaz','plomb','amiante','erp','bruit','surface'];
+  const t=S.modal.tenant||{};
+  // Les caracteristiques du logement et les diagnostics viennent uniquement
+  // de la fiche du bien (Topologie), plus jamais d'inputs de ce formulaire -
+  // une seule source, partagee par tous les locataires successifs.
+  const lf=t.logement?findLogementFiche(t.logement):null;
   const out={
     type_bail:bail.type_bail||'habitation',
-    adresse:q('bail-adresse'),appt:q('bail-appt'),type_logement:q('bail-type'),surface:q('bail-surface'),
-    etage:q('bail-etage'),annexes:q('bail-annexes'),
+    adresse:lf?.adresse||t.logement||'',appt:lf?.appt||'',type_logement:lf?.type_logement||'',surface:lf?.surface||'',
+    etage:lf?.etage||'',annexes:lf?.annexes||'',
+    type_habitat:lf?.type_habitat||'',regime:lf?.regime||'',periode_construction:lf?.periode_construction||'',
+    nb_pieces:lf?.nb_pieces||'',chauffage:lf?.chauffage||'',eau_chaude:lf?.eau_chaude||'',
+    equipements:lf?.equipements||'',parties_communes:lf?.parties_communes||'',tic:lf?.tic||'',
     bailleur_nom:q('bail-bailleur-nom'),bailleur_rep:q('bail-bailleur-rep'),bailleur_adr:q('bail-bailleur-adr'),
     loc_nom:q('bail-loc-nom'),loc_nais:q('bail-loc-nais'),loc_lieu_nais:q('bail-loc-lieu-nais'),loc_natio:q('bail-loc-natio'),
     loc_email:q('bail-loc-email'),loc_tel:q('bail-loc-tel'),loc_adr:q('bail-loc-adr'),
@@ -8022,17 +8101,17 @@ function collectBailFormData(){
     caution:parseFloat(q('bail-caution'))||0,
     jour_paiement:q('bail-jour-paiement'),lieu_paiement:q('bail-lieu-paiement'),
     date_entree:q('bail-date-entree'),duree:q('bail-duree'),lieu_sig:q('bail-lieu-sig'),
-    type_habitat:q('bail-type-habitat'),regime:q('bail-regime'),periode_construction:q('bail-periode-construction'),
-    nb_pieces:q('bail-nb-pieces'),chauffage:q('bail-chauffage'),eau_chaude:q('bail-eau-chaude'),
-    equipements:q('bail-equipements'),parties_communes:q('bail-parties-communes'),tic:q('bail-tic'),
     charges_modalite:q('bail-charges-modalite'),charges_detail:q('bail-charges-detail'),
     date_revision:q('bail-date-revision'),irl_trimestre:q('bail-irl-trimestre'),travaux:q('bail-travaux'),
   };
-  diagKeys.forEach(k=>{
-    const existing=bail['diag_'+k];
-    const dateVal=q('bail-diag-'+k+'-date');
-    if(existing?.url)out['diag_'+k]={url:existing.url,date:dateVal||existing.date||''};
-  });
+  // Diagnostics obligatoires, tires de la fiche du bien (bien_documents) -
+  // seuls les encore valides sont repris (le formulaire bloque de toute
+  // facon la generation si l'un d'eux manque ou est perime).
+  if(t.logement){
+    logementDiagStatus(t.logement).forEach(d=>{
+      if(d.doc&&!d.expired)out['diag_'+d.key]={url:d.doc.document_url,date:d.doc.date};
+    });
+  }
   out.paraphe_bailleur=sigDataUrl('bail-paraphe-bailleur');
   out.paraphe_locataire=sigDataUrl('bail-paraphe-locataire');
   out.sig_bailleur=sigDataUrl('bail-sig-bailleur');
@@ -8805,9 +8884,11 @@ function bindAll(){
 
   if(S.modal?.type==='bail-form'){
     ['bail-paraphe-bailleur','bail-paraphe-locataire','bail-sig-bailleur','bail-sig-locataire'].forEach(initSigCanvas);
-    document.querySelectorAll('[data-diag-upload]').forEach(el=>el.onchange=()=>uploadDiagFile(el.dataset.diagUpload,el));
     const btnPreviewBail=document.getElementById('btn-preview-bail');
     if(btnPreviewBail)btnPreviewBail.onclick=async()=>{
+      const tChk=S.modal.tenant||{};
+      const missingChk=tChk.logement?logementDiagStatus(tChk.logement).filter(d=>d.missing||d.expired):[];
+      if(!findLogementFiche(tChk.logement)||missingChk.length>0){alert('Fiche du logement ou diagnostics obligatoires incomplets.');return;}
       const bail=collectBailFormData();
       if(!sigDataUrl('bail-paraphe-bailleur')||!sigDataUrl('bail-paraphe-locataire')){
         if(!confirm('Le paraphe du bailleur ou du locataire est vide. Continuer quand même ?'))return;
@@ -8824,6 +8905,8 @@ function bindAll(){
     if(btnSaveBail)btnSaveBail.onclick=async()=>{
       const t=S.modal.tenant;
       if(!t){alert('Locataire introuvable');return;}
+      const missingChk2=t.logement?logementDiagStatus(t.logement).filter(d=>d.missing||d.expired):[];
+      if(!findLogementFiche(t.logement)||missingChk2.length>0){alert('Fiche du logement ou diagnostics obligatoires incomplets.');return;}
       if(!sigDataUrl('bail-sig-bailleur')||!sigDataUrl('bail-sig-locataire')){
         alert('Les 2 signatures (bailleur et locataire) sont requises avant enregistrement.');return;
       }
@@ -9376,6 +9459,10 @@ function bindAll(){
   document.querySelectorAll('[data-link-devis-bt]').forEach(el=>el.onclick=()=>{
     S.modal={type:'link-devis-bt',devisId:el.dataset.linkDevisBt,chantierId:el.dataset.chantierId};render();
   });
+  document.querySelectorAll('[data-edit-logement-fiche]').forEach(el=>el.onclick=()=>{
+    S.modal={type:'logement-fiche-form',bien:el.dataset.editLogementFiche};render();
+  });
+  document.querySelectorAll('[data-bien-doc-upload]').forEach(el=>el.onchange=()=>uploadBienDocFile(el.dataset.bienDocUpload,el));
   document.querySelectorAll('[data-del-chantier]').forEach(el=>el.onclick=async()=>{
     if(!confirm('Supprimer ce chantier ? Les bons de travaux rattachés ne seront pas supprimés, juste détachés.'))return;
     const{error}=await sb.from('chantiers').delete().eq('id',el.dataset.delChantier);
