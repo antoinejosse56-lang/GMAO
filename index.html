@@ -6223,24 +6223,24 @@ function renderModal(){
     <div class="g2c">
       <div class="form-group">
         <label>Paraphe du bailleur</label>
-        <canvas id="edl-paraphe-bailleur" width="200" height="60" style="border:0.5px solid var(--border2);border-radius:var(--radius);background:#fff;cursor:crosshair;display:block;touch-action:none"></canvas>
+        <canvas id="edl-paraphe-bailleur" width="200" height="60" style="border:0.5px solid var(--border2);border-radius:var(--radius);background:#fff;max-width:100%;height:auto;cursor:crosshair;display:block;touch-action:none"></canvas>
         <button type="button" class="btn btn-sm" style="margin-top:4px" onclick="clearSig('edl-paraphe-bailleur')">↺ Effacer</button>
       </div>
       <div class="form-group">
         <label>Paraphe du locataire</label>
-        <canvas id="edl-paraphe-locataire" width="200" height="60" style="border:0.5px solid var(--border2);border-radius:var(--radius);background:#fff;cursor:crosshair;display:block;touch-action:none"></canvas>
+        <canvas id="edl-paraphe-locataire" width="200" height="60" style="border:0.5px solid var(--border2);border-radius:var(--radius);background:#fff;max-width:100%;height:auto;cursor:crosshair;display:block;touch-action:none"></canvas>
         <button type="button" class="btn btn-sm" style="margin-top:4px" onclick="clearSig('edl-paraphe-locataire')">↺ Effacer</button>
       </div>
     </div>
     <div class="g2c" style="margin-top:8px">
       <div class="form-group">
         <label>Signature du bailleur</label>
-        <canvas id="edl-sig-bailleur" width="200" height="70" style="border:0.5px solid var(--border2);border-radius:var(--radius);background:#fff;cursor:crosshair;display:block;touch-action:none"></canvas>
+        <canvas id="edl-sig-bailleur" width="200" height="70" style="border:0.5px solid var(--border2);border-radius:var(--radius);background:#fff;max-width:100%;height:auto;cursor:crosshair;display:block;touch-action:none"></canvas>
         <button type="button" class="btn btn-sm" style="margin-top:4px" onclick="clearSig('edl-sig-bailleur')">↺ Effacer</button>
       </div>
       <div class="form-group">
         <label>Signature du locataire</label>
-        <canvas id="edl-sig-locataire" width="200" height="70" style="border:0.5px solid var(--border2);border-radius:var(--radius);background:#fff;cursor:crosshair;display:block;touch-action:none"></canvas>
+        <canvas id="edl-sig-locataire" width="200" height="70" style="border:0.5px solid var(--border2);border-radius:var(--radius);background:#fff;max-width:100%;height:auto;cursor:crosshair;display:block;touch-action:none"></canvas>
         <button type="button" class="btn btn-sm" style="margin-top:4px" onclick="clearSig('edl-sig-locataire')">↺ Effacer</button>
       </div>
     </div>
@@ -6284,6 +6284,14 @@ function renderModal(){
       </div>`).join('')}
     </div>
     <button type="button" class="btn btn-sm btn-p" data-add-bien-doc="${(t.logement||'').replace(/"/g,'&quot;')}">+ Ajouter un document</button>
+
+    <div class="sec" style="margin-top:16px;margin-bottom:8px">🪪 Pièces d'identité <span style="font-size:11px;color:var(--text2);text-transform:none;font-weight:400">(locataire(s) et garant, plusieurs photos possibles)</span></div>
+    <div id="identite-photos-list" style="margin-bottom:6px">
+      ${(t.identite_photos||[]).map(p=>identitePhotoRowHtml(t.id,p)).join('')}
+    </div>
+    <button type="button" class="btn btn-sm btn-p" onclick="document.getElementById('identite-photofile').click()">📷 Ajouter une photo</button>
+    <input type="file" accept="image/*" capture="environment" id="identite-photofile" data-identite-upload="${t.id}" style="display:none">
+
     <div style="display:flex;justify-content:flex-end;margin-top:16px"><button class="btn" id="mc2">Fermer</button></div>`;
   }
 
@@ -6414,27 +6422,37 @@ function renderModal(){
 
     <div class="sec" style="margin-top:12px;margin-bottom:8px">✍ Paraphe et signature</div>
     <p style="font-size:12px;color:var(--text2);margin-bottom:8px">Le paraphe sera reproduit automatiquement sur toutes les pages du bail (et de ses annexes). La signature sera apposée à la fin du document.</p>
-    <div class="g2c">
+    <div class="g2c" style="grid-template-columns:1fr 1fr 1fr">
       <div class="form-group">
         <label>Paraphe du bailleur <span style="font-size:10px;color:var(--text2)">(sera reproduit sur chaque section)</span></label>
-        <canvas id="bail-paraphe-bailleur" width="200" height="60" style="border:0.5px solid var(--border2);border-radius:var(--radius);background:#fff;cursor:crosshair;display:block;touch-action:none"></canvas>
+        <canvas id="bail-paraphe-bailleur" width="200" height="60" style="border:0.5px solid var(--border2);border-radius:var(--radius);background:#fff;max-width:100%;height:auto;cursor:crosshair;display:block;touch-action:none"></canvas>
         <button type="button" class="btn btn-sm" style="margin-top:4px" onclick="clearSig('bail-paraphe-bailleur')">↺ Effacer</button>
       </div>
       <div class="form-group">
+        <label>Paraphe du garant <span style="font-size:10px;color:var(--text2)">(si applicable)</span></label>
+        <canvas id="bail-paraphe-garant" width="200" height="60" style="border:0.5px solid var(--border2);border-radius:var(--radius);background:#fff;max-width:100%;height:auto;cursor:crosshair;display:block;touch-action:none"></canvas>
+        <button type="button" class="btn btn-sm" style="margin-top:4px" onclick="clearSig('bail-paraphe-garant')">↺ Effacer</button>
+      </div>
+      <div class="form-group">
         <label>Paraphe du locataire</label>
-        <canvas id="bail-paraphe-locataire" width="200" height="60" style="border:0.5px solid var(--border2);border-radius:var(--radius);background:#fff;cursor:crosshair;display:block;touch-action:none"></canvas>
+        <canvas id="bail-paraphe-locataire" width="200" height="60" style="border:0.5px solid var(--border2);border-radius:var(--radius);background:#fff;max-width:100%;height:auto;cursor:crosshair;display:block;touch-action:none"></canvas>
         <button type="button" class="btn btn-sm" style="margin-top:4px" onclick="clearSig('bail-paraphe-locataire')">↺ Effacer</button>
       </div>
     </div>
-    <div class="g2c" style="margin-top:8px">
+    <div class="g2c" style="grid-template-columns:1fr 1fr 1fr;margin-top:8px">
       <div class="form-group">
         <label>Signature du bailleur <span style="font-size:10px;color:var(--text2)">(fin du document)</span></label>
-        <canvas id="bail-sig-bailleur" width="200" height="70" style="border:0.5px solid var(--border2);border-radius:var(--radius);background:#fff;cursor:crosshair;display:block;touch-action:none"></canvas>
+        <canvas id="bail-sig-bailleur" width="200" height="70" style="border:0.5px solid var(--border2);border-radius:var(--radius);background:#fff;max-width:100%;height:auto;cursor:crosshair;display:block;touch-action:none"></canvas>
         <button type="button" class="btn btn-sm" style="margin-top:4px" onclick="clearSig('bail-sig-bailleur')">↺ Effacer</button>
       </div>
       <div class="form-group">
+        <label>Signature du garant <span style="font-size:10px;color:var(--text2)">(si applicable)</span></label>
+        <canvas id="bail-sig-garant" width="200" height="70" style="border:0.5px solid var(--border2);border-radius:var(--radius);background:#fff;max-width:100%;height:auto;cursor:crosshair;display:block;touch-action:none"></canvas>
+        <button type="button" class="btn btn-sm" style="margin-top:4px" onclick="clearSig('bail-sig-garant')">↺ Effacer</button>
+      </div>
+      <div class="form-group">
         <label>Signature du locataire</label>
-        <canvas id="bail-sig-locataire" width="200" height="70" style="border:0.5px solid var(--border2);border-radius:var(--radius);background:#fff;cursor:crosshair;display:block;touch-action:none"></canvas>
+        <canvas id="bail-sig-locataire" width="200" height="70" style="border:0.5px solid var(--border2);border-radius:var(--radius);background:#fff;max-width:100%;height:auto;cursor:crosshair;display:block;touch-action:none"></canvas>
         <button type="button" class="btn btn-sm" style="margin-top:4px" onclick="clearSig('bail-sig-locataire')">↺ Effacer</button>
       </div>
     </div>
@@ -6565,6 +6583,7 @@ function renderModal(){
     </div>
     <div style="display:flex;gap:8px;margin-bottom:4px;flex-wrap:wrap">
       <button type="button" class="btn btn-sm" id="btn-open-bail-form" style="flex:1">📝 Générer bail</button>
+      <button type="button" class="btn btn-sm" data-field-docs="${t.id}" style="flex:1">📄 Documents & pièces d'identité</button>
     </div>
     ${mf}`;
   }
@@ -8414,6 +8433,8 @@ function collectBailFormData(){
   out.paraphe_locataire=sigDataUrl('bail-paraphe-locataire');
   out.sig_bailleur=sigDataUrl('bail-sig-bailleur');
   out.sig_locataire=sigDataUrl('bail-sig-locataire');
+  out.paraphe_garant=sigDataUrl('bail-paraphe-garant');
+  out.sig_garant=sigDataUrl('bail-sig-garant');
   return out;
 }
 
@@ -8526,11 +8547,16 @@ function genBailPDF(bail,tenant){
   para("Chaque partie reconnaît avoir lu et accepté les termes du présent contrat et de ses annexes, en foi de quoi elle appose son paraphe sur chaque page et sa signature ci-dessous.");
   ensureSpace(45);
   const sigY=y+8;
-  if(bail.sig_bailleur){doc.addImage(bail.sig_bailleur,'PNG',marginX,sigY,55,25);}
-  if(bail.sig_locataire){doc.addImage(bail.sig_locataire,'PNG',pageW-marginX-55,sigY,55,25);}
+  const hasGarantSig=!!bail.gar_nom;
+  const sigW=hasGarantSig?50:55;
+  const xBailleur=marginX,xLocataire=pageW-marginX-sigW,xGarant=pageW/2-sigW/2;
+  if(bail.sig_bailleur){doc.addImage(bail.sig_bailleur,'PNG',xBailleur,sigY,sigW,25);}
+  if(bail.sig_locataire){doc.addImage(bail.sig_locataire,'PNG',xLocataire,sigY,sigW,25);}
+  if(hasGarantSig&&bail.sig_garant){doc.addImage(bail.sig_garant,'PNG',xGarant,sigY,sigW,25);}
   doc.setFontSize(9);
-  doc.text('Le bailleur',marginX,sigY+30);
-  doc.text('Le locataire',pageW-marginX-55,sigY+30);
+  doc.text('Le bailleur',xBailleur,sigY+30);
+  doc.text('Le locataire',xLocataire,sigY+30);
+  if(hasGarantSig)doc.text('Le garant',xGarant,sigY+30);
   // Le paraphe et la numerotation des pages sont apposes apres fusion avec
   // les diagnostics (voir mergeBailWithDiagnostics), pas ici : le nombre de
   // pages final n'est connu qu'une fois les annexes ajoutees, et on evite
@@ -8578,11 +8604,13 @@ async function mergeBailWithDiagnostics(jsDoc,bail){
 
   const parB=bail.paraphe_bailleur?await finalDoc.embedPng(dataUrlToUint8(bail.paraphe_bailleur)):null;
   const parL=bail.paraphe_locataire?await finalDoc.embedPng(dataUrlToUint8(bail.paraphe_locataire)):null;
+  const parG=bail.gar_nom&&bail.paraphe_garant?await finalDoc.embedPng(dataUrlToUint8(bail.paraphe_garant)):null;
   const pages=finalDoc.getPages();
   pages.forEach((page,i)=>{
     const {width}=page.getSize();
     if(parB)page.drawImage(parB,{x:20,y:12,width:56,height:20});
     if(parL)page.drawImage(parL,{x:width-76,y:12,width:56,height:20});
+    if(parG)page.drawImage(parG,{x:width/2-28,y:34,width:56,height:20});
     page.drawText('Page '+(i+1)+'/'+pages.length,{x:width/2-20,y:14,size:8,font,color:rgb(0.6,0.6,0.6)});
   });
 
@@ -8659,6 +8687,44 @@ async function uploadEdlPhoto(edlId,roomKey,itemKey,fileInput){
     thumbWrap.appendChild(im);
   }
   fileInput.value='';
+}
+
+// Photo de piece d'identite (locataire ou garant) - contrairement aux
+// photos d'etat des lieux/BT, persistee directement en base a chaque prise
+// (pas de bouton "Enregistrer" separe a oublier) : une piece d'identite
+// suit la personne (tenants.identite_photos), jamais le logement, pour ne
+// pas rester attachee au bien quand le locataire change.
+async function uploadIdentitePhoto(tenantId,fileInput){
+  const file=fileInput.files?.[0];
+  if(!file)return;
+  const t=S.tenants.find(x=>x.id===tenantId);
+  if(!t){alert('Locataire introuvable');return;}
+  const ext=(file.name.split('.').pop()||'jpg').toLowerCase();
+  const path='identite/'+tenantId+'/'+Date.now()+'.'+ext;
+  const{error}=await sb.storage.from('documents-locataires').upload(path,file,{contentType:file.type||'image/jpeg',cacheControl:'0'});
+  if(error){alert('Erreur photo : '+error.message);return;}
+  const{data:pub}=sb.storage.from('documents-locataires').getPublicUrl(path);
+  const freshUrl=pub.publicUrl+'?v='+Date.now();
+  const photos=[...(t.identite_photos||[])];
+  const photo={id:uid(),label:'Photo '+(photos.length+1),url:freshUrl,path,date:NOW};
+  photos.push(photo);
+  const{error:updErr}=await sb.from('tenants').update({identite_photos:photos}).eq('id',tenantId);
+  if(updErr){alert('Erreur enregistrement : '+updErr.message);return;}
+  t.identite_photos=photos;
+  const list=document.getElementById('identite-photos-list');
+  if(list)list.insertAdjacentHTML('beforeend',identitePhotoRowHtml(tenantId,photo));
+  fileInput.value='';
+}
+// Rendu d'une ligne "piece d'identite" (vignette + etiquette + suppression)
+// - fonction partagee entre le rendu initial du modal et l'ajout a chaud
+// d'une nouvelle photo (uploadIdentitePhoto), pour ne jamais dupliquer le
+// markup.
+function identitePhotoRowHtml(tenantId,p){
+  return `<div style="display:flex;align-items:center;gap:8px;background:var(--bg2);border-radius:var(--radius);padding:6px 10px;margin-bottom:6px" data-identite-row="${p.id}">
+    <img src="${p.url}" style="width:40px;height:40px;object-fit:cover;border-radius:6px;cursor:pointer;flex-shrink:0" onclick="window.open('${p.url}','_blank')">
+    <input value="${(p.label||'').replace(/"/g,'&quot;')}" data-identite-label="${p.id}" data-tenant-id="${tenantId}" style="flex:1;padding:4px 6px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px;min-width:0">
+    <button type="button" class="btn btn-d btn-sm" data-del-identite-photo="${p.id}" data-tenant-id="${tenantId}" style="flex-shrink:0">✕</button>
+  </div>`;
 }
 
 // Lit l'etat courant du formulaire d'etat des lieux directement dans le DOM
@@ -9450,7 +9516,7 @@ function bindAll(){
   if(btnEmailBail)btnEmailBail.onclick=()=>sendBailEmail(S.modal.tenant);
 
   if(S.modal?.type==='bail-form'){
-    ['bail-paraphe-bailleur','bail-paraphe-locataire','bail-sig-bailleur','bail-sig-locataire'].forEach(initSigCanvas);
+    ['bail-paraphe-bailleur','bail-paraphe-locataire','bail-sig-bailleur','bail-sig-locataire','bail-paraphe-garant','bail-sig-garant'].forEach(initSigCanvas);
     const btnPreviewBail=document.getElementById('btn-preview-bail');
     if(btnPreviewBail)btnPreviewBail.onclick=async()=>{
       const tChk=S.modal.tenant||{};
@@ -9478,6 +9544,10 @@ function bindAll(){
       if(!findLogementFiche(t.logement)||(missingChk2.length>0&&!overrideOk2)){alert('Fiche du logement ou diagnostics obligatoires incomplets.');return;}
       if(!sigDataUrl('bail-sig-bailleur')||!sigDataUrl('bail-sig-locataire')){
         alert('Les 2 signatures (bailleur et locataire) sont requises avant enregistrement.');return;
+      }
+      const hasGarant=!!document.getElementById('bail-gar-nom')?.value?.trim();
+      if(hasGarant&&!sigDataUrl('bail-sig-garant')){
+        alert('La signature du garant est requise avant enregistrement (un garant est renseigné sur ce bail).');return;
       }
       btnSaveBail.disabled=true;btnSaveBail.textContent='⏳ Génération...';
       try{
@@ -10110,6 +10180,27 @@ function bindAll(){
   });
   document.querySelectorAll('[data-bien-doc-upload]').forEach(el=>el.onchange=()=>uploadBienDocFile(el.dataset.bienDocUpload,el));
   document.querySelectorAll('[data-wo-doc-upload]').forEach(el=>el.onchange=()=>uploadWoDocPhoto(el.dataset.woDocUpload,el));
+  document.querySelectorAll('[data-identite-upload]').forEach(el=>el.onchange=()=>uploadIdentitePhoto(el.dataset.identiteUpload,el));
+  document.querySelectorAll('[data-identite-label]').forEach(el=>el.onchange=async()=>{
+    const t=S.tenants.find(x=>x.id===el.dataset.tenantId);
+    if(!t)return;
+    const photos=(t.identite_photos||[]).map(p=>p.id===el.dataset.identiteLabel?{...p,label:el.value}:p);
+    const{error}=await sb.from('tenants').update({identite_photos:photos}).eq('id',t.id);
+    if(error){alert('Erreur : '+error.message);return;}
+    t.identite_photos=photos;
+  });
+  document.querySelectorAll('[data-del-identite-photo]').forEach(el=>el.onclick=async()=>{
+    if(!confirm('Supprimer cette photo ?'))return;
+    const t=S.tenants.find(x=>x.id===el.dataset.tenantId);
+    if(!t)return;
+    const removed=(t.identite_photos||[]).find(p=>p.id===el.dataset.delIdentitePhoto);
+    const photos=(t.identite_photos||[]).filter(p=>p.id!==el.dataset.delIdentitePhoto);
+    const{error}=await sb.from('tenants').update({identite_photos:photos}).eq('id',t.id);
+    if(error){alert('Erreur : '+error.message);return;}
+    t.identite_photos=photos;
+    if(removed?.path)await sb.storage.from('documents-locataires').remove([removed.path]).catch(()=>{});
+    document.querySelector('[data-identite-row="'+el.dataset.delIdentitePhoto+'"]')?.remove();
+  });
   document.querySelectorAll('[data-del-chantier]').forEach(el=>el.onclick=async()=>{
     if(!confirm('Supprimer ce chantier ? Les bons de travaux rattachés ne seront pas supprimés, juste détachés.'))return;
     const{error}=await sb.from('chantiers').delete().eq('id',el.dataset.delChantier);
