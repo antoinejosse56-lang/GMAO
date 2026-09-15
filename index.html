@@ -399,7 +399,12 @@ const REQUIRED_DIAG_KEYS=['dpe','elec','gaz','plomb','amiante','erp'];
 function logementDiagStatus(bienStr){
   const norm=normBienSep(bienStr);
   const docs=(S.bienDocuments||[]).filter(d=>normBienSep(d.bien)===norm);
-  return REQUIRED_DIAG_KEYS.map(key=>{
+  const lf=findLogementFiche(bienStr);
+  // Le gaz ne s'exclut que si explicitement marque absent sur la fiche du
+  // logement (gaz_present===false) - "inconnu" (null/non renseigne) reste
+  // obligatoire par defaut, plus sur que de supposer son absence.
+  const keys=(lf?.gaz_present===false)?REQUIRED_DIAG_KEYS.filter(k=>k!=='gaz'):REQUIRED_DIAG_KEYS;
+  return keys.map(key=>{
     const matching=docs.filter(d=>DOC_TYPE_TO_DIAG_KEY[d.type]===key).sort((a,b)=>new Date(b.date||0)-new Date(a.date||0));
     const doc=matching[0]||null;
     const expired=doc?(doc.date_expiry?new Date(doc.date_expiry)<new Date():false):false;
@@ -1867,7 +1872,7 @@ function renderTopology(){
         // Rouge des que l'echeance reglementaire est depassee, meme sans
         // changement de locataire en vue - permet d'anticiper la commande
         // du renouvellement plutot que de le decouvrir a la relocation.
-        if(dd?.url)tenantDocs.push({type:label+' — '+t.nom,date:dd.date,document_url:dd.url,fromTenant:true,expired:diagIsExpired(dd.date,k)});
+        if(dd?.url)tenantDocs.push({type:label+' — '+t.nom,date:dd.date,document_url:dd.url,fromTenant:true,expired:diagIsExpired(dd.date,k),tenantId:t.id,diagKey:k});
       });
     });
     const allDocs=[...docs.map(d=>({...d,expired:d.date_expiry?new Date(d.date_expiry)<new Date():false})),...tenantDocs];
@@ -1917,6 +1922,7 @@ function renderTopology(){
           ${logFiche.adresse||bienStr}${logFiche.appt?', '+logFiche.appt:''}${logFiche.etage?' · '+logFiche.etage:''}<br>
           ${logFiche.type_logement?logFiche.type_logement+' · ':''}${logFiche.type_habitat||'—'} · ${logFiche.regime||'—'} · Construit : ${logFiche.periode_construction||'—'}<br>
           ${logFiche.surface?logFiche.surface+' m²':'Surface —'} · ${logFiche.nb_pieces||'—'} pièce(s) · Chauffage ${logFiche.chauffage||'—'} · Eau chaude ${logFiche.eau_chaude||'—'}<br>
+          Gaz : ${logFiche.gaz_present===true?'Oui':logFiche.gaz_present===false?'Non (diag. gaz non requis)':'Inconnu'}<br>
           ${logFiche.annexes?'Annexes : '+logFiche.annexes+'<br>':''}
           ${logFiche.equipements?'Équipements : '+logFiche.equipements+'<br>':''}
           ${logFiche.parties_communes?'Parties communes : '+logFiche.parties_communes+'<br>':''}
@@ -1932,6 +1938,7 @@ function renderTopology(){
           <div class="fg"><div class="fgs" style="font-size:12px${d.expired?';color:var(--red)':''}">${d.type||'Document'}${d.expired?' <span class="badge bred" style="font-size:9px">À revalider</span>':''}</div><div class="fgsub">${d.date?dateLabel(d.date):''}${d.date_expiry?' · expire '+dateLabel(d.date_expiry):''}${d.notes?' · '+d.notes:''}${d.fromTenant?' · fiche locataire':''}</div></div>
           ${d.document_url?`<a href="${d.document_url}" target="_blank" class="btn btn-sm">👁 Voir</a>`:''}
           ${canEdit()&&!d.fromTenant?`<button class="btn btn-d btn-sm" data-del-bien-doc="${d.id}">✕</button>`:''}
+          ${canEdit()&&d.diagKey?`<button class="btn btn-d btn-sm" data-del-tenant-diag="${d.tenantId}" data-diag-key="${d.diagKey}" title="Diagnostic issu d'un ancien bail (avant la fiche du logement)">✕</button>`:''}
         </div>`).join('')}
         ${allDocs.length===0?'<div style="font-size:11px;color:var(--text2)">Aucun document (DPE, diagnostic amiante/plomb...).</div>':''}
       </div>`:''}
@@ -6127,7 +6134,7 @@ function renderModal(){
         </label>
         ${overrideChecked?`<div class="form-group" style="margin-top:6px">
           <label style="font-size:11px">Motif (obligatoire — sera indiqué dans le bail)</label>
-          <input id="bail-diag-override-reason" value="${overrideReason}" placeholder="Ex: pas d'installation gaz dans ce logement" oninput="S.modal.bail={...S.modal.bail,_diagOverride:true,_diagOverrideReason:this.value}">
+          <input id="bail-diag-override-reason" value="${overrideReason}" placeholder="Ex: pas d'installation gaz dans ce logement" oninput="S.modal.bail={...S.modal.bail,_diagOverride:true,_diagOverrideReason:this.value};var ok=${logFicheB?'true':'false'}&&this.value.trim().length>0;var pb=document.getElementById('btn-preview-bail'),sb2=document.getElementById('btn-save-bail');if(pb)pb.disabled=!ok;if(sb2)sb2.disabled=!ok;">
         </div>`:''}
       </div>
     </div>`:''}
@@ -6649,6 +6656,13 @@ function renderModal(){
       <option ${(f.eau_chaude||'Individuelle')==='Individuelle'?'selected':''}>Individuelle</option>
       <option ${f.eau_chaude==='Collective'?'selected':''}>Collective</option>
     </select></div>
+    <div class="form-group"><label>Installation gaz dans le logement ?</label><select id="lf-gaz-present">
+      <option value="" ${f.gaz_present===null||f.gaz_present===undefined?'selected':''}>Inconnu</option>
+      <option value="true" ${f.gaz_present===true?'selected':''}>Oui — diagnostic gaz obligatoire</option>
+      <option value="false" ${f.gaz_present===false?'selected':''}>Non — pas d'installation gaz</option>
+    </select>
+    <div style="font-size:11px;color:var(--text2);margin-top:3px">Si "Non", le diagnostic gaz ne sera plus demandé pour ce logement.</div>
+    </div>
     <div class="form-group"><label>Équipements du logement</label><input id="lf-equipements" value="${f.equipements||''}" placeholder="Cuisine équipée, ballon eau chaude, VMC..."></div>
     <div class="form-group"><label>Parties/équipements communs de l'immeuble</label><input id="lf-parties-communes" value="${f.parties_communes||''}" placeholder="Ascenseur, local poubelle, garage à vélo..."></div>
     <div class="form-group"><label>Accès technologies (TV, internet...)</label><input id="lf-tic" value="${f.tic||''}" placeholder="Prise TV, fibre disponible..."></div>
@@ -7829,6 +7843,7 @@ async function saveModal(){
       type_habitat:qv('lf-type-habitat'),regime:qv('lf-regime'),periode_construction:qv('lf-periode'),
       nb_pieces:parseInt(qv('lf-nb-pieces'))||null,surface:parseFloat(qv('lf-surface'))||null,
       chauffage:qv('lf-chauffage'),eau_chaude:qv('lf-eau-chaude'),
+      gaz_present:qv('lf-gaz-present')===''?null:qv('lf-gaz-present')==='true',
       equipements:qv('lf-equipements'),parties_communes:qv('lf-parties-communes'),tic:qv('lf-tic'),
       updated_at:new Date().toISOString(),
     };
@@ -9529,6 +9544,24 @@ function bindAll(){
     // laisser un fichier orphelin ni une URL encore accessible.
     const m2=doc?.document_url?.match(/documents-locataires\/([^?]+)/);
     if(m2)await sb.storage.from('documents-locataires').remove([decodeURIComponent(m2[1])]).catch(()=>{});
+    render();
+  });
+  // Diagnostics issus de l'ancien systeme (stockes dans bail_data du
+  // locataire, avant la fiche du logement centralisee) - pas une ligne
+  // bien_documents, donc suppression = effacer cette seule clef du JSON.
+  document.querySelectorAll('[data-del-tenant-diag]').forEach(el=>el.onclick=async()=>{
+    if(!confirm("Supprimer ce diagnostic (issu d'un ancien bail) ?"))return;
+    const tenantId=el.dataset.delTenantDiag,key=el.dataset.diagKey;
+    const tenant=S.tenants.find(x=>x.id===tenantId);
+    if(!tenant?.bail_data)return;
+    const oldDoc=tenant.bail_data['diag_'+key];
+    const newBailData={...tenant.bail_data};
+    delete newBailData['diag_'+key];
+    const{error}=await sb.from('tenants').update({bail_data:newBailData}).eq('id',tenantId);
+    if(error){alert('Erreur : '+error.message);return;}
+    tenant.bail_data=newBailData;
+    const m3=oldDoc?.url?.match(/documents-locataires\/([^?]+)/);
+    if(m3)await sb.storage.from('documents-locataires').remove([decodeURIComponent(m3[1])]).catch(()=>{});
     render();
   });
   document.querySelectorAll('[data-chantier-tab]').forEach(el=>el.onclick=()=>{S.chantierTab=el.dataset.chantierTab;render();});
