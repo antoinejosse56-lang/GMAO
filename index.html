@@ -34,6 +34,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="https://apis.google.com/js/api.js"></script>
 <style>
@@ -360,6 +361,23 @@ function sigDataUrl(canvasId){
   return null;
 }
 function daysUntil(d){if(!d)return null;return Math.ceil((new Date(d)-new Date())/86400000);}
+// Duree de validite reglementaire de chaque diagnostic (mois) - null = pas de
+// limite de validite dans le temps (amiante/bruit/mesurage restent valables
+// tant qu'aucune renovation ne les remet en cause). ERP = 6 mois seulement,
+// bien plus court que les autres, a ne pas oublier lors d'un changement de
+// locataire ou d'un simple renouvellement periodique.
+const DIAG_VALIDITY_MONTHS={dpe:120,elec:72,gaz:72,plomb:72,amiante:null,erp:6,bruit:null,surface:null};
+const DIAG_LABELS={dpe:'DPE — Diagnostic de performance énergétique',elec:'Diagnostic électrique',gaz:'Diagnostic gaz',plomb:"Constat de risque d'exposition au plomb (CREP)",amiante:'Diagnostic amiante',erp:'État des risques et pollutions (ERP)',bruit:'Information bruit / zone aéroportuaire',surface:'Mesurage loi Carrez / Boutin'};
+function diagExpiry(dateStr,key){
+  const months=DIAG_VALIDITY_MONTHS[key];
+  if(!dateStr||months==null)return null;
+  const d=new Date(dateStr);d.setMonth(d.getMonth()+months);
+  return d;
+}
+function diagIsExpired(dateStr,key){
+  const exp=diagExpiry(dateStr,key);
+  return exp?exp<new Date():false;
+}
 function dateLabel(d){if(!d)return '—';return new Date(d).toLocaleDateString('fr-FR');}
 // Resout l'intervenant assigne a une gamme (mt.assigned_to peut etre un id,
 // un nom ou un email selon comment il a ete saisi) vers {by_user,by_email} a
@@ -1796,18 +1814,20 @@ function renderTopology(){
     // "bien" doit remonter les documents de tous les locataires en dessous.
     const normSep=s=>(s||'').replace(/—/g,'-').replace(/\s*-\s*/g,' - ').trim();
     const normBien=normSep(bienStr);
-    const diagLabels={dpe:'DPE',elec:'Diagnostic électrique',gaz:'Diagnostic gaz',plomb:'CREP (plomb)',amiante:'Diagnostic amiante',erp:'ERP',bruit:'Info bruit',surface:'Mesurage Carrez/Boutin'};
     const tenantDocs=[];
     (S.tenants||[]).forEach(t=>{
       const normLog=normSep(t.logement);
       if(!normLog||(normLog!==normBien&&!normLog.startsWith(normBien+' - ')))return;
       if(t.bail_url)tenantDocs.push({type:'Bail — '+t.nom,date:t.date_entree,document_url:t.bail_url,fromTenant:true});
-      Object.entries(diagLabels).forEach(([k,label])=>{
+      Object.entries(DIAG_LABELS).forEach(([k,label])=>{
         const dd=t.bail_data?.['diag_'+k];
-        if(dd?.url)tenantDocs.push({type:label+' — '+t.nom,date:dd.date,document_url:dd.url,fromTenant:true});
+        // Rouge des que l'echeance reglementaire est depassee, meme sans
+        // changement de locataire en vue - permet d'anticiper la commande
+        // du renouvellement plutot que de le decouvrir a la relocation.
+        if(dd?.url)tenantDocs.push({type:label+' — '+t.nom,date:dd.date,document_url:dd.url,fromTenant:true,expired:diagIsExpired(dd.date,k)});
       });
     });
-    const allDocs=[...docs,...tenantDocs];
+    const allDocs=[...docs.map(d=>({...d,expired:d.date_expiry?new Date(d.date_expiry)<new Date():false})),...tenantDocs];
     // Find WOs linked to this topo node (by assetId OR by topo_ref matching current node)
     const wos = S.workOrders.filter(w=>{
       if(nodeAssetId && w.asset_id===nodeAssetId) return true;
@@ -1851,7 +1871,7 @@ function renderTopology(){
           ${canEdit()?`<button class="btn btn-sm btn-p" data-add-bien-doc="${bienStr.replace(/"/g,'&quot;')}">+ Document</button>`:''}
         </div>
         ${allDocs.map(d=>`<div class="row">
-          <div class="fg"><div class="fgs" style="font-size:12px">${d.type||'Document'}</div><div class="fgsub">${d.date?dateLabel(d.date):''}${d.date_expiry?' · expire '+dateLabel(d.date_expiry):''}${d.notes?' · '+d.notes:''}${d.fromTenant?' · fiche locataire':''}</div></div>
+          <div class="fg"><div class="fgs" style="font-size:12px${d.expired?';color:var(--red)':''}">${d.type||'Document'}${d.expired?' <span class="badge bred" style="font-size:9px">À revalider</span>':''}</div><div class="fgsub">${d.date?dateLabel(d.date):''}${d.date_expiry?' · expire '+dateLabel(d.date_expiry):''}${d.notes?' · '+d.notes:''}${d.fromTenant?' · fiche locataire':''}</div></div>
           ${d.document_url?`<a href="${d.document_url}" target="_blank" class="btn btn-sm">👁 Voir</a>`:''}
           ${canEdit()&&!d.fromTenant?`<button class="btn btn-d btn-sm" data-del-bien-doc="${d.id}">✕</button>`:''}
         </div>`).join('')}
@@ -5975,6 +5995,15 @@ function renderModal(){
 
   if(m.type==='bail-form'){
     const t=m.tenant||{};
+    // Reprend les caracteristiques fixes de CE logement (et les diagnostics,
+    // meme perimes - affiches en rouge pour rappel) depuis le dernier bail
+    // genere pour un precedent occupant du meme logement : evite de tout
+    // ressaisir (etage, equipements...) a chaque nouveau locataire. Les
+    // informations propres au nouveau locataire ne sont jamais reprises
+    // ainsi - elles viennent uniquement de sa propre fiche (t.*).
+    const prevOccupant=t.logement?S.tenants.filter(x=>x.id!==t.id&&x.logement===t.logement&&x.bail_data)
+      .sort((a,b)=>new Date(b.date_sortie||b.created_at||0)-new Date(a.date_sortie||a.created_at||0))[0]:null;
+    const prevBail=prevOccupant?.bail_data||{};
     const bail=m.bail||{
       type_bail:t.type_bail||'habitation',
       loyer_ref:t.loyer_ref||0,
@@ -5982,6 +6011,13 @@ function renderModal(){
       caution:t.caution||0,
       date_entree:t.date_entree||'',
       duree:t.type_bail==='commercial'?'9 ans':'3 ans',
+      adresse:prevBail.adresse,appt:prevBail.appt,type_logement:prevBail.type_logement,surface:prevBail.surface,
+      etage:prevBail.etage,annexes:prevBail.annexes,type_habitat:prevBail.type_habitat,regime:prevBail.regime,
+      periode_construction:prevBail.periode_construction,nb_pieces:prevBail.nb_pieces,chauffage:prevBail.chauffage,
+      eau_chaude:prevBail.eau_chaude,equipements:prevBail.equipements,parties_communes:prevBail.parties_communes,
+      tic:prevBail.tic,bailleur_nom:prevBail.bailleur_nom,bailleur_rep:prevBail.bailleur_rep,bailleur_adr:prevBail.bailleur_adr,
+      lieu_sig:prevBail.lieu_sig,jour_paiement:prevBail.jour_paiement,lieu_paiement:prevBail.lieu_paiement,
+      ...Object.fromEntries(Object.keys(DIAG_LABELS).filter(k=>prevBail['diag_'+k]?.url).map(k=>['diag_'+k,prevBail['diag_'+k]])),
     };
     const diagDocs=[
       {key:'dpe',label:'DPE — Diagnostic de performance énergétique'},
@@ -6108,12 +6144,19 @@ function renderModal(){
     <div class="sec" style="margin-top:12px;margin-bottom:8px">📎 Annexes et diagnostics</div>
     ${diagDocs.map(d=>{
       const doc=bail['diag_'+d.key];
+      const expired=doc?.date?diagIsExpired(doc.date,d.key):false;
+      const exp=doc?.date?diagExpiry(doc.date,d.key):null;
+      const statusHtml=doc?.url
+        ?(expired
+          ?`<span style="color:var(--red)">⚠ À revalider (expiré depuis le ${dateLabel(exp)})</span> <a href="${doc.url}" target="_blank">Voir l'ancien fichier</a>`
+          :`✓ <a href="${doc.url}" target="_blank">Voir le fichier</a>${exp?` <span style="color:var(--text2)">(valide jusqu'au ${dateLabel(exp)})</span>`:''}`)
+        :'';
       return `<div class="form-group" style="margin-bottom:6px">
       <label style="font-size:11px">${d.label}</label>
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
         <input type="file" accept="application/pdf,image/*" id="bail-diag-${d.key}-file" data-diag-upload="${d.key}" style="flex:1;min-width:160px">
-        <input id="bail-diag-${d.key}-date" type="date" value="${doc?.date||''}" style="width:130px" title="Date de validité">
-        <span id="bail-diag-${d.key}-status" style="font-size:11px">${doc?.url?`✓ <a href="${doc.url}" target="_blank">Voir le fichier</a>`:''}</span>
+        <input id="bail-diag-${d.key}-date" type="date" value="${doc?.date||''}" style="width:130px" title="Date d'établissement">
+        <span id="bail-diag-${d.key}-status" style="font-size:11px">${statusHtml}</span>
       </div>
     </div>`;
     }).join('')}
@@ -7932,12 +7975,17 @@ async function uploadDiagFile(key, fileInput){
   if(statusEl)statusEl.textContent='⏳ Envoi...';
   const ext=(file.name.split('.').pop()||'pdf').toLowerCase();
   const path=t.id+'/diag_'+key+'.'+ext;
-  const{error}=await sb.storage.from('documents-locataires').upload(path,file,{upsert:true,contentType:file.type||'application/pdf'});
+  const{error}=await sb.storage.from('documents-locataires').upload(path,file,{upsert:true,contentType:file.type||'application/pdf',cacheControl:'0'});
   if(error){if(statusEl)statusEl.textContent='';alert('Erreur upload : '+error.message);return;}
   const{data:pub}=sb.storage.from('documents-locataires').getPublicUrl(path);
+  // Cache-busting : un upsert ecrase le fichier a la meme URL, mais le CDN
+  // Supabase peut encore servir une version en cache sans ce parametre -
+  // c'est ce qui causait "l'apercu est bon mais pas le fichier enregistre".
+  const freshUrl=pub.publicUrl+'?v='+Date.now();
   const dateVal=document.getElementById('bail-diag-'+key+'-date')?.value||'';
-  S.modal.bail={...(S.modal.bail||{}),['diag_'+key]:{url:pub.publicUrl,date:dateVal}};
-  if(statusEl)statusEl.innerHTML='✓ <a href="'+pub.publicUrl+'" target="_blank">Voir le fichier</a>';
+  S.modal.bail={...(S.modal.bail||{}),['diag_'+key]:{url:freshUrl,date:dateVal}};
+  const exp=dateVal?diagExpiry(dateVal,key):null;
+  if(statusEl)statusEl.innerHTML=exp?'✓ <a href="'+freshUrl+'" target="_blank">Voir le fichier</a> <span style="color:var(--text2)">(valide jusqu\'au '+dateLabel(exp)+')</span>':'✓ <a href="'+freshUrl+'" target="_blank">Voir le fichier</a>';
 }
 
 // Lit l'etat courant du formulaire directement dans le DOM (plutot que
@@ -8012,8 +8060,7 @@ function genBailPDF(bail,tenant){
   y+=12;
   doc.setFont('helvetica','normal');doc.setFontSize(10);
 
-  const diagLabels={dpe:'DPE — Diagnostic de performance énergétique',elec:'Diagnostic électrique',gaz:'Diagnostic gaz',plomb:'Constat de risque d\'exposition au plomb (CREP)',amiante:'Diagnostic amiante',erp:'État des risques et pollutions (ERP)',bruit:'Information bruit / zone aéroportuaire',surface:'Mesurage loi Carrez / Boutin'};
-  const diagPresent=Object.keys(diagLabels).filter(k=>bail['diag_'+k]?.url);
+  const diagPresent=Object.keys(DIAG_LABELS).filter(k=>bail['diag_'+k]?.url&&!diagIsExpired(bail['diag_'+k].date,k));
 
   title('I. Désignation des parties');
   para('Le bailleur : '+(bail.bailleur_nom||'—')+(bail.bailleur_rep?', représenté par '+bail.bailleur_rep:'')+', domicilié '+(bail.bailleur_adr||'—')+'.');
@@ -8076,13 +8123,13 @@ function genBailPDF(bail,tenant){
   title((isComm?'VIII':'XI')+'. Annexes');
   para('Sont annexés et joints au présent contrat :');
   para('- Un dossier de diagnostic technique'+(diagPresent.length?' comprenant :':' (à joindre).'));
-  diagPresent.forEach(k=>para('  • '+diagLabels[k]+(bail['diag_'+k].date?' (validité : '+dl(bail['diag_'+k].date)+')':'')+' — disponible dans GMAO Pro.'));
+  diagPresent.forEach(k=>para('  • '+DIAG_LABELS[k]+(bail['diag_'+k].date?' (établi le '+dl(bail['diag_'+k].date)+')':'')+' — disponible dans GMAO Pro.'));
   if(!isComm)para('- Une notice d\'information relative aux droits et obligations des locataires et des bailleurs.');
   para('- Un état des lieux d\'entrée, établi lors de la remise des clés.');
   if(bail.gar_nom)para('- Un acte de cautionnement solidaire signé par le garant.');
 
   title('Fait à '+(bail.lieu_sig||'—')+', le '+new Date().toLocaleDateString('fr-FR'));
-  para("Chaque partie reconnaît avoir lu et accepté les termes du présent contrat, en foi de quoi elle appose son paraphe sur chaque page et sa signature ci-dessous.");
+  para("Chaque partie reconnaît avoir lu et accepté les termes du présent contrat et de ses annexes, en foi de quoi elle appose son paraphe sur chaque page et sa signature ci-dessous.");
   ensureSpace(45);
   const sigY=y+8;
   if(bail.sig_bailleur){doc.addImage(bail.sig_bailleur,'PNG',marginX,sigY,55,25);}
@@ -8090,19 +8137,71 @@ function genBailPDF(bail,tenant){
   doc.setFontSize(9);
   doc.text('Le bailleur',marginX,sigY+30);
   doc.text('Le locataire',pageW-marginX-55,sigY+30);
-
-  // Paraphe sur chaque page (y compris la derniere, qui porte deja la
-  // signature complete - convention courante malgre la redondance).
-  const totalPages=doc.internal.getNumberOfPages();
-  for(let p=1;p<=totalPages;p++){
-    doc.setPage(p);
-    if(bail.paraphe_bailleur)doc.addImage(bail.paraphe_bailleur,'PNG',marginX,pageH-18,20,7);
-    if(bail.paraphe_locataire)doc.addImage(bail.paraphe_locataire,'PNG',pageW-marginX-20,pageH-18,20,7);
-    doc.setFontSize(8);doc.setTextColor(150);
-    doc.text('Page '+p+'/'+totalPages,pageW/2,pageH-10,{align:'center'});
-    doc.setTextColor(0);
-  }
+  // Le paraphe et la numerotation des pages sont apposes apres fusion avec
+  // les diagnostics (voir mergeBailWithDiagnostics), pas ici : le nombre de
+  // pages final n'est connu qu'une fois les annexes ajoutees, et on evite
+  // ainsi de tamponner deux fois les pages du bail lui-meme.
   return doc;
+}
+
+// Fusionne le bail (genere par jsPDF) avec les diagnostics encore valides
+// deja televerses (PDF ou image) en un seul document continu, une page de
+// garde par annexe pour la retrouver facilement, puis appose le paraphe des
+// 2 parties et la numerotation sur TOUTES les pages du resultat (bail +
+// annexes) - le locataire doit avoir paraphe l'ensemble du dossier, pas
+// seulement le corps du bail. Les diagnostics perimes ne sont jamais inclus
+// dans le document signe (mais restent visibles, en rouge, dans le
+// formulaire pour rappel de renouvellement).
+async function mergeBailWithDiagnostics(jsDoc,bail){
+  const {PDFDocument,StandardFonts,rgb}=PDFLib;
+  const finalDoc=await PDFDocument.load(jsDoc.output('arraybuffer'));
+  const font=await finalDoc.embedFont(StandardFonts.HelveticaBold);
+  const A4=[595.28,841.89];
+
+  const diagPresent=Object.keys(DIAG_LABELS).filter(k=>bail['diag_'+k]?.url&&!diagIsExpired(bail['diag_'+k].date,k));
+  for(const k of diagPresent){
+    const url=bail['diag_'+k].url;
+    try{
+      const resp=await fetch(url);
+      if(!resp.ok)throw new Error('HTTP '+resp.status);
+      const bytes=new Uint8Array(await resp.arrayBuffer());
+      const ct=resp.headers.get('content-type')||'';
+      const cover=finalDoc.addPage(A4);
+      cover.drawText('ANNEXE — '+DIAG_LABELS[k],{x:50,y:780,size:16,font,color:rgb(0.1,0.1,0.1)});
+      if(ct.includes('pdf')||url.toLowerCase().includes('.pdf')){
+        const srcDoc=await PDFDocument.load(bytes,{ignoreEncryption:true});
+        const pages=await finalDoc.copyPages(srcDoc,srcDoc.getPageIndices());
+        pages.forEach(p=>finalDoc.addPage(p));
+      }else{
+        const isPng=ct.includes('png')||url.toLowerCase().includes('.png');
+        const img=isPng?await finalDoc.embedPng(bytes):await finalDoc.embedJpg(bytes);
+        const page=finalDoc.addPage(A4);
+        const scale=Math.min((A4[0]-80)/img.width,(A4[1]-160)/img.height,1);
+        page.drawImage(img,{x:40,y:60,width:img.width*scale,height:img.height*scale});
+      }
+    }catch(e){console.warn('Annexe '+k+' non incluse dans le PDF final :',e.message);}
+  }
+
+  const parB=bail.paraphe_bailleur?await finalDoc.embedPng(dataUrlToUint8(bail.paraphe_bailleur)):null;
+  const parL=bail.paraphe_locataire?await finalDoc.embedPng(dataUrlToUint8(bail.paraphe_locataire)):null;
+  const pages=finalDoc.getPages();
+  pages.forEach((page,i)=>{
+    const {width}=page.getSize();
+    if(parB)page.drawImage(parB,{x:20,y:12,width:56,height:20});
+    if(parL)page.drawImage(parL,{x:width-76,y:12,width:56,height:20});
+    page.drawText('Page '+(i+1)+'/'+pages.length,{x:width/2-20,y:14,size:8,font,color:rgb(0.6,0.6,0.6)});
+  });
+
+  return finalDoc.save();
+}
+// Decode une image data URL (canvas.toDataURL) en octets bruts pour pdf-lib,
+// qui n'accepte pas directement les data URL contrairement a jsPDF.
+function dataUrlToUint8(dataUrl){
+  const base64=dataUrl.split(',')[1];
+  const bin=atob(base64);
+  const bytes=new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++)bytes[i]=bin.charCodeAt(i);
+  return bytes;
 }
 
 
@@ -8695,13 +8794,18 @@ function bindAll(){
     ['bail-paraphe-bailleur','bail-paraphe-locataire','bail-sig-bailleur','bail-sig-locataire'].forEach(initSigCanvas);
     document.querySelectorAll('[data-diag-upload]').forEach(el=>el.onchange=()=>uploadDiagFile(el.dataset.diagUpload,el));
     const btnPreviewBail=document.getElementById('btn-preview-bail');
-    if(btnPreviewBail)btnPreviewBail.onclick=()=>{
+    if(btnPreviewBail)btnPreviewBail.onclick=async()=>{
       const bail=collectBailFormData();
       if(!sigDataUrl('bail-paraphe-bailleur')||!sigDataUrl('bail-paraphe-locataire')){
         if(!confirm('Le paraphe du bailleur ou du locataire est vide. Continuer quand même ?'))return;
       }
-      const doc=genBailPDF(bail,S.modal.tenant||{});
-      window.open(doc.output('bloburl'),'_blank');
+      btnPreviewBail.disabled=true;btnPreviewBail.textContent='⏳ Génération...';
+      try{
+        const doc=genBailPDF(bail,S.modal.tenant||{});
+        const mergedBytes=await mergeBailWithDiagnostics(doc,bail);
+        const blob=new Blob([mergedBytes],{type:'application/pdf'});
+        window.open(URL.createObjectURL(blob),'_blank');
+      }finally{btnPreviewBail.disabled=false;btnPreviewBail.textContent='👁 Prévisualiser';}
     };
     const btnSaveBail=document.getElementById('btn-save-bail');
     if(btnSaveBail)btnSaveBail.onclick=async()=>{
@@ -8710,21 +8814,36 @@ function bindAll(){
       if(!sigDataUrl('bail-sig-bailleur')||!sigDataUrl('bail-sig-locataire')){
         alert('Les 2 signatures (bailleur et locataire) sont requises avant enregistrement.');return;
       }
-      const bail=collectBailFormData();
-      const doc=genBailPDF(bail,t);
-      const blob=doc.output('blob');
-      const path=t.id+'/bail.pdf';
-      const{error:upErr}=await sb.storage.from('documents-locataires').upload(path,blob,{upsert:true,contentType:'application/pdf'});
-      if(upErr){alert('Erreur upload : '+upErr.message);return;}
-      const{data:pub}=sb.storage.from('documents-locataires').getPublicUrl(path);
-      const{error}=await sb.from('tenants').update({bail_url:pub.publicUrl,bail_data:bail}).eq('id',t.id);
-      if(error){alert('Bail généré mais erreur enregistrement fiche locataire : '+error.message);return;}
-      t.bail_url=pub.publicUrl;t.bail_data=bail;
-      window.open(pub.publicUrl,'_blank');
-      closeModal();render();
-      if(t.email&&confirm('✓ Bail enregistré et signé.\n\nL\'envoyer par email à '+t.nom+' ('+t.email+') maintenant ?')){
-        sendBailEmail(t);
-      }
+      btnSaveBail.disabled=true;btnSaveBail.textContent='⏳ Génération...';
+      try{
+        const bail=collectBailFormData();
+        const doc=genBailPDF(bail,t);
+        const mergedBytes=await mergeBailWithDiagnostics(doc,bail);
+        const blob=new Blob([mergedBytes],{type:'application/pdf'});
+        const path=t.id+'/bail.pdf';
+        const{error:upErr}=await sb.storage.from('documents-locataires').upload(path,blob,{upsert:true,contentType:'application/pdf',cacheControl:'0'});
+        if(upErr){alert('Erreur upload : '+upErr.message);return;}
+        const{data:pub}=sb.storage.from('documents-locataires').getPublicUrl(path);
+        const freshUrl=pub.publicUrl+'?v='+Date.now();
+        // Reprend dans la fiche locataire les elements saisis dans le bail
+        // (evite la double saisie) - uniquement les champs propres au
+        // locataire deja presents sur cette fiche, jamais les elements fixes
+        // du logement qui n'ont pas leur place sur la fiche locataire.
+        const tenantSync={
+          bail_url:freshUrl,bail_data:bail,
+          email:bail.loc_email||t.email,telephone:bail.loc_tel||t.telephone,
+          loyer_ref:bail.loyer_ref||t.loyer_ref,charges:bail.charges||t.charges,
+          caution:bail.caution||t.caution,date_entree:bail.date_entree||t.date_entree,
+        };
+        const{error}=await sb.from('tenants').update(tenantSync).eq('id',t.id);
+        if(error){alert('Bail généré mais erreur enregistrement fiche locataire : '+error.message);return;}
+        Object.assign(t,tenantSync);
+        window.open(freshUrl,'_blank');
+        closeModal();render();
+        if(t.email&&confirm('✓ Bail enregistré et signé.\n\nL\'envoyer par email à '+t.nom+' ('+t.email+') maintenant ?')){
+          sendBailEmail(t);
+        }
+      }finally{btnSaveBail.disabled=false;btnSaveBail.textContent='✓ Enregistrer le bail signé';}
     };
   }
 
