@@ -6012,6 +6012,37 @@ function renderModal(){
       <div class="form-group"><label>Étage</label><input id="bail-etage" value="${bail.etage||''}" placeholder="2ème étage, RDC..."></div>
       <div class="form-group"><label>Cave / Parking inclus</label><input id="bail-annexes" value="${bail.annexes||''}" placeholder="Cave n°3, aucun..."></div>
     </div>
+    ${bail.type_bail!=='commercial'?`
+    <div class="g2c">
+      <div class="form-group"><label>Type d'habitat</label><select id="bail-type-habitat">
+        <option ${(bail.type_habitat||'Immeuble collectif')==='Immeuble collectif'?'selected':''}>Immeuble collectif</option>
+        <option ${bail.type_habitat==='Immeuble individuel'?'selected':''}>Immeuble individuel</option>
+      </select></div>
+      <div class="form-group"><label>Régime juridique de l'immeuble</label><select id="bail-regime">
+        <option ${(bail.regime||'Mono propriété')==='Mono propriété'?'selected':''}>Mono propriété</option>
+        <option ${bail.regime==='Copropriété'?'selected':''}>Copropriété</option>
+      </select></div>
+    </div>
+    <div class="g2c">
+      <div class="form-group"><label>Période de construction</label><select id="bail-periode-construction">
+        ${['Avant 1949','De 1949 à 1974','De 1975 à 1989','De 1989 à 2005','Depuis 2005'].map(p=>`<option ${(bail.periode_construction||'De 1949 à 1974')===p?'selected':''}>${p}</option>`).join('')}
+      </select></div>
+      <div class="form-group"><label>Nombre de pièces principales</label><input id="bail-nb-pieces" type="number" value="${bail.nb_pieces||''}"></div>
+    </div>
+    <div class="g2c">
+      <div class="form-group"><label>Chauffage</label><select id="bail-chauffage">
+        <option ${(bail.chauffage||'Individuel')==='Individuel'?'selected':''}>Individuel</option>
+        <option ${bail.chauffage==='Collectif'?'selected':''}>Collectif</option>
+      </select></div>
+      <div class="form-group"><label>Eau chaude sanitaire</label><select id="bail-eau-chaude">
+        <option ${(bail.eau_chaude||'Individuelle')==='Individuelle'?'selected':''}>Individuelle</option>
+        <option ${bail.eau_chaude==='Collective'?'selected':''}>Collective</option>
+      </select></div>
+    </div>
+    <div class="form-group"><label>Équipements du logement</label><input id="bail-equipements" value="${bail.equipements||''}" placeholder="Cuisine équipée, ballon eau chaude, VMC..."></div>
+    <div class="form-group"><label>Parties/équipements communs de l'immeuble</label><input id="bail-parties-communes" value="${bail.parties_communes||''}" placeholder="Ascenseur, local poubelle, garage à vélo..."></div>
+    <div class="form-group"><label>Accès technologies (TV, internet...)</label><input id="bail-tic" value="${bail.tic||''}" placeholder="Prise TV, fibre disponible..."></div>
+    `:''}
 
     <div class="sec" style="margin-top:12px;margin-bottom:8px">🏢 Le bailleur</div>
     <div class="g2c">
@@ -6049,8 +6080,23 @@ function renderModal(){
     </div>
     <div class="g2c">
       <div class="form-group"><label>Dépôt de garantie (€)</label><input id="bail-caution" type="number" value="${bail.caution||t.caution||0}"></div>
-      <div class="form-group"><label>Modalités de paiement</label><input id="bail-paiement" value="${bail.paiement||'Virement bancaire, le 5 de chaque mois'}" placeholder="Modalités"></div>
+      <div class="form-group"><label>Jour de paiement</label><input id="bail-jour-paiement" value="${bail.jour_paiement||'le 5 du mois'}"></div>
     </div>
+    <div class="form-group"><label>Lieu / moyen de paiement</label><input id="bail-lieu-paiement" value="${bail.lieu_paiement||'Virement bancaire sur le compte du bailleur'}"></div>
+    ${bail.type_bail!=='commercial'?`
+    <div class="g2c">
+      <div class="form-group"><label>Modalité de règlement des charges</label><select id="bail-charges-modalite">
+        <option ${(bail.charges_modalite||'Forfait de charges')==='Forfait de charges'?'selected':''}>Forfait de charges</option>
+        <option ${bail.charges_modalite==='Provisions avec régularisation annuelle'?'selected':''}>Provisions avec régularisation annuelle</option>
+      </select></div>
+      <div class="form-group"><label>Détail des charges incluses</label><input id="bail-charges-detail" value="${bail.charges_detail||''}" placeholder="Ménage parties communes, taxe ordures ménagères..."></div>
+    </div>
+    <div class="g2c">
+      <div class="form-group"><label>Date de révision du loyer (jour/mois)</label><input id="bail-date-revision" value="${bail.date_revision||''}" placeholder="01/12"></div>
+      <div class="form-group"><label>Trimestre de référence IRL</label><input id="bail-irl-trimestre" value="${bail.irl_trimestre||''}" placeholder="1er trimestre 2026"></div>
+    </div>
+    <div class="form-group"><label>Travaux réalisés récemment (le cas échéant)</label><input id="bail-travaux" value="${bail.travaux||''}" placeholder="Nature et montant des travaux..."></div>
+    `:''}
 
     <div class="sec" style="margin-top:12px;margin-bottom:8px">📅 Durée et date</div>
     <div class="g2c">
@@ -7912,8 +7958,14 @@ function collectBailFormData(){
     loc_email:q('bail-loc-email'),loc_tel:q('bail-loc-tel'),loc_adr:q('bail-loc-adr'),
     gar_nom:q('bail-gar-nom'),gar_lien:q('bail-gar-lien'),gar_adr:q('bail-gar-adr'),
     loyer_ref:parseFloat(q('bail-loyer'))||0,charges:parseFloat(q('bail-charges'))||0,
-    caution:parseFloat(q('bail-caution'))||0,paiement:q('bail-paiement'),
+    caution:parseFloat(q('bail-caution'))||0,
+    jour_paiement:q('bail-jour-paiement'),lieu_paiement:q('bail-lieu-paiement'),
     date_entree:q('bail-date-entree'),duree:q('bail-duree'),lieu_sig:q('bail-lieu-sig'),
+    type_habitat:q('bail-type-habitat'),regime:q('bail-regime'),periode_construction:q('bail-periode-construction'),
+    nb_pieces:q('bail-nb-pieces'),chauffage:q('bail-chauffage'),eau_chaude:q('bail-eau-chaude'),
+    equipements:q('bail-equipements'),parties_communes:q('bail-parties-communes'),tic:q('bail-tic'),
+    charges_modalite:q('bail-charges-modalite'),charges_detail:q('bail-charges-detail'),
+    date_revision:q('bail-date-revision'),irl_trimestre:q('bail-irl-trimestre'),travaux:q('bail-travaux'),
   };
   diagKeys.forEach(k=>{
     const existing=bail['diag_'+k];
@@ -7960,7 +8012,10 @@ function genBailPDF(bail,tenant){
   y+=12;
   doc.setFont('helvetica','normal');doc.setFontSize(10);
 
-  title('Entre les soussignés');
+  const diagLabels={dpe:'DPE — Diagnostic de performance énergétique',elec:'Diagnostic électrique',gaz:'Diagnostic gaz',plomb:'Constat de risque d\'exposition au plomb (CREP)',amiante:'Diagnostic amiante',erp:'État des risques et pollutions (ERP)',bruit:'Information bruit / zone aéroportuaire',surface:'Mesurage loi Carrez / Boutin'};
+  const diagPresent=Object.keys(diagLabels).filter(k=>bail['diag_'+k]?.url);
+
+  title('I. Désignation des parties');
   para('Le bailleur : '+(bail.bailleur_nom||'—')+(bail.bailleur_rep?', représenté par '+bail.bailleur_rep:'')+', domicilié '+(bail.bailleur_adr||'—')+'.');
   para('Le locataire : '+(bail.loc_nom||'—')+(bail.loc_nais?', né(e) le '+dl(bail.loc_nais)+(bail.loc_lieu_nais?' à '+bail.loc_lieu_nais:''):'')+(bail.loc_natio?', de nationalité '+bail.loc_natio:'')+', demeurant actuellement '+(bail.loc_adr||'—')+'.');
   if(bail.gar_nom){
@@ -7968,31 +8023,63 @@ function genBailPDF(bail,tenant){
   }
   para('Il a été convenu ce qui suit :');
 
-  title('Article 1 — Désignation du logement');
-  para('Le bailleur donne à bail au locataire, qui accepte, les locaux ci-après désignés : '+(bail.adresse||'—')+(bail.appt?', '+bail.appt:'')+'.');
-  para('Type de logement : '+(bail.type_logement||'—')+'. Surface habitable : '+(bail.surface?bail.surface+' m²':'non communiquée')+'. Étage : '+(bail.etage||'—')+'. Annexes/dépendances : '+(bail.annexes||'aucune')+'.');
+  title('II. Objet du contrat');
+  para('A. Consistance du logement');
+  para('Localisation : '+(bail.adresse||'—')+(bail.appt?', '+bail.appt:'')+(bail.etage?', '+bail.etage:'')+'.');
+  if(!isComm){
+    para("Type d'habitat : "+(bail.type_habitat||'—')+'. Régime juridique de l\'immeuble : '+(bail.regime||'—')+'. Période de construction : '+(bail.periode_construction||'—')+'.');
+    para('Surface habitable : '+(bail.surface?bail.surface+' m²':'—')+'. Nombre de pièces principales : '+(bail.nb_pieces||'—')+'.');
+    if(bail.equipements)para("Éléments d'équipement du logement : "+bail.equipements+'.');
+    para('Modalité de production de chauffage : '+(bail.chauffage||'—')+'. Modalité de production d\'eau chaude sanitaire : '+(bail.eau_chaude||'—')+'.');
+  }
+  para('B. Destination des locaux : '+(isComm?'usage commercial':'usage exclusif d\'habitation')+'.');
+  para('C. Locaux et équipements accessoires à usage privatif du locataire : '+(bail.annexes||'aucun')+'.');
+  if(!isComm&&bail.parties_communes)para('D. Parties, équipements et accessoires à usage commun de l\'immeuble : '+bail.parties_communes+'.');
+  if(!isComm&&bail.tic)para('E. Équipement d\'accès aux technologies de l\'information et de la communication : '+bail.tic+'.');
 
-  title('Article 2 — Durée du contrat');
-  para('Le présent contrat est conclu pour une durée de '+(bail.duree||'—')+' à compter du '+dl(bail.date_entree)+'.');
+  title('III. Date de prise d\'effet et durée du contrat');
+  para('A. Date de prise d\'effet du contrat : '+dl(bail.date_entree)+'.');
+  para('B. Durée du contrat : '+(bail.duree||'—')+'.');
+  para("En l'absence de proposition de renouvellement du contrat, celui-ci est, à son terme, reconduit tacitement pour la même durée et dans les mêmes conditions. Le locataire peut mettre fin au bail à tout moment, après avoir donné congé dans les conditions légales. Le bailleur peut mettre fin au bail à son échéance, après avoir donné congé, pour reprendre le logement en vue de l'occuper lui-même ou une personne de sa famille, pour le vendre, ou pour un motif sérieux et légitime.");
 
-  title('Article 3 — Conditions financières');
-  para('Loyer mensuel'+(isComm?' hors taxes':' hors charges')+' : '+fmt(bail.loyer_ref)+'. Charges mensuelles : '+fmt(bail.charges)+'.'+(isComm?' La TVA au taux en vigueur s\'applique en sus.':''));
-  para('Modalités de paiement : '+(bail.paiement||'—')+'.');
-  para('Dépôt de garantie versé à la signature : '+fmt(bail.caution)+', restitué dans les conditions légales après état des lieux de sortie, déduction faite des sommes dues au bailleur.');
+  title('IV. Conditions financières');
+  para('A. Loyer — Montant du loyer mensuel'+(isComm?' hors taxes':' hors charges')+' : '+fmt(bail.loyer_ref)+'.'+(isComm?' La TVA au taux en vigueur s\'applique en sus.':''));
+  if(!isComm&&(bail.date_revision||bail.irl_trimestre)){
+    para('Modalités de révision : date de révision '+(bail.date_revision||'—')+', trimestre de référence de l\'IRL : '+(bail.irl_trimestre||'—')+'.');
+  }
+  para('B. Charges récupérables — Modalité de règlement : '+(bail.charges_modalite||'—')+'. Montant mensuel : '+fmt(bail.charges)+(bail.charges_detail?' ('+bail.charges_detail+')':'')+'.');
+  para('E. Modalités de paiement — Périodicité mensuelle, paiement à échoir, '+(bail.jour_paiement||'—')+'. '+(bail.lieu_paiement||'—')+'.');
+  para('Montant total dû à chaque échéance (loyer + charges) : '+fmt((bail.loyer_ref||0)+(bail.charges||0))+(isComm?' HT, TVA en sus':'')+'.');
+  if(!isComm&&bail.travaux){
+    title('V. Travaux');
+    para('Montant et nature des travaux d\'amélioration ou de mise en conformité effectués récemment : '+bail.travaux+'.');
+  }
 
-  title('Article 4 — Obligations des parties');
+  title('VI. Garanties');
+  para('Dépôt de garantie versé à la signature : '+fmt(bail.caution)+', restitué dans les conditions légales après établissement de l\'état des lieux de sortie, déduction faite le cas échéant des sommes restant dues au bailleur.');
+
+  if(!isComm){
+    title('VII. Clause de solidarité');
+    para("En cas de pluralité de locataires, ceux-ci sont tenus conjointement, solidairement et indivisiblement à l'égard du bailleur au paiement des loyers, charges et accessoires dus en application du présent bail. La solidarité d'un locataire sortant et celle de sa caution prennent fin à la date d'effet du congé régulièrement délivré et lorsqu'un nouveau colocataire figure au bail ; à défaut, elle s'éteint au plus tard six mois après la date d'effet du congé.");
+
+    title('VIII. Clause résolutoire');
+    para("Le bail sera résilié de plein droit en cas d'inexécution des obligations du locataire, notamment en cas de défaut de paiement des loyers, charges ou dépôt de garantie, de défaut d'assurance du locataire contre les risques locatifs, ou de troubles de voisinage constatés par une décision de justice définitive. Le bailleur doit préalablement faire délivrer un commandement de payer ou de faire, resté infructueux pendant le délai légal, avant de pouvoir faire constater judiciairement l'acquisition de la clause résolutoire.");
+
+    title('IX. Honoraires de location');
+    para("Le présent contrat est conclu directement entre le bailleur et le locataire, sans intermédiaire mandaté : aucun honoraire de location n'est dû à ce titre.");
+  }
+
+  title((isComm?'VII':'X')+'. Obligations des parties');
   para("Le locataire s'engage à payer le loyer et les charges aux termes convenus, à user paisiblement des locaux loués, à répondre des dégradations survenues pendant la durée du contrat, à s'assurer contre les risques locatifs et à en justifier à la demande du bailleur, et à ne céder ni sous-louer le logement sans l'accord écrit du bailleur.");
   para("Le bailleur s'engage à délivrer un logement décent et en bon état d'usage, à assurer au locataire une jouissance paisible du logement, et à entretenir les locaux en état de servir à l'usage prévu.");
 
-  title('Article 5 — Diagnostics et annexes');
-  const diagLabels={dpe:'DPE — Diagnostic de performance énergétique',elec:'Diagnostic électrique',gaz:'Diagnostic gaz',plomb:'Constat de risque d\'exposition au plomb (CREP)',amiante:'Diagnostic amiante',erp:'État des risques et pollutions (ERP)',bruit:'Information bruit / zone aéroportuaire',surface:'Mesurage loi Carrez / Boutin'};
-  const diagPresent=Object.keys(diagLabels).filter(k=>bail['diag_'+k]?.url);
-  if(diagPresent.length){
-    para('Les diagnostics suivants sont annexés au présent contrat et disponibles dans GMAO Pro :');
-    diagPresent.forEach(k=>para('- '+diagLabels[k]+(bail['diag_'+k].date?' (validité : '+dl(bail['diag_'+k].date)+')':'')));
-  } else {
-    para("Aucun diagnostic n'a été joint électroniquement à ce contrat au moment de sa génération.");
-  }
+  title((isComm?'VIII':'XI')+'. Annexes');
+  para('Sont annexés et joints au présent contrat :');
+  para('- Un dossier de diagnostic technique'+(diagPresent.length?' comprenant :':' (à joindre).'));
+  diagPresent.forEach(k=>para('  • '+diagLabels[k]+(bail['diag_'+k].date?' (validité : '+dl(bail['diag_'+k].date)+')':'')+' — disponible dans GMAO Pro.'));
+  if(!isComm)para('- Une notice d\'information relative aux droits et obligations des locataires et des bailleurs.');
+  para('- Un état des lieux d\'entrée, établi lors de la remise des clés.');
+  if(bail.gar_nom)para('- Un acte de cautionnement solidaire signé par le garant.');
 
   title('Fait à '+(bail.lieu_sig||'—')+', le '+new Date().toLocaleDateString('fr-FR'));
   para("Chaque partie reconnaît avoir lu et accepté les termes du présent contrat, en foi de quoi elle appose son paraphe sur chaque page et sa signature ci-dessous.");
