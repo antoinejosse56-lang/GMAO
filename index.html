@@ -302,6 +302,14 @@ async function fetchAllRows(table, orderCol, ascending){
 function uid(){return 'x'+Math.random().toString(36).slice(2,9);}
 function daysUntil(d){if(!d)return null;return Math.ceil((new Date(d)-new Date())/86400000);}
 function dateLabel(d){if(!d)return '—';return new Date(d).toLocaleDateString('fr-FR');}
+// Resout l'intervenant assigne a une gamme (mt.assigned_to peut etre un id,
+// un nom ou un email selon comment il a ete saisi) vers {by_user,by_email} a
+// stocker sur le BT genere - necessaire pour notifier/synchroniser au calendrier
+// la bonne personne, au lieu de laisser by_user vide comme avant.
+function resolveMtAssignee(mt){
+  const user=S.users.find(u=>u.id===mt.assigned_to||u.name===mt.assigned_to||u.email===mt.assigned_to);
+  return {by_user:user?.name||mt.assigned_to||'',by_email:user?.email||null};
+}
 
 // ============================================================
 // CONFIGURATION EMAIL & DRIVE
@@ -9219,10 +9227,11 @@ function bindAll(){
       const asset=S.assets.find(a=>a.id===mt.asset_id);
       const woTitle=mt.name+' (auto)';
       const woDesc=(mt.description?mt.description+' — ':'')+'Généré auto. Prochaine échéance : '+nextDue;
+      const{by_user,by_email}=resolveMtAssignee(mt);
       const {data:woData}=await sb.from('work_orders').insert({
         title:woTitle,description:woDesc,asset_id:mt.asset_id,
         category:mt.bt_category||'Entretien',date:nextDue,
-        status:'open',cost:0,by_user:''
+        status:'open',cost:0,by_user,by_email,gamme_id:mt.id,source:'gamme'
       }).select().single();
       if(woData){
         S.workOrders.push(woData);
@@ -9501,11 +9510,12 @@ function bindAll(){
   document.querySelectorAll('[data-create-bt-from-mt]').forEach(el=>el.onclick=async()=>{
     const mt=S.maintenanceTemplates.find(x=>x.id===el.dataset.createBtFromMt);
     if(!mt)return;
+    const{by_user,by_email}=resolveMtAssignee(mt);
     const {data}=await sb.from('work_orders').insert({
       title:mt.name,description:mt.description||'',
       asset_id:mt.asset_id||null,category:mt.bt_category||'Entretien',
       date:NOW,status:'open',cost:0,paid:false,
-      by_user:mt.assigned_to||'',docs:[],journal:[],checklist:[]
+      by_user,by_email,gamme_id:mt.id,source:'gamme',docs:[],journal:[],checklist:[]
     }).select().single();
     if(data){S.workOrders.push(data);alert('✅ BT créé : '+mt.name);render();}
   });
@@ -9528,7 +9538,8 @@ function bindAll(){
     }
     await sb.from('maintenance_templates').update({last_done:mt.last_done,next_due:mt.next_due}).eq('id',mt.id);
     if(mt.auto_bt){
-      const {data}=await sb.from('work_orders').insert({title:mt.name,description:mt.description,asset_id:mt.asset_id,category:mt.bt_category||'Entretien',date:now,status:'open',cost:0,by_user:'',docs:[],journal:[],checklist:[]}).select().single();
+      const{by_user,by_email}=resolveMtAssignee(mt);
+      const {data}=await sb.from('work_orders').insert({title:mt.name,description:mt.description,asset_id:mt.asset_id,category:mt.bt_category||'Entretien',date:now,status:'open',cost:0,by_user,by_email,gamme_id:mt.id,source:'gamme',docs:[],journal:[],checklist:[]}).select().single();
       if(data)S.workOrders.push(data);
       alert('✓ Gamme réalisée — BT créé automatiquement !');
     } else {alert('✓ Gamme marquée réalisée !');}
