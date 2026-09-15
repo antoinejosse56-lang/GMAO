@@ -6833,6 +6833,15 @@ function renderModal(){
     const cpt = S.compteurs.find(c=>c.id===m.cptId)||{};
     const lastRel = S.releves.filter(r=>r.compteur_id===m.cptId).sort((a,b)=>new Date(b.date)-new Date(a.date))[0];
     const tenant = cpt.tenant_id?S.tenants.find(t=>t.id===cpt.tenant_id):null;
+    // Point de depart pour le tout premier releve d'un compteur associe a un
+    // locataire : l'index_initial du compteur est souvent date (saisi une
+    // fois, jamais remis a jour au changement de locataire), alors que le
+    // releve pris a l'etat des lieux d'entree reflete l'index reel au jour
+    // ou CE locataire est arrive - on le prefere donc a index_initial tant
+    // qu'aucun releve n'a encore ete fait pour ce compteur.
+    const entreeForCpt=(!lastRel&&tenant)?findLogementEdlEntree(tenant.logement,tenant.id):null;
+    const edlEauFroide=entreeForCpt&&cpt.type==='Eau froide'?parseFloat(entreeForCpt.compteurs?.eau_froide):null;
+    const ancienIndexAuto=lastRel?.nouvel_index??(edlEauFroide||cpt.index_initial||0);
     const tarifEau = lastTarifEau();
     const prixDefaut = tarifEau?tarifEau.tarif:(cpt.prix_unitaire||lastRel?.prix_unitaire||0);
     html=`${mhd('Nouveau relevé — '+(cpt.name||''))}
@@ -6844,12 +6853,15 @@ function renderModal(){
     </div>`:''}
     <div class="form-group"><label>Date du relevé *</label><input id="m-rdate" type="date" value="${NOW}"></div>
     <div style="background:var(--bg2);padding:10px 12px;border-radius:var(--radius);margin-bottom:10px;font-size:12px">
-      Dernier relevé : <b>${lastRel?lastRel.nouvel_index+' '+(cpt.unite||'m³')+' le '+dateLabel(lastRel.date):'index initial = '+(cpt.index_initial||0)}</b>
+      Dernier relevé : <b>${lastRel?lastRel.nouvel_index+' '+(cpt.unite||'m³')+' le '+dateLabel(lastRel.date):(edlEauFroide?edlEauFroide+' '+(cpt.unite||'m³')+' (état des lieux d\'entrée)':'index initial = '+(cpt.index_initial||0))}</b>
     </div>
     <div class="g2c">
-      <div class="form-group"><label>Ancien index (auto)</label><input id="m-rold" type="number" step="0.001" value="${lastRel?.nouvel_index||cpt.index_initial||0}" readonly style="background:var(--bg2)"></div>
+      <div class="form-group"><label>Ancien index (auto)</label><input id="m-rold" type="number" step="0.001" value="${ancienIndexAuto}" readonly style="background:var(--bg2)"></div>
       <div class="form-group"><label>Nouvel index *</label><input id="m-rnew" type="number" step="0.001" placeholder="Ex: 285.30" autofocus></div>
     </div>
+    ${edlEauFroide?`<div style="background:#e8f5e9;padding:8px 12px;border-radius:var(--radius);font-size:11px;color:var(--text2);margin-bottom:10px">
+      📋 Repris du relevé pris à l'état des lieux d'entrée de ${tenant.nom} — vous pouvez le corriger si besoin.
+    </div>`:''}
     <div class="g2c">
       <div class="form-group"><label>Prix unitaire (€/${cpt.unite||'m³'})</label><input id="m-rprix" type="number" step="0.001" value="${prixDefaut}" placeholder="Ex: 3.50"></div>
       <div class="form-group"><label>Notes</label><input id="m-rnotes" placeholder="Remarques..."></div>
