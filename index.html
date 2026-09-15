@@ -6078,7 +6078,10 @@ function renderModal(){
     const logFicheB=t.logement?findLogementFiche(t.logement):null;
     const diagStatusList=t.logement?logementDiagStatus(t.logement):[];
     const missingOrExpired=diagStatusList.filter(d=>d.missing||d.expired);
-    const canGenerate=!!logFicheB&&missingOrExpired.length===0;
+    const bailPrev=m.bail||{};
+    const overrideChecked=!!bailPrev._diagOverride;
+    const overrideReason=(bailPrev._diagOverrideReason||'').trim();
+    const canGenerate=!!logFicheB&&(missingOrExpired.length===0||(overrideChecked&&overrideReason));
     const bail=m.bail||{
       type_bail:t.type_bail||'habitation',
       loyer_ref:t.loyer_ref||0,
@@ -6111,11 +6114,22 @@ function renderModal(){
         <div class="fg"><div class="fgs" style="font-size:12px${d.missing||d.expired?';color:var(--red)':''}">${d.label}${d.missing?' <span class="badge bred" style="font-size:9px">Manquant</span>':d.expired?' <span class="badge bred" style="font-size:9px">Expiré</span>':' <span class="badge bgreen" style="font-size:9px">Valide</span>'}</div>
         ${d.doc?`<div class="fgsub">${dateLabel(d.doc.date)}${d.doc.date_expiry?' · expire '+dateLabel(d.doc.date_expiry):''}</div>`:''}</div>
         ${d.doc?.document_url?`<a href="${d.doc.document_url}" target="_blank" class="btn btn-sm">👁 Voir</a>`:''}
+        ${d.doc?`<button type="button" class="btn btn-d btn-sm" data-del-bien-doc="${d.doc.id}">✕</button>`:''}
       </div>`).join('')}
     </div>
     ${missingOrExpired.length>0?`<div class="alert-r">
       ⚠ ${missingOrExpired.length} diagnostic(s) manquant(s) ou expiré(s) — le bail ne peut pas être généré tant qu'ils ne sont pas à jour.
       <button type="button" class="btn btn-sm" style="margin-top:6px" data-add-bien-doc="${(t.logement||'').replace(/"/g,'&quot;')}">+ Ajouter un document</button>
+      <div style="margin-top:10px;padding-top:10px;border-top:0.5px solid #F7C1C1">
+        <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;font-weight:500">
+          <input type="checkbox" id="bail-diag-override" ${overrideChecked?'checked':''} onchange="S.modal.bail={...S.modal.bail,_diagOverride:this.checked};render()">
+          Passer outre volontairement (non applicable au logement, ou cas de force majeure)
+        </label>
+        ${overrideChecked?`<div class="form-group" style="margin-top:6px">
+          <label style="font-size:11px">Motif (obligatoire — sera indiqué dans le bail)</label>
+          <input id="bail-diag-override-reason" value="${overrideReason}" placeholder="Ex: pas d'installation gaz dans ce logement" oninput="S.modal.bail={...S.modal.bail,_diagOverride:true,_diagOverrideReason:this.value}">
+        </div>`:''}
+      </div>
     </div>`:''}
 
     <div class="sec" style="margin-top:12px;margin-bottom:8px">🏢 Le bailleur</div>
@@ -8123,12 +8137,17 @@ function collectBailFormData(){
     date_revision:q('bail-date-revision'),irl_trimestre:q('bail-irl-trimestre'),travaux:q('bail-travaux'),
   };
   // Diagnostics obligatoires, tires de la fiche du bien (bien_documents) -
-  // seuls les encore valides sont repris (le formulaire bloque de toute
-  // facon la generation si l'un d'eux manque ou est perime).
+  // seuls les encore valides sont repris. Ceux manquants/perimes malgre le
+  // contournement volontaire sont listes a part avec leur motif, pour
+  // laisser une trace explicite dans le bail signe.
   if(t.logement){
     logementDiagStatus(t.logement).forEach(d=>{
       if(d.doc&&!d.expired)out['diag_'+d.key]={url:d.doc.document_url,date:d.doc.date};
     });
+    if(bail._diagOverride&&bail._diagOverrideReason){
+      out.diag_override_reason=bail._diagOverrideReason;
+      out.diag_override_list=logementDiagStatus(t.logement).filter(d=>d.missing||d.expired).map(d=>d.label);
+    }
   }
   out.paraphe_bailleur=sigDataUrl('bail-paraphe-bailleur');
   out.paraphe_locataire=sigDataUrl('bail-paraphe-locataire');
@@ -8234,6 +8253,10 @@ function genBailPDF(bail,tenant){
   para('Sont annexés et joints au présent contrat :');
   para('- Un dossier de diagnostic technique'+(diagPresent.length?' comprenant :':' (à joindre).'));
   diagPresent.forEach(k=>para('  • '+DIAG_LABELS[k]+(bail['diag_'+k].date?' (établi le '+dl(bail['diag_'+k].date)+')':'')+' — disponible dans GMAO Pro.'));
+  if(bail.diag_override_reason&&bail.diag_override_list?.length){
+    para("Diagnostic(s) suivant(s) non fourni(s) à ce jour, le bailleur et le locataire reconnaissant expressément en être informés et poursuivre la signature du présent contrat en connaissance de cause : "+bail.diag_override_list.join(', ')+'.');
+    para('Motif : '+bail.diag_override_reason+'.');
+  }
   if(!isComm)para('- Une notice d\'information relative aux droits et obligations des locataires et des bailleurs.');
   para('- Un état des lieux d\'entrée, établi lors de la remise des clés.');
   if(bail.gar_nom)para('- Un acte de cautionnement solidaire signé par le garant.');
@@ -8906,7 +8929,8 @@ function bindAll(){
     if(btnPreviewBail)btnPreviewBail.onclick=async()=>{
       const tChk=S.modal.tenant||{};
       const missingChk=tChk.logement?logementDiagStatus(tChk.logement).filter(d=>d.missing||d.expired):[];
-      if(!findLogementFiche(tChk.logement)||missingChk.length>0){alert('Fiche du logement ou diagnostics obligatoires incomplets.');return;}
+      const overrideOk=S.modal.bail?._diagOverride&&(S.modal.bail?._diagOverrideReason||'').trim();
+      if(!findLogementFiche(tChk.logement)||(missingChk.length>0&&!overrideOk)){alert('Fiche du logement ou diagnostics obligatoires incomplets.');return;}
       const bail=collectBailFormData();
       if(!sigDataUrl('bail-paraphe-bailleur')||!sigDataUrl('bail-paraphe-locataire')){
         if(!confirm('Le paraphe du bailleur ou du locataire est vide. Continuer quand même ?'))return;
@@ -8924,7 +8948,8 @@ function bindAll(){
       const t=S.modal.tenant;
       if(!t){alert('Locataire introuvable');return;}
       const missingChk2=t.logement?logementDiagStatus(t.logement).filter(d=>d.missing||d.expired):[];
-      if(!findLogementFiche(t.logement)||missingChk2.length>0){alert('Fiche du logement ou diagnostics obligatoires incomplets.');return;}
+      const overrideOk2=S.modal.bail?._diagOverride&&(S.modal.bail?._diagOverrideReason||'').trim();
+      if(!findLogementFiche(t.logement)||(missingChk2.length>0&&!overrideOk2)){alert('Fiche du logement ou diagnostics obligatoires incomplets.');return;}
       if(!sigDataUrl('bail-sig-bailleur')||!sigDataUrl('bail-sig-locataire')){
         alert('Les 2 signatures (bailleur et locataire) sont requises avant enregistrement.');return;
       }
@@ -9495,9 +9520,15 @@ function bindAll(){
   });
   document.querySelectorAll('[data-del-bien-doc]').forEach(el=>el.onclick=async()=>{
     if(!confirm('Supprimer ce document ?'))return;
+    const doc=S.bienDocuments.find(x=>x.id===el.dataset.delBienDoc);
     const{error}=await sb.from('bien_documents').delete().eq('id',el.dataset.delBienDoc);
     if(error){alert('Erreur : '+error.message);return;}
     S.bienDocuments=S.bienDocuments.filter(x=>x.id!==el.dataset.delBienDoc);
+    // Retire aussi le fichier du bucket s'il y est stocke (URL du type
+    // .../object/public/documents-locataires/<chemin>?v=...), pour ne pas
+    // laisser un fichier orphelin ni une URL encore accessible.
+    const m2=doc?.document_url?.match(/documents-locataires\/([^?]+)/);
+    if(m2)await sb.storage.from('documents-locataires').remove([decodeURIComponent(m2[1])]).catch(()=>{});
     render();
   });
   document.querySelectorAll('[data-chantier-tab]').forEach(el=>el.onclick=()=>{S.chantierTab=el.dataset.chantierTab;render();});
