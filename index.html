@@ -8079,7 +8079,17 @@ async function uploadBienDocFile(bien,fileInput){
 }
 // Meme nettoyage de nom que cote Python (import_factures.py) pour un chemin
 // de stockage lisible et sans caracteres interdits.
-function sanitizeFolderName(name){return (name||'').replace(/[<>:"/\\|?*]/g,'_').trim();}
+// Supabase Storage rejette les cles contenant des caracteres non-ASCII (les
+// accents comme "è" font echouer l'upload avec "Invalid key"), contrairement
+// a un nom de fichier Windows classique qui les tolere - on les retire en
+// plus du nettoyage habituel.
+function sanitizeFolderName(name){
+  const noAccents=(name||'').normalize('NFD').replace(/[̀-ͯ]/g,'');
+  // Ceinture et bretelles : au-dela des accents, ne garde que les caracteres
+  // surs pour une cle Supabase Storage (alphanumerique + quelques signes),
+  // le reste (apostrophes typographiques, esperluettes...) devient "_".
+  return noAccents.replace(/[^a-zA-Z0-9 _.\-]/g,'_').trim();
+}
 
 // Lit l'etat courant du formulaire directement dans le DOM (plutot que
 // S.modal.bail, qui n'est mis a jour que pour les diagnostics uploades) -
