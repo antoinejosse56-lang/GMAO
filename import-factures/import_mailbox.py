@@ -202,6 +202,7 @@ def process_account(user: str, password: str, seen: set) -> int:
             filename = decode_mime_words(filename)
             ext = os.path.splitext(filename)[1].lower()
             if ext not in ALLOWED_EXTENSIONS:
+                log(f"  ATTENTION : extension non supportee ({ext or 'aucune'}), piece jointe ignoree : {filename}")
                 continue
             if "devis" in filename.lower():
                 is_devis = True
@@ -225,7 +226,16 @@ def process_account(user: str, password: str, seen: set) -> int:
             imported += 1
 
         if not saved_any:
-            log(f"  ATTENTION : aucune piece jointe exploitable dans \"{subject}\" - libelle retire quand meme")
+            # Le mail garde son libelle "A importer" (et n'est pas marque
+            # "seen") plutot que de le retirer quand meme : sans ca, un mail
+            # dont la piece jointe est ignoree (extension non prevue, dossier
+            # cible non configure...) disparaissait silencieusement du
+            # libelle sans qu'aucun fichier n'ait jamais atteint le dossier -
+            # perte invisible, seul le log stdout (jamais consulte en
+            # pratique) le mentionnait. Il reste maintenant visible dans "A
+            # importer" jusqu'a ce que le probleme soit corrige a la main.
+            log(f"  ATTENTION : aucune piece jointe exploitable dans \"{subject}\" - libelle conserve pour investigation")
+            continue
         try:
             mail.uid("store", uid, "-X-GM-LABELS", f'("{GMAIL_LABEL}")')
         except imaplib.IMAP4.error as e:

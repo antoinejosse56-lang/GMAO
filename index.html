@@ -210,6 +210,9 @@ function tfRegulStatus(tenant){
 // Categories de facture, utilisees pour le filtre de la liste et le formulaire
 // manuel - une seule liste partagee pour eviter les deux copies divergentes.
 const CATS_FACTURE=['Travaux/Artisan','Matériaux','Énergie','Téléphone/Internet','Assurance','Abonnement','Achat','Autre'];
+// Corps de metier des artisans/entreprises (fournisseurs.corps_metier) -
+// liste fixe pour permettre le filtrage, a completer librement ici si besoin.
+const CORPS_METIER_LIST=['Plomberie','Électricité','Chauffage / Climatisation','Serrurerie','Peinture','Menuiserie','Maçonnerie','Couverture / Toiture','Vitrerie','Carrelage / Sols','Plâtrerie / Isolation','Électroménager','Ascenseur','Espaces verts','Nettoyage','Sécurité / Alarme','Ramonage','Autre'];
 // Calcule le "bien" a stocker pour l'archivage/regroupement d'une facture ou
 // d'un devis lie a un bon de travaux. Si ce BT appartient a un chantier, le
 // chemin devient <bien si connu> - <chantier> - <titre du BT> (ex: "17 rue
@@ -1526,7 +1529,7 @@ function renderWorkOrders(){
           ${woDocs.map(d=>`<div style="display:flex;align-items:center;gap:6px;background:var(--bg2);border-radius:var(--radius);padding:6px 10px;border:0.5px solid var(--border2)">
             <span style="font-size:14px">${d.type==='devis'?'📋':d.type==='facture'?'🧾':d.type==='photo'?'🖼':'📄'}</span>
             <div style="flex:1;min-width:0">
-              <div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${d.name}</div>
+              <div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${d.name}${d.phase==='avant'?' <span class="badge bamber" style="font-size:9px">À faire</span>':d.phase==='apres'?' <span class="badge bgreen" style="font-size:9px">Réalisé</span>':''}</div>
               <div style="font-size:10px;color:var(--text2)">${d.type||'document'} · ${dateLabel(d.date)}</div>
             </div>
             <a href="${d.url}" target="_blank" rel="noopener" style="flex-shrink:0;padding:4px 10px;background:var(--green);color:#fff;border-radius:var(--radius);font-size:11px;text-decoration:none;font-weight:500">
@@ -3086,13 +3089,23 @@ function renderFactures(){
 
   if(fTab==='fournisseurs'){
     if(!S.fournisseurTypeFilter)S.fournisseurTypeFilter='all';
+    if(!S.fournisseurMetierFilter)S.fournisseurMetierFilter='all';
     const tf=S.fournisseurTypeFilter;
+    const mf2=S.fournisseurMetierFilter;
     const FR_TYPES=['Artisan','Société de prestation','Fournisseur de matériel'];
     const nSansType=(S.fournisseurs||[]).filter(fr=>!fr.type).length;
+    const nSansMetier=(S.fournisseurs||[]).filter(fr=>!fr.corps_metier).length;
+    // N'affiche que les corps de metier reellement utilises (evite une longue
+    // rangee de pastilles vides) - inclut aussi une valeur libre deja saisie
+    // qui ne figurerait pas dans CORPS_METIER_LIST.
+    const metiersUtilises=[...new Set((S.fournisseurs||[]).map(fr=>fr.corps_metier).filter(Boolean))]
+      .sort((a,b)=>CORPS_METIER_LIST.indexOf(a)-CORPS_METIER_LIST.indexOf(b));
     const sorted=[...(S.fournisseurs||[])].filter(fr=>{
-      if(tf==='all')return true;
-      if(tf==='sans')return !fr.type;
-      return fr.type===tf;
+      if(tf==='sans'&&fr.type)return false;
+      if(tf!=='all'&&tf!=='sans'&&fr.type!==tf)return false;
+      if(mf2==='sans'&&fr.corps_metier)return false;
+      if(mf2!=='all'&&mf2!=='sans'&&fr.corps_metier!==mf2)return false;
+      return true;
     }).sort((a,b)=>(a.nom||'').localeCompare(b.nom||''));
     return `${tabBar}
     <div class="card">
@@ -3100,10 +3113,15 @@ function renderFactures(){
         <div class="sec" style="margin:0">📇 Artisans & entreprises (${sorted.length})</div>
         ${isAdmin()?`<button class="btn btn-p btn-sm" id="btn-add-fournisseur">+ Artisan</button>`:''}
       </div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">
         <span class="pill ${tf==='all'?'active':''}" data-fournisseur-type="all">Tous</span>
         ${FR_TYPES.map(t=>`<span class="pill ${tf===t?'active':''}" data-fournisseur-type="${t}">${t}</span>`).join('')}
         ${nSansType>0?`<span class="pill ${tf==='sans'?'active':''}" data-fournisseur-type="sans">Non classés (${nSansType})</span>`:''}
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
+        <span class="pill ${mf2==='all'?'active':''}" data-fournisseur-metier="all">Tous corps de métier</span>
+        ${metiersUtilises.map(c=>`<span class="pill ${mf2===c?'active':''}" data-fournisseur-metier="${c.replace(/"/g,'&quot;')}">${c}</span>`).join('')}
+        ${nSansMetier>0?`<span class="pill ${mf2==='sans'?'active':''}" data-fournisseur-metier="sans">Sans corps de métier (${nSansMetier})</span>`:''}
       </div>
       ${sorted.length===0?'<div style="text-align:center;padding:20px;color:var(--text2)">Aucun artisan enregistré. Il apparaîtra en suggestion dans le champ "Entreprise" des factures.</div>':''}
       ${sorted.map(fr=>`<div class="row">
@@ -5009,7 +5027,13 @@ function renderModal(){
       </select>
     </div>
     <div class="g2c">
-      <div class="form-group"><label>Corps de métier</label><input id="m-frmetier" value="${fr.corps_metier||''}" placeholder="Ex: Plomberie, Électricité..."></div>
+      <div class="form-group"><label>Corps de métier</label>
+        <select id="m-frmetier">
+          <option value="" ${!fr.corps_metier?'selected':''}>— Non renseigné —</option>
+          ${CORPS_METIER_LIST.map(c=>`<option value="${c}" ${fr.corps_metier===c?'selected':''}>${c}</option>`).join('')}
+          ${fr.corps_metier&&!CORPS_METIER_LIST.includes(fr.corps_metier)?`<option value="${fr.corps_metier.replace(/"/g,'&quot;')}" selected>${fr.corps_metier}</option>`:''}
+        </select>
+      </div>
       <div class="form-group"><label>Téléphone</label><input id="m-frtel" value="${fr.telephone||''}"></div>
     </div>
     <div class="form-group"><label>Email</label><input id="m-fremail" value="${fr.email||''}"></div>
@@ -6882,7 +6906,7 @@ function renderModal(){
   if(m.type==='add-wo-doc'){html=`${mhd('Joindre un document au bon de travaux')}
     <div class="form-group"><label>Nom du document *</label><input id="m-wdn" placeholder="Ex: Devis plombier, Facture électricien..."></div>
     <div class="g2c">
-      <div class="form-group"><label>Type</label><select id="m-wdt">
+      <div class="form-group"><label>Type</label><select id="m-wdt" onchange="document.getElementById('m-wd-phase-wrap').style.display=this.value==='photo'?'':'none'">
         <option value="devis">Devis</option>
         <option value="facture">Facture</option>
         <option value="photo">Photo / Constat</option>
@@ -6890,12 +6914,25 @@ function renderModal(){
       </select></div>
       <div class="form-group"><label>Date</label><input id="m-wdd" type="date" value="${NOW}"></div>
     </div>
-    <div style="display:flex;gap:8px;align-items:flex-end;margin-bottom:10px">
-      <div class="form-group" style="flex:1;margin:0"><label>Lien URL</label><input id="m-wdu" placeholder="https://drive.google.com/..."></div>
+    <div class="form-group" id="m-wd-phase-wrap" style="display:none">
+      <label>Cette photo justifie...</label>
+      <select id="m-wdphase">
+        <option value="">— Non précisé —</option>
+        <option value="avant">Avant (travail à faire)</option>
+        <option value="apres">Après (travail réalisé)</option>
+      </select>
+    </div>
+    <div style="display:flex;gap:8px;align-items:flex-end;margin-bottom:6px;flex-wrap:wrap">
+      <div class="form-group" style="flex:1;margin:0;min-width:160px"><label>Lien URL</label><input id="m-wdu" placeholder="https://drive.google.com/..."></div>
       <button type="button" class="btn btn-p" onclick="openDrivePicker(f=>{document.getElementById('m-wdu').value=f.url;document.getElementById('m-wdn').value=document.getElementById('m-wdn').value||f.name;},(S.modal?.woId&&S.workOrders.find(w=>w.id===S.modal.woId)?.topo_ref?.propName||''))" style="white-space:nowrap;flex-shrink:0">
         📁 Choisir depuis Drive
       </button>
+      <button type="button" class="btn btn-sm" onclick="document.getElementById('m-wdfile').click()" style="white-space:nowrap;flex-shrink:0">
+        📷 Prendre une photo
+      </button>
+      <input type="file" accept="image/*" capture="environment" id="m-wdfile" data-wo-doc-upload="${m.woId||''}" style="display:none">
     </div>
+    <div id="m-wdfile-status" style="font-size:11px;margin-bottom:10px"></div>
     ${mf}`;}
 
   if(m.type==='link-asset'){
@@ -7500,6 +7537,24 @@ async function saveModal(){
       if(error){alert('Erreur : '+error.message);return;}
       Object.assign(m.fournisseur,rec);
     }
+  }
+
+  if(m.type==='add-wo-doc'){
+    // Bloc manquant jusqu'ici : le bouton "Enregistrer" (${mf}) de ce modal
+    // ne faisait donc jamais rien, quel que soit le type de document choisi.
+    const wo=S.workOrders.find(w=>w.id===m.woId);
+    if(!wo)return alert('Bon de travaux introuvable');
+    const name=q('m-wdn')?.value?.trim();if(!name)return alert('Nom du document requis');
+    const url=q('m-wdu')?.value?.trim();if(!url)return alert('Lien ou photo requis');
+    const type=q('m-wdt')?.value||'autre';
+    const doc={
+      id:uid(),name,type,date:q('m-wdd')?.value||NOW,url,
+      phase:type==='photo'?(q('m-wdphase')?.value||null):null,
+    };
+    const newDocs=[...(wo.docs||[]),doc];
+    const{error}=await sb.from('work_orders').update({docs:newDocs}).eq('id',wo.id);
+    if(error){alert('Erreur : '+error.message);return;}
+    wo.docs=newDocs;
   }
 
   if(m.type==='add-chantier'||m.type==='edit-chantier'){
@@ -8171,6 +8226,30 @@ async function uploadBienDocFile(bien,fileInput){
   const urlInput=document.getElementById('m-bdocurl');
   if(urlInput)urlInput.value=freshUrl;
   if(statusEl)statusEl.innerHTML='✓ <a href="'+freshUrl+'" target="_blank">Voir le fichier</a>';
+}
+// Photo prise depuis la tablette pour justifier un bon de travaux (constat
+// avant travaux ou preuve de travail realise) - meme principe que
+// uploadBienDocFile : upload immediat, puis remplissage du champ URL du
+// formulaire "Joindre un document" plutot que de gerer un tableau de
+// vignettes a part (ce document rejoint work_orders.docs comme les autres).
+async function uploadWoDocPhoto(woId,fileInput){
+  const file=fileInput.files?.[0];
+  if(!file)return;
+  const statusEl=document.getElementById('m-wdfile-status');
+  if(statusEl)statusEl.textContent='⏳ Envoi...';
+  const ext=(file.name.split('.').pop()||'jpg').toLowerCase();
+  const path='bt/'+woId+'/'+Date.now()+'.'+ext;
+  const{error}=await sb.storage.from('documents-locataires').upload(path,file,{contentType:file.type||'image/jpeg',cacheControl:'0'});
+  if(error){if(statusEl)statusEl.textContent='';alert('Erreur upload : '+error.message);return;}
+  const{data:pub}=sb.storage.from('documents-locataires').getPublicUrl(path);
+  const freshUrl=pub.publicUrl+'?v='+Date.now();
+  const urlInput=document.getElementById('m-wdu');
+  if(urlInput)urlInput.value=freshUrl;
+  const nameInput=document.getElementById('m-wdn');
+  if(nameInput&&!nameInput.value)nameInput.value='Photo';
+  const typeSelect=document.getElementById('m-wdt');
+  if(typeSelect&&typeSelect.value!=='photo'){typeSelect.value='photo';document.getElementById('m-wd-phase-wrap').style.display='';}
+  if(statusEl)statusEl.innerHTML='✓ <a href="'+freshUrl+'" target="_blank">Voir la photo</a>';
 }
 // Meme nettoyage de nom que cote Python (import_factures.py) pour un chemin
 // de stockage lisible et sans caracteres interdits.
@@ -9925,6 +10004,9 @@ function bindAll(){
   document.querySelectorAll('[data-fournisseur-type]').forEach(el=>el.onclick=()=>{
     S.fournisseurTypeFilter=el.dataset.fournisseurType;render();
   });
+  document.querySelectorAll('[data-fournisseur-metier]').forEach(el=>el.onclick=()=>{
+    S.fournisseurMetierFilter=el.dataset.fournisseurMetier;render();
+  });
   const btnAddChantier=document.getElementById('btn-add-chantier');
   if(btnAddChantier)btnAddChantier.onclick=()=>{S.modal={type:'add-chantier'};render();};
   document.querySelectorAll('[data-edit-chantier]').forEach(el=>el.onclick=()=>{
@@ -9938,6 +10020,7 @@ function bindAll(){
     S.modal={type:'logement-fiche-form',bien:el.dataset.editLogementFiche};render();
   });
   document.querySelectorAll('[data-bien-doc-upload]').forEach(el=>el.onchange=()=>uploadBienDocFile(el.dataset.bienDocUpload,el));
+  document.querySelectorAll('[data-wo-doc-upload]').forEach(el=>el.onchange=()=>uploadWoDocPhoto(el.dataset.woDocUpload,el));
   document.querySelectorAll('[data-del-chantier]').forEach(el=>el.onclick=async()=>{
     if(!confirm('Supprimer ce chantier ? Les bons de travaux rattachés ne seront pas supprimés, juste détachés.'))return;
     const{error}=await sb.from('chantiers').delete().eq('id',el.dataset.delChantier);
