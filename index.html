@@ -6142,10 +6142,10 @@ function renderModal(){
 
     <div class="sec" style="margin-top:12px;margin-bottom:8px">👥 Le garant (si applicable)</div>
     <div class="g2c">
-      <div class="form-group"><label>Nom complet</label><input id="bail-gar-nom" value="${bail.gar_nom||t.garant||''}" placeholder="Nom Prénom"></div>
-      <div class="form-group"><label>Lien avec le locataire</label><input id="bail-gar-lien" value="${bail.gar_lien||''}" placeholder="Parent, conjoint..."></div>
+      <div class="form-group"><label>Nom complet</label><input id="bail-gar-nom" value="${bail.gar_nom||t.garant_nom||''}" placeholder="Nom Prénom"></div>
+      <div class="form-group"><label>Lien avec le locataire</label><input id="bail-gar-lien" value="${bail.gar_lien||t.garant_lien||''}" placeholder="Parent, conjoint..."></div>
     </div>
-    <div class="form-group"><label>Adresse du garant</label><input id="bail-gar-adr" value="${bail.gar_adr||''}" placeholder="Adresse complète"></div>
+    <div class="form-group"><label>Adresse du garant</label><input id="bail-gar-adr" value="${bail.gar_adr||t.garant_adr||''}" placeholder="Adresse complète"></div>
 
     <div class="sec" style="margin-top:12px;margin-bottom:8px">💰 Conditions financières</div>
     <div class="g2c">
@@ -6298,6 +6298,12 @@ function renderModal(){
     <div class="form-group"><label>Dernière année déjà régularisée</label><input id="m-ttf-annee" type="number" value="${t.tf_dernier_regul_annee||''}" placeholder="Ex: 2025"></div>
     <div style="font-size:11px;color:var(--text2);margin-top:-6px;margin-bottom:10px">Renseignez la surface pour activer le calcul automatique de la part d'augmentation de taxe foncière (le rappel apparaîtra à l'anniversaire du bail dès qu'une année n'est pas encore régularisée).</div>
     `:''}
+    <div class="sec" style="margin-top:8px;margin-bottom:8px">👥 Garant (si applicable)</div>
+    <div class="g2c">
+      <div class="form-group"><label>Nom complet</label><input id="m-tgar-nom" value="${t.garant_nom||''}" placeholder="Nom Prénom"></div>
+      <div class="form-group"><label>Lien avec le locataire</label><input id="m-tgar-lien" value="${t.garant_lien||''}" placeholder="Parent, conjoint..."></div>
+    </div>
+    <div class="form-group"><label>Adresse du garant</label><input id="m-tgar-adr" value="${t.garant_adr||''}" placeholder="Adresse complète"></div>
     <div class="form-group"><label>Bénéficiaire CAF</label>
       <select id="m-tcaf"><option value="false" ${!t.caf?'selected':''}>Non</option><option value="true" ${t.caf?'selected':''}>Oui</option></select>
     </div>
@@ -7623,6 +7629,7 @@ async function saveModal(){
       tf_surface_m2:parseFloat(q('m-ttf-surf')?.value)||null,
       tf_surface_totale_m2:parseFloat(q('m-ttf-tot')?.value)||null,
       tf_dernier_regul_annee:parseInt(q('m-ttf-annee')?.value)||null,
+      garant_nom:q('m-tgar-nom')?.value||null,garant_lien:q('m-tgar-lien')?.value||null,garant_adr:q('m-tgar-adr')?.value||null,
       notes:q('m-tnotes')?.value||''};
     if(m.type==='add-tenant'){
       const {data,error}=await sb.from('tenants').insert(rec).select().single();
@@ -8930,6 +8937,7 @@ function bindAll(){
           email:bail.loc_email||t.email,telephone:bail.loc_tel||t.telephone,
           loyer_ref:bail.loyer_ref||t.loyer_ref,charges:bail.charges||t.charges,
           caution:bail.caution||t.caution,date_entree:bail.date_entree||t.date_entree,
+          garant_nom:bail.gar_nom||t.garant_nom,garant_lien:bail.gar_lien||t.garant_lien,garant_adr:bail.gar_adr||t.garant_adr,
         };
         const{error}=await sb.from('tenants').update(tenantSync).eq('id',t.id);
         if(error){alert('Bail généré mais erreur enregistrement fiche locataire : '+error.message);return;}
