@@ -7808,13 +7808,14 @@ async function saveModal(){
     // jour la premiere).
     const existingFiche=findLogementFiche(m.bien);
     const targetBien=existingFiche?.bien||m.bien;
+    const qv=id=>document.getElementById(id)?.value||'';
     const rec={
       bien:targetBien,
-      adresse:q('lf-adresse'),appt:q('lf-appt'),type_logement:q('lf-type-logement'),etage:q('lf-etage'),annexes:q('lf-annexes'),
-      type_habitat:q('lf-type-habitat'),regime:q('lf-regime'),periode_construction:q('lf-periode'),
-      nb_pieces:parseInt(q('lf-nb-pieces'))||null,surface:parseFloat(q('lf-surface'))||null,
-      chauffage:q('lf-chauffage'),eau_chaude:q('lf-eau-chaude'),
-      equipements:q('lf-equipements'),parties_communes:q('lf-parties-communes'),tic:q('lf-tic'),
+      adresse:qv('lf-adresse'),appt:qv('lf-appt'),type_logement:qv('lf-type-logement'),etage:qv('lf-etage'),annexes:qv('lf-annexes'),
+      type_habitat:qv('lf-type-habitat'),regime:qv('lf-regime'),periode_construction:qv('lf-periode'),
+      nb_pieces:parseInt(qv('lf-nb-pieces'))||null,surface:parseFloat(qv('lf-surface'))||null,
+      chauffage:qv('lf-chauffage'),eau_chaude:qv('lf-eau-chaude'),
+      equipements:qv('lf-equipements'),parties_communes:qv('lf-parties-communes'),tic:qv('lf-tic'),
       updated_at:new Date().toISOString(),
     };
     const{data,error}=await sb.from('logement_fiches').upsert(rec,{onConflict:'bien'}).select().single();
