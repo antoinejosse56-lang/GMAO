@@ -2122,7 +2122,16 @@ function renderTopology(){
 }
 
 function renderVehicles(){
-  const vehicles = S.assets.filter(a=>a.category==='Véhicule');
+  // Regroupe voitures, bateaux et velos : categorie 'Bateau' repliee ici avec
+  // 'Vehicule' (categorie unique desormais, voir add-asset), distingues par
+  // icone selon le champ libre .type.
+  const vehicles = S.assets.filter(a=>a.category==='Véhicule'||a.category==='Bateau');
+  const vehIcon=v=>{
+    const t=(v.type||'')+' '+(v.category||'');
+    if(/bateau|rigide|zodiac|boat|voilier/i.test(t))return '⛵';
+    if(/v[ée]lo|bike|cargo/i.test(t))return '🚴';
+    return '🚗';
+  };
   return `<div class="g2">
     ${vehicles.map(v=>{
       const sb = v.status==='ok'?'bgreen':v.status==='attention'?'bamber':'bred';
@@ -2132,7 +2141,7 @@ function renderVehicles(){
       return `<div class="card" style="cursor:pointer" data-goto-asset="${v.id}">
         <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px">
           <div>
-            <div style="font-size:16px;margin-bottom:4px">🚗</div>
+            <div style="font-size:16px;margin-bottom:4px">${vehIcon(v)}</div>
             <div style="font-weight:500;font-size:14px">${v.name}</div>
             <div style="font-size:11px;color:var(--text2)">${v.location||''}</div>
           </div>
@@ -2160,7 +2169,7 @@ function renderVehicles(){
     }).join('')}
     ${vehicles.length===0?`<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--text2)">
       <div style="font-size:32px;margin-bottom:10px">🚗</div>
-      <div>Aucun véhicule. Ajoutez un équipement de catégorie <b>Véhicule</b>.</div>
+      <div>Aucun véhicule. Ajoutez un équipement de catégorie <b>Véhicule</b> (voiture, bateau, vélo...).</div>
     </div>`:''}
   </div>`;
 }function renderReservations(){
@@ -5168,7 +5177,7 @@ function renderModal(){
     html=`${mhd(m.type==='add-asset'?'Nouvel équipement':'Modifier — '+a.name)}
     <div class="form-group"><label>Nom *</label><input id="m-name" value="${a.name||''}"></div>
     <div class="g2c">
-      <div class="form-group"><label>Catégorie</label><select id="m-cat"><option ${fc==='Équipement'?'selected':''}>Équipement</option><option ${fc==='Immobilier'?'selected':''}>Immobilier</option><option ${fc==='Véhicule'?'selected':''}>Véhicule</option><option ${fc==='Bateau'?'selected':''}>Bateau</option><option ${fc==='Outillage'?'selected':''}>Outillage</option></select></div>
+      <div class="form-group"><label>Catégorie</label><select id="m-cat"><option ${fc==='Équipement'?'selected':''}>Équipement</option><option ${fc==='Immobilier'?'selected':''}>Immobilier</option><option ${fc==='Véhicule'||fc==='Bateau'?'selected':''} value="Véhicule">Véhicule (voiture, bateau, vélo...)</option></select></div>
       <div class="form-group"><label>Type</label><input id="m-type" value="${a.type||''}"></div>
     </div>
     <div class="form-group"><label>Localisation</label><input id="m-loc" value="${a.location||''}"></div>
