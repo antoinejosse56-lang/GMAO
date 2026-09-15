@@ -957,6 +957,7 @@ function renderApp(){
   };
   const topBtns = {
     assets: isAdmin()?`<button class="btn btn-p" id="btn-add-asset">+ Équipement</button>`:'',
+    tasks: canEdit()?`<button class="btn btn-p" id="btn-add-task">+ Tâche</button>`:'',
     tools: isAdmin()?`<button class="btn btn-p" id="btn-add-tool">+ Nouvel outil</button>`:'',
     workorders: canEdit()?`<button class="btn btn-p" id="btn-add-wo">+ Bon de travaux</button>`:'',
     chantiers: isAdmin()?`<button class="btn btn-p" id="btn-add-chantier">+ Chantier</button>`:'',
@@ -1575,13 +1576,6 @@ function renderWorkOrders(){
         ${canEdit()&&w.status==='open'?`<button class="btn btn-sm btn-p" data-close-wo="${w.id}">✓ Terminer</button>`:''}
         ${isAdmin()?`<button class="btn btn-d btn-sm" data-del-wo="${w.id}">✕</button>`:''}
       </div>
-      ${(w.checklist||[]).length>0?`<div style="margin-top:8px;border-top:0.5px solid var(--border);padding-top:8px">
-        <div style="font-size:11px;font-weight:500;color:var(--text2);margin-bottom:4px">📋 Matériel (${w.checklist.filter(i=>i.done).length}/${w.checklist.length})</div>
-        <div style="display:flex;flex-wrap:wrap;gap:4px">
-          ${w.checklist.slice(0,4).map(i=>`<span class="badge ${i.done?'bgreen':'bgray'}" style="font-size:10px">${i.type==='cso'?'📦':'🔧'} ${i.nom}</span>`).join('')}
-          ${w.checklist.length>4?`<span class="badge bgray" style="font-size:10px">+${w.checklist.length-4}</span>`:''}
-        </div>
-      </div>`:''}
       ${(w.checklist||[]).length>0?`<div style="margin-top:8px;border-top:0.5px solid var(--border);padding-top:8px">
         <div style="font-size:11px;font-weight:500;color:var(--text2);margin-bottom:5px">🛠 Matériel (${(w.checklist||[]).filter(i=>i.fait).length}/${(w.checklist||[]).length})</div>
         <div style="display:flex;flex-wrap:wrap;gap:4px">
@@ -5191,6 +5185,31 @@ function renderModal(){
       </select>
     </div>${mf}`;}
 
+  if(m.type==='add-task'){
+    html=`${mhd('Nouvelle tâche')}
+    <div class="form-group"><label>Titre *</label><input id="m-tk-title" placeholder="Ex: Vérifier extincteurs"></div>
+    <div class="form-group"><label>Description</label><textarea id="m-tk-desc"></textarea></div>
+    <div class="g2c">
+      <div class="form-group"><label>Équipement</label><select id="m-tk-asset">
+        <option value="">— Aucun —</option>
+        ${S.assets.map(a=>`<option value="${a.id}">${a.name}</option>`).join('')}
+      </select></div>
+      <div class="form-group"><label>Échéance</label><input id="m-tk-due" type="date" value="${NOW}"></div>
+    </div>
+    <div class="g2c">
+      <div class="form-group"><label>Priorité</label><select id="m-tk-priority">
+        <option value="low">Basse</option>
+        <option value="medium" selected>Moyenne</option>
+        <option value="high">Haute</option>
+      </select></div>
+      <div class="form-group"><label>Assigné à</label><select id="m-tk-assigned">
+        <option value="">— Personne —</option>
+        ${S.users.map(u=>`<option value="${u.id}">${u.name}</option>`).join('')}
+      </select></div>
+    </div>
+    ${mf}`;
+  }
+
   if(m.type==='view-wo'){
     const w=m.wo;
     const chantier=w.chantier_id?S.chantiers.find(c=>c.id===w.chantier_id):null;
@@ -5906,18 +5925,18 @@ function renderModal(){
     <div style="margin-bottom:12px">
       ${items.map((item,idx)=>`
         <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:0.5px solid var(--border)">
-          <div style="width:22px;height:22px;border-radius:4px;border:2px solid ${item.done?'var(--green)':'var(--border2)'};background:${item.done?'var(--green)':'transparent'};display:flex;align-items:center;justify-content:center;flex-shrink:0;cursor:pointer" data-cl-toggle="${idx}">
-            ${item.done?'<svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke="#fff" stroke-width="2" fill="none"/></svg>':''}
+          <div style="width:22px;height:22px;border-radius:4px;border:2px solid ${item.fait?'var(--green)':'var(--border2)'};background:${item.fait?'var(--green)':'transparent'};display:flex;align-items:center;justify-content:center;flex-shrink:0;cursor:pointer" data-cl-toggle="${idx}">
+            ${item.fait?'<svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke="#fff" stroke-width="2" fill="none"/></svg>':''}
           </div>
           <span style="font-size:13px">${item.type==='cso'?'📦':'🔧'}</span>
           <div style="flex:1">
-            <div style="font-size:13px;font-weight:500;${item.done?'text-decoration:line-through;color:var(--text2)':''}">${item.nom}</div>
-            ${item.quantite>1?`<div style="font-size:11px;color:var(--text2)">Quantité : ${item.quantite}</div>`:''}
+            <div style="font-size:13px;font-weight:500;${item.fait?'text-decoration:line-through;color:var(--text2)':''}">${item.nom}</div>
+            ${item.qte>1?`<div style="font-size:11px;color:var(--text2)">Quantité : ${item.qte}</div>`:''}
           </div>
         </div>`).join('')}
       ${items.length===0?'<div style="color:var(--text2);font-size:12px">Aucun élément dans la check-list.</div>':''}
     </div>
-    <div style="font-size:12px;color:var(--text2);text-align:center">${items.filter(i=>i.done).length} / ${items.length} éléments validés</div>
+    <div style="font-size:12px;color:var(--text2);text-align:center">${items.filter(i=>i.fait).length} / ${items.length} éléments validés</div>
     ${mf}`;
   }
 
@@ -7227,10 +7246,7 @@ async function saveModal(){
     const assetId=q('m-wasset')?.value||null;
     const bySel=q('m-wby-sel');
     const byUser=bySel&&bySel.value&&bySel.value!=='__autre__'?bySel.value:q('m-wby')?.value||w.by_user||'';
-    const clNoms=[...document.querySelectorAll('.cl-item-nom')].map(el=>el.value.trim()).filter(Boolean);
-    const clQtes=[...document.querySelectorAll('.cl-item-qte')].map(el=>parseFloat(el.value)||1);
-    const clUnites=[...document.querySelectorAll('.cl-item-unite')].map(el=>el.value||'');
-    const checklist=clNoms.map((nom,i)=>({nom,qte:clQtes[i],unite:clUnites[i],fait:(w.checklist||[]).find(x=>x.nom===nom)?.fait||false}));
+    const checklist=w.checklist||[];
     const upd={title,description:q('m-wd')?.value,category:q('m-wc')?.value,
       status:q('m-wstatus')?.value,date:q('m-wdate')?.value,
       cost:parseFloat(q('m-wcost')?.value)||0,
@@ -7363,9 +7379,20 @@ async function saveModal(){
     await sb.from('tools').update(upd).eq('id',t.id);Object.assign(t,upd);}
 
   if(m.type==='link-asset'){
-    const assetId=q('m-link-asset')?.value;
+    let assetId=q('m-link-asset')?.value;
     const nodeId=m.nodeId;
     if(!nodeId)return;
+    // "Creer automatiquement" (option laissee par defaut) ne creait jusqu'ici
+    // rien du tout : assetId restait vide, le noeud repartait avec un
+    // assetId vide et le bouton "Lier un equipement" reapparaissait comme si
+    // de rien n'etait. On cree reellement un equipement "Immobilier" nomme
+    // d'apres le noeud, comme le ferait add-asset.
+    if(!assetId){
+      const {data,error}=await sb.from('assets').insert({name:m.nodeName||'Équipement',category:'Immobilier',type:'Immobilier',status:'ok'}).select().single();
+      if(error){alert('Erreur création équipement : '+error.message);return;}
+      S.assets.push(data);
+      assetId=data.id;
+    }
     function findAndUpdate(nodes){
       for(const p of (S.topology.properties||[])){
         if(p.id===nodeId){p.assetId=assetId;return true;}
@@ -7754,6 +7781,20 @@ async function saveModal(){
       if(error){alert('Erreur : '+error.message);return;}
       Object.assign(m.asset,rec);
     }
+  }
+  if(m.type==='add-task'){
+    const title=q('m-tk-title')?.value?.trim();if(!title)return alert('Titre requis');
+    const rec={
+      title,description:q('m-tk-desc')?.value||null,
+      asset_id:q('m-tk-asset')?.value||null,
+      due_date:q('m-tk-due')?.value||null,
+      priority:q('m-tk-priority')?.value||'medium',
+      assigned_to:q('m-tk-assigned')?.value||null,
+      status:'pending'
+    };
+    const{data,error}=await sb.from('tasks').insert(rec).select().single();
+    if(error){alert('Erreur : '+error.message);return;}
+    if(data)S.tasks.push(data);
   }
   if(m.type==='edit-cg'){
     const asset=m.asset;
@@ -9242,6 +9283,7 @@ function bindAll(){
   if(q('btn-logout'))q('btn-logout').onclick=()=>{S.currentUser=null;render();};
   if(q('btn-back'))q('btn-back').onclick=()=>{S.view='assets';S.selectedAsset=null;render();};
   if(q('btn-add-asset'))q('btn-add-asset').onclick=()=>{S.modal={type:'add-asset'};render();};
+  if(q('btn-add-task'))q('btn-add-task').onclick=()=>{S.modal={type:'add-task'};render();};
   if(q('btn-add-tool'))q('btn-add-tool').onclick=()=>{S.modal={type:'add-tool'};render();};
   if(q('btn-add-vehicle'))q('btn-add-vehicle').onclick=()=>{S.modal={type:'add-asset',forceCategory:'Véhicule'};render();};
   if(q('btn-add-wo'))q('btn-add-wo').onclick=()=>{
@@ -10572,12 +10614,24 @@ function bindAll(){
     const w=S.workOrders.find(x=>x.id===el.dataset.checklistWo);
     if(w){S.modal={type:'checklist-wo',wo:w};render();}
   });
-  // Checklist item toggle
+  // Checklist item toggle (dans le modal "checklist-wo")
   document.querySelectorAll('[data-cl-toggle]').forEach(el=>el.onclick=async()=>{
     const idx=parseInt(el.dataset.clToggle);
     const w=S.modal?.wo;
     if(!w||!w.checklist) return;
-    w.checklist[idx].done=!w.checklist[idx].done;
+    w.checklist[idx].fait=!w.checklist[idx].fait;
+    await sb.from('work_orders').update({checklist:w.checklist}).eq('id',w.id);
+    render();
+  });
+  // Checklist item toggle rapide (pastille directement sur la carte du BT,
+  // sans ouvrir le modal) - jusqu'ici jamais cable malgre le curseur
+  // "pointer" et les data-attributes deja presents sur la pastille.
+  document.querySelectorAll('[data-toggle-cl]').forEach(el=>el.onclick=async()=>{
+    const w=S.workOrders.find(x=>x.id===el.dataset.toggleCl);
+    if(!w||!w.checklist)return;
+    const item=w.checklist.find(i=>i.nom===el.dataset.clNom);
+    if(!item)return;
+    item.fait=!item.fait;
     await sb.from('work_orders').update({checklist:w.checklist}).eq('id',w.id);
     render();
   });
@@ -10818,17 +10872,6 @@ function bindAll(){
   document.querySelectorAll('[data-add-wo-doc]').forEach(el=>el.onclick=e=>{
     e.stopPropagation();S.modal={type:'add-wo-doc',woId:el.dataset.addWoDoc};render();
   });
-  document.querySelectorAll('[data-checklist-wo]').forEach(el=>el.onclick=()=>{
-    const w=S.workOrders.find(x=>x.id===el.dataset.checklistWo);
-    if(w){S.modal={type:'checklist-wo',wo:w};render();}
-  });
-  document.querySelectorAll('[data-cl-toggle]').forEach(el=>el.onclick=async()=>{
-    const idx=parseInt(el.dataset.clToggle);
-    const w=S.modal?.wo;
-    if(!w||!w.checklist)return;
-    w.checklist[idx].done=!w.checklist[idx].done;
-    await sb.from('work_orders').update({checklist:w.checklist}).eq('id',w.id);render();
-  });
 
   // ============================================================
   // CONSOMMABLES
@@ -10967,24 +11010,6 @@ function bindAll(){
     await sb.from('maintenance_templates').delete().eq('id',el.dataset.delMt);
     S.maintenanceTemplates=S.maintenanceTemplates.filter(x=>x.id!==el.dataset.delMt);render();
   });
-  document.querySelectorAll('[data-done-mt]').forEach(el=>el.onclick=async()=>{
-    const mt=S.maintenanceTemplates.find(x=>x.id===el.dataset.doneMt);if(!mt)return;
-    const now=new Date().toISOString().slice(0,10);
-    mt.last_done=now;
-    if(mt.type==='periodic'&&mt.period_days){
-      const nd=new Date();nd.setDate(nd.getDate()+mt.period_days);
-      mt.next_due=nd.toISOString().slice(0,10);
-    }
-    await sb.from('maintenance_templates').update({last_done:mt.last_done,next_due:mt.next_due}).eq('id',mt.id);
-    if(mt.auto_bt){
-      const{by_user,by_email}=resolveMtAssignee(mt);
-      const {data}=await sb.from('work_orders').insert({title:mt.name,description:mt.description,asset_id:mt.asset_id,category:mt.bt_category||'Entretien',date:now,status:'open',cost:0,by_user,by_email,gamme_id:mt.id,source:'gamme',docs:[],journal:[],checklist:[]}).select().single();
-      if(data)S.workOrders.push(data);
-      alert('✓ Gamme réalisée — BT créé automatiquement !');
-    } else {alert('✓ Gamme marquée réalisée !');}
-    render();
-  });
-
   // ============================================================
   // FAMILLE
   // ============================================================
@@ -11511,7 +11536,7 @@ async function sendWOAlert(wo, byUser, byEmail){
   const checklist = (wo.checklist||[]);
   const clHtml = checklist.length>0?`
     <div style="margin-top:12px"><b>📋 Matériel nécessaire :</b><ul style="margin:6px 0;padding-left:20px">
-      ${checklist.map(i=>`<li style="font-size:13px">${i.type==='cso'?'📦':'🔧'} ${i.nom}${i.quantite>1?' × '+i.quantite:''}</li>`).join('')}
+      ${checklist.map(i=>`<li style="font-size:13px">${i.type==='cso'?'📦':'🔧'} ${i.nom}${i.qte>1?' × '+i.qte:''}</li>`).join('')}
     </ul></div>`:'';
 
   const html = `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
