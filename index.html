@@ -8712,7 +8712,19 @@ async function uploadIdentitePhoto(tenantId,fileInput){
   if(updErr){alert('Erreur enregistrement : '+updErr.message);return;}
   t.identite_photos=photos;
   const list=document.getElementById('identite-photos-list');
-  if(list)list.insertAdjacentHTML('beforeend',identitePhotoRowHtml(tenantId,photo));
+  if(list){
+    list.insertAdjacentHTML('beforeend',identitePhotoRowHtml(tenantId,photo));
+    // Cablage direct de la ligne fraichement inseree : contrairement au
+    // reste du modal, cette ligne n'est jamais passee par un render()/
+    // bindAll() complet (pour ne pas perdre le reste du formulaire ouvert),
+    // donc son input de renommage et son bouton de suppression doivent etre
+    // cables ici a la main, sinon ils restent inertes (bug constate : le
+    // renommage semblait s'enregistrer a l'ecran mais rien n'etait ecrit en
+    // base, faute de gestionnaire onchange attache).
+    const row=list.querySelector('[data-identite-row="'+photo.id+'"]');
+    row?.querySelector('[data-identite-label]')?.addEventListener('change',e=>renameIdentitePhoto(tenantId,photo.id,e.target.value));
+    row?.querySelector('[data-del-identite-photo]')?.addEventListener('click',()=>deleteIdentitePhoto(tenantId,photo.id));
+  }
   fileInput.value='';
 }
 // Rendu d'une ligne "piece d'identite" (vignette + etiquette + suppression)
@@ -8725,6 +8737,26 @@ function identitePhotoRowHtml(tenantId,p){
     <input value="${(p.label||'').replace(/"/g,'&quot;')}" data-identite-label="${p.id}" data-tenant-id="${tenantId}" style="flex:1;padding:4px 6px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px;min-width:0">
     <button type="button" class="btn btn-d btn-sm" data-del-identite-photo="${p.id}" data-tenant-id="${tenantId}" style="flex-shrink:0">✕</button>
   </div>`;
+}
+async function renameIdentitePhoto(tenantId,photoId,newLabel){
+  const t=S.tenants.find(x=>x.id===tenantId);
+  if(!t)return;
+  const photos=(t.identite_photos||[]).map(p=>p.id===photoId?{...p,label:newLabel}:p);
+  const{error}=await sb.from('tenants').update({identite_photos:photos}).eq('id',tenantId);
+  if(error){alert('Erreur : '+error.message);return;}
+  t.identite_photos=photos;
+}
+async function deleteIdentitePhoto(tenantId,photoId){
+  if(!confirm('Supprimer cette photo ?'))return;
+  const t=S.tenants.find(x=>x.id===tenantId);
+  if(!t)return;
+  const removed=(t.identite_photos||[]).find(p=>p.id===photoId);
+  const photos=(t.identite_photos||[]).filter(p=>p.id!==photoId);
+  const{error}=await sb.from('tenants').update({identite_photos:photos}).eq('id',tenantId);
+  if(error){alert('Erreur : '+error.message);return;}
+  t.identite_photos=photos;
+  if(removed?.path)await sb.storage.from('documents-locataires').remove([removed.path]).catch(()=>{});
+  document.querySelector('[data-identite-row="'+photoId+'"]')?.remove();
 }
 
 // Lit l'etat courant du formulaire d'etat des lieux directement dans le DOM
@@ -10181,26 +10213,8 @@ function bindAll(){
   document.querySelectorAll('[data-bien-doc-upload]').forEach(el=>el.onchange=()=>uploadBienDocFile(el.dataset.bienDocUpload,el));
   document.querySelectorAll('[data-wo-doc-upload]').forEach(el=>el.onchange=()=>uploadWoDocPhoto(el.dataset.woDocUpload,el));
   document.querySelectorAll('[data-identite-upload]').forEach(el=>el.onchange=()=>uploadIdentitePhoto(el.dataset.identiteUpload,el));
-  document.querySelectorAll('[data-identite-label]').forEach(el=>el.onchange=async()=>{
-    const t=S.tenants.find(x=>x.id===el.dataset.tenantId);
-    if(!t)return;
-    const photos=(t.identite_photos||[]).map(p=>p.id===el.dataset.identiteLabel?{...p,label:el.value}:p);
-    const{error}=await sb.from('tenants').update({identite_photos:photos}).eq('id',t.id);
-    if(error){alert('Erreur : '+error.message);return;}
-    t.identite_photos=photos;
-  });
-  document.querySelectorAll('[data-del-identite-photo]').forEach(el=>el.onclick=async()=>{
-    if(!confirm('Supprimer cette photo ?'))return;
-    const t=S.tenants.find(x=>x.id===el.dataset.tenantId);
-    if(!t)return;
-    const removed=(t.identite_photos||[]).find(p=>p.id===el.dataset.delIdentitePhoto);
-    const photos=(t.identite_photos||[]).filter(p=>p.id!==el.dataset.delIdentitePhoto);
-    const{error}=await sb.from('tenants').update({identite_photos:photos}).eq('id',t.id);
-    if(error){alert('Erreur : '+error.message);return;}
-    t.identite_photos=photos;
-    if(removed?.path)await sb.storage.from('documents-locataires').remove([removed.path]).catch(()=>{});
-    document.querySelector('[data-identite-row="'+el.dataset.delIdentitePhoto+'"]')?.remove();
-  });
+  document.querySelectorAll('[data-identite-label]').forEach(el=>el.onchange=()=>renameIdentitePhoto(el.dataset.tenantId,el.dataset.identiteLabel,el.value));
+  document.querySelectorAll('[data-del-identite-photo]').forEach(el=>el.onclick=()=>deleteIdentitePhoto(el.dataset.tenantId,el.dataset.delIdentitePhoto));
   document.querySelectorAll('[data-del-chantier]').forEach(el=>el.onclick=async()=>{
     if(!confirm('Supprimer ce chantier ? Les bons de travaux rattachés ne seront pas supprimés, juste détachés.'))return;
     const{error}=await sb.from('chantiers').delete().eq('id',el.dataset.delChantier);
