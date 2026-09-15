@@ -457,6 +457,31 @@ function findLogementEdlEntree(bien,tenantId){
   return (S.logementEdl||[]).filter(e=>e.type==='entree'&&e.tenant_id===tenantId&&normBienSep(e.bien)===norm)
     .sort((a,b)=>new Date(b.created_at||0)-new Date(a.created_at||0))[0]||null;
 }
+// Ouverture du bail/etat des lieux pour un locataire - extrait des handlers
+// jadis internes au modal "edit-tenant" pour etre appelable aussi bien
+// depuis ce modal que depuis les grandes cartes tactiles du mode terrain
+// (renderFieldApp), sans dupliquer la logique de decision entree/sortie/config.
+function openBailFormFor(t){
+  if(!t){alert('Locataire introuvable');return;}
+  S.modal={type:'bail-form',tenant:t};render();
+}
+function openEdlEntreeFor(t){
+  if(!t){alert('Locataire introuvable');return;}
+  const lf=t.logement?findLogementFiche(t.logement):null;
+  if(lf?.edl_structure?.length){
+    S.modal={type:'edl-form',tenant:t,edlType:'entree',edl:{id:crypto.randomUUID(),structure:lf.edl_structure,photos:{}}};
+  }else{
+    S.modal={type:'edl-config-pieces',tenant:t,edlConfig:{nb_chambres:1,nb_sdb:1,nb_wc:0,inc_entree:true,inc_sejour:true,inc_cuisine:true,autres:[]}};
+  }
+  render();
+}
+function openEdlSortieFor(t){
+  if(!t){alert('Locataire introuvable');return;}
+  const entree=findLogementEdlEntree(t.logement,t.id);
+  if(!entree){alert("Générez d'abord l'état des lieux d'entrée de ce locataire.");return;}
+  S.modal={type:'edl-form',tenant:t,edlType:'sortie',edl:{id:crypto.randomUUID(),structure:entree.structure,photos:{},linkedEntree:entree}};
+  render();
+}
 // Resout l'intervenant assigne a une gamme (mt.assigned_to peut etre un id,
 // un nom ou un email selon comment il a ete saisi) vers {by_user,by_email} a
 // stocker sur le BT genere - necessaire pour notifier/synchroniser au calendrier
@@ -513,7 +538,7 @@ let S = {
   // data
   users: [], assets: [], tasks: [], tools: [], loans: [],
   workOrders: [], maintenanceTemplates: [], topology: {properties: []},
-  factures: [], facturesAValider: [], fournisseurs: [], chantiers: [], devis: [], devisAValider: [], bienDocuments: [], revenues: [], finTab: 'overview', reservations: [], resaYear: new Date().getFullYear(), taxeSejourTaux: 5, taxeSejourPlafond: 4.60, compteurs: [], releves: [], rangements: [], famille: [], consommables: [], crecheSaisies: [], ecoleSaisies: [], familleTab: 'membres', finFactCpte: 'savadur', familleEnfant: null, tfRegularisations: [], logementFiches: [], logementEdl: []
+  factures: [], facturesAValider: [], fournisseurs: [], chantiers: [], devis: [], devisAValider: [], bienDocuments: [], revenues: [], finTab: 'overview', reservations: [], resaYear: new Date().getFullYear(), taxeSejourTaux: 5, taxeSejourPlafond: 4.60, compteurs: [], releves: [], rangements: [], famille: [], consommables: [], crecheSaisies: [], ecoleSaisies: [], familleTab: 'membres', finFactCpte: 'savadur', familleEnfant: null, tfRegularisations: [], logementFiches: [], logementEdl: [], fieldMode: false, fieldSearch: ''
 };
 
 async function loadAll() {
@@ -732,7 +757,7 @@ function isAdmin(){return S.currentUser?.role==='admin';}
 function render(){
   const root = document.getElementById('root');
   if (!S.currentUser) { root.innerHTML = renderLogin(); bindLogin(); return; }
-  root.innerHTML = renderApp();
+  root.innerHTML = S.fieldMode ? renderFieldApp() : renderApp();
   bindAll();
 }
 
@@ -2350,12 +2375,53 @@ function renderMobileHome(){
   +'<div style="font-size:36px;margin-bottom:8px">🔧</div>'
   +'<div style="font-size:13px;font-weight:600;color:#fff">Prêt outil</div>'
 +'</div>'
++'<div class="mobile-tile" data-nav="field" style="background:#8E44AD" onclick="S.fieldMode=true;render()">'
+  +'<div style="font-size:36px;margin-bottom:8px">📋</div>'
+  +'<div style="font-size:13px;font-weight:600;color:#fff">Baux & États des lieux</div>'
++'</div>'
     +'</div>'
     // Install PWA hint
     +'<div style="text-align:center;font-size:11px;color:var(--text3);padding:8px">'
       +'Installer l\'app : Menu Chrome → Ajouter à l\'écran d\'accueil'
     +'</div>'
   +'</div>';
+}
+
+// Mode terrain : habillage alternatif de l'app sans barre laterale, pense
+// pour une tablette sur le terrain (visite locataire) - reutilise
+// integralement les memes modals (bail-form/edl-form/edl-config-pieces) et
+// le meme etat S que la vue desktop, uniquement une coquille differente.
+// Voir openBailFormFor/openEdlEntreeFor/openEdlSortieFor (pres de
+// findLogementEdlEntree) pour la logique d'ouverture, partagee avec le
+// modal edit-tenant classique.
+function renderFieldApp(){
+  const search=(S.fieldSearch||'').toLowerCase().trim();
+  const tenants=(S.tenants||[]).filter(t=>t.actif!==false).filter(t=>{
+    if(!search)return true;
+    return (t.nom||'').toLowerCase().includes(search)||(t.logement||'').toLowerCase().includes(search);
+  }).sort((a,b)=>(a.nom||'').localeCompare(b.nom||''));
+  const card=t=>{
+    const entree=findLogementEdlEntree(t.logement,t.id);
+    return `<div style="background:var(--bg);border:0.5px solid var(--border2);border-radius:16px;padding:16px;margin-bottom:12px">
+      <div style="font-size:16px;font-weight:700;margin-bottom:2px">${t.nom}</div>
+      <div style="font-size:13px;color:var(--text2);margin-bottom:12px">📍 ${t.logement||'—'}</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button type="button" data-field-bail="${t.id}" style="flex:1;min-width:110px;padding:14px 8px;border:none;border-radius:12px;background:#185FA5;color:#fff;font-size:13px;font-weight:600">📝 Bail</button>
+        <button type="button" data-field-edl-entree="${t.id}" style="flex:1;min-width:110px;padding:14px 8px;border:none;border-radius:12px;background:${entree?'#7F8C8D':'#1D9E75'};color:#fff;font-size:13px;font-weight:600">📋 Entrée</button>
+        <button type="button" data-field-edl-sortie="${t.id}" ${!entree?'disabled':''} style="flex:1;min-width:110px;padding:14px 8px;border:none;border-radius:12px;background:${entree?'#E67E22':'#ccc'};color:#fff;font-size:13px;font-weight:600">📋 Sortie</button>
+        <button type="button" data-field-docs="${t.id}" style="flex:1;min-width:110px;padding:14px 8px;border:none;border-radius:12px;background:#8E44AD;color:#fff;font-size:13px;font-weight:600">📄 Documents</button>
+      </div>
+    </div>`;
+  };
+  return `<div style="padding:16px;max-width:600px;margin:0 auto">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+      <button type="button" onclick="S.fieldMode=false;render()" style="padding:10px 14px;border:none;border-radius:12px;background:var(--bg2);color:var(--text);font-size:14px;font-weight:600">← Quitter</button>
+      <div style="font-size:17px;font-weight:700">📋 Baux & États des lieux</div>
+    </div>
+    <input id="field-search" placeholder="Rechercher un locataire ou un logement..." value="${(S.fieldSearch||'').replace(/"/g,'&quot;')}" oninput="S.fieldSearch=this.value;render()" style="width:100%;padding:14px;font-size:15px;border-radius:12px;border:0.5px solid var(--border2);background:var(--bg);color:var(--text);margin-bottom:16px">
+    ${tenants.length===0?'<div style="text-align:center;color:var(--text2);padding:30px">Aucun locataire trouvé.</div>':tenants.map(card).join('')}
+    ${S.modal?renderModal():''}
+  </div>`;
 }
 
 function renderLocatif(){
@@ -6186,6 +6252,41 @@ function renderModal(){
     ${mf}`;
   }
 
+  if(m.type==='field-documents'){
+    // Version autonome des cartes "Fiche du logement" + "Diagnostics" de
+    // topoAssetPanel (Topologie), pour y acceder depuis le mode terrain sans
+    // naviguer l'arbre des biens. Reutilise les memes helpers/handlers
+    // (findLogementFiche, logementDiagStatus, data-add-bien-doc,
+    // data-del-bien-doc, data-edit-logement-fiche) deja cables globalement.
+    const t=m.tenant||{};
+    const logFicheD=t.logement?findLogementFiche(t.logement):null;
+    const diagList=t.logement?logementDiagStatus(t.logement):[];
+    html=`${mhd('📄 Documents — '+(t.nom||'')+(t.logement?' — '+t.logement:''))}
+    <div class="sec" style="margin-bottom:8px">🏠 Fiche du logement</div>
+    ${!logFicheD?`<div class="alert-r">
+      ⚠ Fiche du logement non renseignée.
+      <button type="button" class="btn btn-sm" style="margin-top:6px" data-edit-logement-fiche="${(t.logement||'').replace(/"/g,'&quot;')}">Renseigner la fiche du logement</button>
+    </div>`:`<div style="background:var(--bg2);padding:10px 12px;border-radius:var(--radius);font-size:12px;line-height:1.7;margin-bottom:6px">
+      ${logFicheD.adresse||t.logement}${logFicheD.appt?', '+logFicheD.appt:''}${logFicheD.etage?' · '+logFicheD.etage:''}<br>
+      ${logFicheD.type_logement?logFicheD.type_logement+' · ':''}${logFicheD.type_habitat||'—'} · ${logFicheD.regime||'—'}<br>
+      ${logFicheD.surface?logFicheD.surface+' m²':'Surface —'} · ${logFicheD.nb_pieces||'—'} pièce(s) · Chauffage ${logFicheD.chauffage||'—'} · Eau chaude ${logFicheD.eau_chaude||'—'}<br>
+      Gaz : ${logFicheD.gaz_present===true?'Oui':logFicheD.gaz_present===false?'Non':'Inconnu'}
+    </div>
+    <button type="button" class="btn btn-sm" style="margin-bottom:6px" data-edit-logement-fiche="${(t.logement||'').replace(/"/g,'&quot;')}">✎ Modifier</button>`}
+
+    <div class="sec" style="margin-top:12px;margin-bottom:8px">📎 Diagnostics</div>
+    <div style="margin-bottom:6px">
+      ${diagList.map(d=>`<div class="row">
+        <div class="fg"><div class="fgs" style="font-size:12px${d.missing||d.expired?';color:var(--red)':''}">${d.label}${d.missing?' <span class="badge bred" style="font-size:9px">Manquant</span>':d.expired?' <span class="badge bred" style="font-size:9px">Expiré</span>':' <span class="badge bgreen" style="font-size:9px">Valide</span>'}</div>
+        ${d.doc?`<div class="fgsub">${dateLabel(d.doc.date)}${d.doc.date_expiry?' · expire '+dateLabel(d.doc.date_expiry):''}</div>`:''}</div>
+        ${d.doc?.document_url?`<a href="${d.doc.document_url}" target="_blank" class="btn btn-sm">👁 Voir</a>`:''}
+        ${d.doc?`<button type="button" class="btn btn-d btn-sm" data-del-bien-doc="${d.doc.id}">✕</button>`:''}
+      </div>`).join('')}
+    </div>
+    <button type="button" class="btn btn-sm btn-p" data-add-bien-doc="${(t.logement||'').replace(/"/g,'&quot;')}">+ Ajouter un document</button>
+    <div style="display:flex;justify-content:flex-end;margin-top:16px"><button class="btn" id="mc2">Fermer</button></div>`;
+  }
+
   if(m.type==='bail-form'){
     const t=m.tenant||{};
     // Les caracteristiques fixes du logement et les diagnostics ne sont plus
@@ -9308,26 +9409,9 @@ function bindAll(){
   setTimeout(_updateLogementPreview,300);
 
   const btnOpenEdlEntree=document.getElementById('btn-open-edl-entree');
-  if(btnOpenEdlEntree)btnOpenEdlEntree.onclick=()=>{
-    const t=S.modal?.tenant||null;
-    if(!t){alert('Locataire introuvable');return;}
-    const lf=t.logement?findLogementFiche(t.logement):null;
-    if(lf?.edl_structure?.length){
-      S.modal={type:'edl-form',tenant:t,edlType:'entree',edl:{id:crypto.randomUUID(),structure:lf.edl_structure,photos:{}}};
-    }else{
-      S.modal={type:'edl-config-pieces',tenant:t,edlConfig:{nb_chambres:1,nb_sdb:1,nb_wc:0,inc_entree:true,inc_sejour:true,inc_cuisine:true,autres:[]}};
-    }
-    render();
-  };
+  if(btnOpenEdlEntree)btnOpenEdlEntree.onclick=()=>openEdlEntreeFor(S.modal?.tenant||null);
   const btnOpenEdlSortie=document.getElementById('btn-open-edl-sortie');
-  if(btnOpenEdlSortie)btnOpenEdlSortie.onclick=()=>{
-    const t=S.modal?.tenant||null;
-    if(!t){alert('Locataire introuvable');return;}
-    const entree=findLogementEdlEntree(t.logement,t.id);
-    if(!entree){alert("Générez d'abord l'état des lieux d'entrée de ce locataire.");return;}
-    S.modal={type:'edl-form',tenant:t,edlType:'sortie',edl:{id:crypto.randomUUID(),structure:entree.structure,photos:{},linkedEntree:entree}};
-    render();
-  };
+  if(btnOpenEdlSortie)btnOpenEdlSortie.onclick=()=>openEdlSortieFor(S.modal?.tenant||null);
   const btnEdlConfigValider=document.getElementById('btn-edlconfig-valider');
   if(btnEdlConfigValider)btnEdlConfigValider.onclick=async()=>{
     const cfg=S.modal.edlConfig;
@@ -9353,10 +9437,15 @@ function bindAll(){
     render();
   };
   const btnOpenBail=document.getElementById('btn-open-bail-form');
-  if(btnOpenBail)btnOpenBail.onclick=()=>{
-    const t=S.modal?.tenant||null;
-    S.modal={type:'bail-form',tenant:t};render();
-  };
+  if(btnOpenBail)btnOpenBail.onclick=()=>openBailFormFor(S.modal?.tenant||null);
+  document.querySelectorAll('[data-field-bail]').forEach(el=>el.onclick=()=>openBailFormFor(S.tenants.find(x=>x.id===el.dataset.fieldBail)));
+  document.querySelectorAll('[data-field-edl-entree]').forEach(el=>el.onclick=()=>openEdlEntreeFor(S.tenants.find(x=>x.id===el.dataset.fieldEdlEntree)));
+  document.querySelectorAll('[data-field-edl-sortie]').forEach(el=>el.onclick=()=>openEdlSortieFor(S.tenants.find(x=>x.id===el.dataset.fieldEdlSortie)));
+  document.querySelectorAll('[data-field-docs]').forEach(el=>el.onclick=()=>{
+    const t=S.tenants.find(x=>x.id===el.dataset.fieldDocs);
+    if(!t){alert('Locataire introuvable');return;}
+    S.modal={type:'field-documents',tenant:t};render();
+  });
   const btnEmailBail=document.getElementById('btn-email-bail');
   if(btnEmailBail)btnEmailBail.onclick=()=>sendBailEmail(S.modal.tenant);
 
@@ -12456,6 +12545,11 @@ if(quickNav){
     if(quickNav==="ecole")S.familleTab="ecole";
   }
 }
+
+// Raccourci PWA "Baux & États des lieux" (voir manifest.json) - ouvre
+// directement le mode terrain (renderFieldApp) une fois connecte, sans
+// passer par l'accueil mobile puis la vue desktop complete.
+if(urlParams.get("field"))S.fieldMode=true;
 
 // Handle QR code scans (?tool=id, ?cso=id, ?emplacement=name)
 const toolParam=urlParams.get("tool");
