@@ -1789,6 +1789,25 @@ function renderTopology(){
     const asset = nodeAssetId ? S.assets.find(a=>a.id===nodeAssetId) : null;
     const ts = S.topoState;
     const docs = (S.bienDocuments||[]).filter(d=>d.bien===bienStr);
+    // Baux/diagnostics generes depuis la fiche locataire (voir bail-form) -
+    // le champ logement du locataire utilise un tiret cadratin (—) alors que
+    // bienStr (chemin topologique) utilise un tiret simple, d'ou la
+    // normalisation avant comparaison. Correspondance par prefixe : la vue
+    // "bien" doit remonter les documents de tous les locataires en dessous.
+    const normSep=s=>(s||'').replace(/—/g,'-').replace(/\s*-\s*/g,' - ').trim();
+    const normBien=normSep(bienStr);
+    const diagLabels={dpe:'DPE',elec:'Diagnostic électrique',gaz:'Diagnostic gaz',plomb:'CREP (plomb)',amiante:'Diagnostic amiante',erp:'ERP',bruit:'Info bruit',surface:'Mesurage Carrez/Boutin'};
+    const tenantDocs=[];
+    (S.tenants||[]).forEach(t=>{
+      const normLog=normSep(t.logement);
+      if(!normLog||(normLog!==normBien&&!normLog.startsWith(normBien+' - ')))return;
+      if(t.bail_url)tenantDocs.push({type:'Bail — '+t.nom,date:t.date_entree,document_url:t.bail_url,fromTenant:true});
+      Object.entries(diagLabels).forEach(([k,label])=>{
+        const dd=t.bail_data?.['diag_'+k];
+        if(dd?.url)tenantDocs.push({type:label+' — '+t.nom,date:dd.date,document_url:dd.url,fromTenant:true});
+      });
+    });
+    const allDocs=[...docs,...tenantDocs];
     // Find WOs linked to this topo node (by assetId OR by topo_ref matching current node)
     const wos = S.workOrders.filter(w=>{
       if(nodeAssetId && w.asset_id===nodeAssetId) return true;
@@ -1828,15 +1847,15 @@ function renderTopology(){
       </div>
       ${bienStr?`<div class="card" style="padding:12px;margin-top:10px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-          <div class="sec" style="margin:0">📄 Documents (${docs.length})</div>
+          <div class="sec" style="margin:0">📄 Documents (${allDocs.length})</div>
           ${canEdit()?`<button class="btn btn-sm btn-p" data-add-bien-doc="${bienStr.replace(/"/g,'&quot;')}">+ Document</button>`:''}
         </div>
-        ${docs.map(d=>`<div class="row">
-          <div class="fg"><div class="fgs" style="font-size:12px">${d.type||'Document'}</div><div class="fgsub">${d.date?dateLabel(d.date):''}${d.date_expiry?' · expire '+dateLabel(d.date_expiry):''}${d.notes?' · '+d.notes:''}</div></div>
+        ${allDocs.map(d=>`<div class="row">
+          <div class="fg"><div class="fgs" style="font-size:12px">${d.type||'Document'}</div><div class="fgsub">${d.date?dateLabel(d.date):''}${d.date_expiry?' · expire '+dateLabel(d.date_expiry):''}${d.notes?' · '+d.notes:''}${d.fromTenant?' · fiche locataire':''}</div></div>
           ${d.document_url?`<a href="${d.document_url}" target="_blank" class="btn btn-sm">👁 Voir</a>`:''}
-          ${canEdit()?`<button class="btn btn-d btn-sm" data-del-bien-doc="${d.id}">✕</button>`:''}
+          ${canEdit()&&!d.fromTenant?`<button class="btn btn-d btn-sm" data-del-bien-doc="${d.id}">✕</button>`:''}
         </div>`).join('')}
-        ${docs.length===0?'<div style="font-size:11px;color:var(--text2)">Aucun document (DPE, diagnostic amiante/plomb...).</div>':''}
+        ${allDocs.length===0?'<div style="font-size:11px;color:var(--text2)">Aucun document (DPE, diagnostic amiante/plomb...).</div>':''}
       </div>`:''}
     </div>`;
   }
@@ -6181,6 +6200,10 @@ function renderModal(){
     <div class="sec" style="margin-top:12px;margin-bottom:8px">📎 Documents liés</div>
     <div class="form-group"><label>🔗 Lien vers le bail locatif (Drive/URL)</label>
       <input id="m-tbail-url" value="${t.bail_url||''}" placeholder="https://drive.google.com/...">
+      ${t.bail_url?`<div style="display:flex;gap:8px;margin-top:6px">
+        <a href="${t.bail_url}" target="_blank" class="btn btn-sm" style="flex:1;text-align:center;text-decoration:none">📄 Ouvrir le bail</a>
+        ${t.email?`<button type="button" class="btn btn-sm btn-p" id="btn-email-bail" style="flex:1">📧 Envoyer au locataire</button>`:''}
+      </div>`:''}
     </div>
     <div class="form-group"><label>🔗 Lien état des lieux scanné (Drive/URL)</label>
       <input id="m-tedl-url" value="${t.edl_url||''}" placeholder="https://drive.google.com/...">
@@ -7996,6 +8019,30 @@ function genBailPDF(bail,tenant){
 }
 
 
+// Envoie par email au locataire le lien vers son bail deja genere/enregistre
+// (le PDF est deja public sur Supabase Storage, pas besoin de le joindre).
+async function sendBailEmail(tenant){
+  if(!tenant.email){alert("Pas d'email pour ce locataire");return;}
+  if(!tenant.bail_url){alert('Aucun bail enregistré pour ce locataire');return;}
+  if(!BREVO_API_KEY)BREVO_API_KEY=ensureBrevoKey();
+  if(!BREVO_API_KEY)return;
+  const html=`<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
+    <p>Bonjour ${tenant.nom},</p>
+    <p>Veuillez trouver ci-dessous le lien vers votre contrat de bail signé :</p>
+    <p><a href="${tenant.bail_url}" style="background:#1D9E75;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block">📄 Consulter mon bail</a></p>
+    <p>Cordialement,<br>J&A SAVADUR</p>
+  </div>`;
+  try{
+    const resp=await fetch('https://api.brevo.com/v3/smtp/email',{
+      method:'POST',
+      headers:{'api-key':BREVO_API_KEY,'Content-Type':'application/json'},
+      body:JSON.stringify({sender:{name:'J&A SAVADUR',email:'savadur56@gmail.com'},to:[{email:tenant.email,name:tenant.nom}],subject:'Votre contrat de bail',htmlContent:html})
+    });
+    if(!resp.ok){const t=await resp.text();throw new Error(t);}
+    alert('✓ Email envoyé à '+tenant.email);
+  }catch(e){alert('Erreur envoi email : '+e.message);}
+}
+
 async function sendFactureEauRelance(tenant, releve, cpt, isRelance){
   const isDubail=dubailFilter(tenant.logement||"");
   const FROM_NAME_L=isDubail?"J&A SAVADUR":"Antoine JOSSE";
@@ -8554,6 +8601,8 @@ function bindAll(){
     const t=S.modal?.tenant||null;
     S.modal={type:'bail-form',tenant:t};render();
   };
+  const btnEmailBail=document.getElementById('btn-email-bail');
+  if(btnEmailBail)btnEmailBail.onclick=()=>sendBailEmail(S.modal.tenant);
 
   if(S.modal?.type==='bail-form'){
     ['bail-paraphe-bailleur','bail-paraphe-locataire','bail-sig-bailleur','bail-sig-locataire'].forEach(initSigCanvas);
@@ -8584,8 +8633,11 @@ function bindAll(){
       const{error}=await sb.from('tenants').update({bail_url:pub.publicUrl,bail_data:bail}).eq('id',t.id);
       if(error){alert('Bail généré mais erreur enregistrement fiche locataire : '+error.message);return;}
       t.bail_url=pub.publicUrl;t.bail_data=bail;
-      alert('✓ Bail enregistré et signé.');
+      window.open(pub.publicUrl,'_blank');
       closeModal();render();
+      if(t.email&&confirm('✓ Bail enregistré et signé.\n\nL\'envoyer par email à '+t.nom+' ('+t.email+') maintenant ?')){
+        sendBailEmail(t);
+      }
     };
   }
 
