@@ -422,6 +422,38 @@ function findLogementFiche(bienStr){
   const norm=normBienSep(bienStr);
   return (S.logementFiches||[]).find(f=>normBienSep(f.bien)===norm);
 }
+
+// Catalogue des elements verifies dans un etat des lieux (grille de vetuste
+// classique) - un meme element peut apparaitre dans plusieurs pieces (ex:
+// "mur" en cuisine et en chambre), d'ou l'usage d'une cle <piece>.<element>
+// pour identifier chaque ligne de facon unique dans les donnees et le DOM.
+const EDL_ITEM_CATALOG={
+  porte:'Porte',sonnette:'Sonnette ou interphone',mur:'Mur',sol:'Sol',
+  vitrage_volets:'Vitrage et volets',plafond:'Plafond',
+  eclairage:'Éclairage et interrupteurs',prises:'Prises électriques',
+  placards:'Placards et tiroirs',evier:'Évier (et robinetterie)',
+  plaques_four:'Plaques de cuisson et four',hotte:'Hotte',electromenager:'Électroménager',
+  lavabo:'Lavabo et robinetterie',baignoire_douche:'Baignoire / douche',wc:'WC',
+};
+// Modeles de pieces de base utilises par l'assistant de configuration (voir
+// modal 'edl-config-pieces') pour construire la structure propre a un
+// logement, sans faire ressaisir la liste d'elements piece par piece.
+const EDL_ROOM_PRESETS={
+  entree:{label:'Entrée / Couloir',items:['porte','sonnette','mur','sol','vitrage_volets','plafond','eclairage','prises']},
+  sejour:{label:'Séjour - Salle à manger',items:['mur','sol','vitrage_volets','plafond','eclairage','prises']},
+  cuisine:{label:'Cuisine',items:['mur','sol','vitrage_volets','plafond','eclairage','prises','placards','evier','plaques_four','hotte','electromenager']},
+  chambre:{label:'Chambre',items:['mur','sol','vitrage_volets','plafond','eclairage','prises']},
+  sdb:{label:'Salle de bain',items:['mur','sol','vitrage_volets','plafond','eclairage','prises','lavabo','baignoire_douche','wc']},
+  wc:{label:'WC',items:['mur','sol','plafond','eclairage','prises','wc']},
+  autre:{label:'Autre pièce',items:['mur','sol','vitrage_volets','plafond','eclairage','prises']},
+};
+const EDL_ETATS=['M','P','B','TB'];
+const EDL_ETAT_LABELS={M:'Mauvais',P:'Passable',B:'Bon',TB:'Très bon'};
+function findLogementEdlEntree(bien,tenantId){
+  const norm=normBienSep(bien);
+  return (S.logementEdl||[]).filter(e=>e.type==='entree'&&e.tenant_id===tenantId&&normBienSep(e.bien)===norm)
+    .sort((a,b)=>new Date(b.created_at||0)-new Date(a.created_at||0))[0]||null;
+}
 // Resout l'intervenant assigne a une gamme (mt.assigned_to peut etre un id,
 // un nom ou un email selon comment il a ete saisi) vers {by_user,by_email} a
 // stocker sur le BT genere - necessaire pour notifier/synchroniser au calendrier
@@ -478,7 +510,7 @@ let S = {
   // data
   users: [], assets: [], tasks: [], tools: [], loans: [],
   workOrders: [], maintenanceTemplates: [], topology: {properties: []},
-  factures: [], facturesAValider: [], fournisseurs: [], chantiers: [], devis: [], devisAValider: [], bienDocuments: [], revenues: [], finTab: 'overview', reservations: [], resaYear: new Date().getFullYear(), taxeSejourTaux: 5, taxeSejourPlafond: 4.60, compteurs: [], releves: [], rangements: [], famille: [], consommables: [], crecheSaisies: [], ecoleSaisies: [], familleTab: 'membres', finFactCpte: 'savadur', familleEnfant: null, tfRegularisations: [], logementFiches: []
+  factures: [], facturesAValider: [], fournisseurs: [], chantiers: [], devis: [], devisAValider: [], bienDocuments: [], revenues: [], finTab: 'overview', reservations: [], resaYear: new Date().getFullYear(), taxeSejourTaux: 5, taxeSejourPlafond: 4.60, compteurs: [], releves: [], rangements: [], famille: [], consommables: [], crecheSaisies: [], ecoleSaisies: [], familleTab: 'membres', finFactCpte: 'savadur', familleEnfant: null, tfRegularisations: [], logementFiches: [], logementEdl: []
 };
 
 async function loadAll() {
@@ -497,7 +529,7 @@ async function loadAll() {
     const test = await sb.from('users').select('count', {count:'exact',head:true});
     if (test.error) { showError(test.error.message || JSON.stringify(test.error)); return; }
 
-    const [u, a, t, tl, l, wo, mt, topo, rev, cpt, rel, ten, rp, wr, rng, fam, crecheRes, ecoleRes, conso, facturesRes, resaRes, favRes, fournRes, chantiersRes, devisRes, devisAvRes, bienDocsRes, tfRegulRes, logFichesRes] = await Promise.all([
+    const [u, a, t, tl, l, wo, mt, topo, rev, cpt, rel, ten, rp, wr, rng, fam, crecheRes, ecoleRes, conso, facturesRes, resaRes, favRes, fournRes, chantiersRes, devisRes, devisAvRes, bienDocsRes, tfRegulRes, logFichesRes, logEdlRes] = await Promise.all([
       sb.from('users').select('*'),
       sb.from('assets').select('*'),
       sb.from('tasks').select('*'),
@@ -526,7 +558,8 @@ async function loadAll() {
       fetchAllRows('devis_a_valider','created_at',false),
       sb.from('bien_documents').select('*').order('created_at',{ascending:false}),
       sb.from('tf_regularisations').select('*'),
-      sb.from('logement_fiches').select('*')
+      sb.from('logement_fiches').select('*'),
+      sb.from('logement_edl').select('*').order('created_at',{ascending:false})
     ]);
 
     // Only block on critical tables
@@ -576,6 +609,8 @@ async function loadAll() {
     S.tfRegularisations = tfRegulRes?.error ? [] : (tfRegulRes?.data || []);
     if (logFichesRes?.error) console.warn('Table logement_fiches non disponible:', logFichesRes.error.message);
     S.logementFiches = logFichesRes?.error ? [] : (logFichesRes?.data || []);
+    if (logEdlRes?.error) console.warn('Table logement_edl non disponible:', logEdlRes.error.message);
+    S.logementEdl = logEdlRes?.error ? [] : (logEdlRes?.data || []);
     const loadedTopo = topo.data?.[0]?.data;
     S.topoId = topo.data?.[0]?.id;
     if(loadedTopo?.properties?.length){
@@ -5984,98 +6019,145 @@ function renderModal(){
 
 
 
+  if(m.type==='edl-config-pieces'){
+    const t=m.tenant||{};
+    const cfg=m.edlConfig||{nb_chambres:1,nb_sdb:1,nb_wc:0,inc_entree:true,inc_sejour:true,inc_cuisine:true,autres:[]};
+    html=`${mhd('🧩 Configuration des pièces — '+(t.logement||''))}
+    <p style="font-size:12px;color:var(--text2);margin-bottom:10px">Cette structure sera mémorisée sur la fiche du logement et réutilisée automatiquement pour tous les états des lieux suivants de ce logement (sortie de ce locataire, entrée des locataires futurs).</p>
+    <div class="form-group"><label style="display:flex;align-items:center;gap:8px;font-weight:400"><input type="checkbox" ${cfg.inc_entree?'checked':''} onchange="S.modal.edlConfig={...S.modal.edlConfig,inc_entree:this.checked}"> Entrée / Couloir</label></div>
+    <div class="form-group"><label style="display:flex;align-items:center;gap:8px;font-weight:400"><input type="checkbox" ${cfg.inc_sejour?'checked':''} onchange="S.modal.edlConfig={...S.modal.edlConfig,inc_sejour:this.checked}"> Séjour - Salle à manger</label></div>
+    <div class="form-group"><label style="display:flex;align-items:center;gap:8px;font-weight:400"><input type="checkbox" ${cfg.inc_cuisine?'checked':''} onchange="S.modal.edlConfig={...S.modal.edlConfig,inc_cuisine:this.checked}"> Cuisine</label></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+      <div class="form-group"><label>Chambres</label><input type="number" min="0" max="10" value="${cfg.nb_chambres}" onchange="S.modal.edlConfig={...S.modal.edlConfig,nb_chambres:parseInt(this.value)||0}"></div>
+      <div class="form-group"><label>Salles de bain</label><input type="number" min="0" max="5" value="${cfg.nb_sdb}" onchange="S.modal.edlConfig={...S.modal.edlConfig,nb_sdb:parseInt(this.value)||0}"></div>
+      <div class="form-group"><label>WC séparés</label><input type="number" min="0" max="5" value="${cfg.nb_wc}" onchange="S.modal.edlConfig={...S.modal.edlConfig,nb_wc:parseInt(this.value)||0}"></div>
+    </div>
+    <div class="sec" style="margin-top:10px;margin-bottom:6px">Pièces libres <span style="font-size:11px;color:var(--text2);text-transform:none;font-weight:400">(local, réserve, bureau...)</span></div>
+    ${cfg.autres.map((a,i)=>`<div style="display:flex;gap:6px;margin-bottom:6px">
+      <input value="${(a||'').replace(/"/g,'&quot;')}" placeholder="Ex: Local, Réserve" oninput="S.modal.edlConfig.autres[${i}]=this.value" style="flex:1">
+      <button type="button" class="btn btn-d btn-sm" onclick="S.modal.edlConfig={...S.modal.edlConfig,autres:S.modal.edlConfig.autres.filter((_,idx)=>idx!==${i})};render()">✕</button>
+    </div>`).join('')}
+    <button type="button" class="btn btn-sm" onclick="S.modal.edlConfig={...S.modal.edlConfig,autres:[...S.modal.edlConfig.autres,'']};render()">+ Ajouter une pièce libre</button>
+    <div style="margin-top:16px">
+      <button type="button" class="btn btn-p" id="btn-edlconfig-valider" style="width:100%">✓ Valider et commencer l'état des lieux</button>
+    </div>`;
+  }
+
   if(m.type==='edl-form'){
     const t=m.tenant||{};
-    const today=new Date().toLocaleDateString('fr-FR');
-    const PIECES=['Entrée / Couloir','Séjour - Salle à manger','Cuisine','Chambre côté rue','Chambre côté cour','Salle de douche','WC séparé','Boîte aux lettres'];
-    const ETATS=['Très bon état','Bon état','État moyen','Mauvais état'];
-    const EDL_TYPE=m.edlType||'entree'; // entree ou sortie
-    const existingEdl=m.edl||{};
-
-    const pieceRows=PIECES.map((p,i)=>{
-      const field=p.toLowerCase().replace(/[^a-z]/g,'_').replace(/_+/g,'_');
-      return `<tr style="border-bottom:0.5px solid var(--border)">
-        <td style="padding:8px;font-weight:500;font-size:12px;min-width:140px">${p}</td>
-        <td style="padding:4px">
-          <select id="edl_etat_${i}" style="width:100%;padding:4px 6px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:11px">
-            <option value="">— Sélectionner —</option>
-            ${ETATS.map(e=>`<option value="${e}" ${(existingEdl['etat_'+i]===e)?'selected':''}>${e}</option>`).join('')}
+    const edl=m.edl||{};
+    const isSortie=m.edlType==='sortie';
+    const entreeRef=edl.linkedEntree||null;
+    const logFicheE=t.logement?findLogementFiche(t.logement):null;
+    const refData=(itemKey)=>entreeRef?(entreeRef.data||{})[itemKey]:null;
+    const itemRow=(room,itemKey)=>{
+      const key=room.key+'.'+itemKey;
+      const domKey=room.key+'-'+itemKey;
+      const existing=(edl.data||{})[key]||{};
+      const photos=(edl.photos&&edl.photos[key])||[];
+      const ref=isSortie?refData(key):null;
+      return `<div style="border:0.5px solid var(--border2);border-radius:var(--radius);padding:8px;margin-bottom:6px">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+          <div style="font-size:12px;font-weight:500;min-width:150px">${EDL_ITEM_CATALOG[itemKey]||itemKey}
+            ${ref?`<div style="font-size:10px;color:var(--text2);font-weight:400">Entrée : ${ref.etat||'—'}${ref.description?' — '+ref.description:''}</div>`:''}
+          </div>
+          <select id="edl-etat-${domKey}" style="padding:4px 6px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:11px">
+            <option value="">—</option>
+            ${EDL_ETATS.map(e=>`<option value="${e}" ${existing.etat===e?'selected':''}>${e} — ${EDL_ETAT_LABELS[e]}</option>`).join('')}
           </select>
-        </td>
-        <td style="padding:4px">
-          <input id="edl_obs_${i}" value="${existingEdl['obs_'+i]||''}" placeholder="Observations..." style="width:100%;padding:4px 6px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:11px">
-        </td>
-      </tr>`;
-    }).join('');
-
-    html=`${mhd((EDL_TYPE==='entree'?'📋 État des lieux ENTRÉE':'📋 État des lieux SORTIE')+(t.nom?' — '+t.nom:''))}
-    <div style="display:flex;gap:8px;margin-bottom:12px">
-      <button type="button" class="btn btn-sm ${EDL_TYPE==='entree'?'btn-p':''}" onclick="S.modal.edlType='entree';render()">Entrée</button>
-      <button type="button" class="btn btn-sm ${EDL_TYPE==='sortie'?'btn-p':''}" onclick="S.modal.edlType='sortie';render()">Sortie</button>
+          <button type="button" class="btn btn-sm" onclick="document.getElementById('edl-photofile-${domKey}').click()">📷 <span id="edl-photo-count-${domKey}">${photos.length||''}</span></button>
+          <input type="file" accept="image/*" capture="environment" id="edl-photofile-${domKey}" data-edl-photo="${key}" style="display:none">
+        </div>
+        <input id="edl-desc-${domKey}" value="${(existing.description||'').replace(/"/g,'&quot;')}" placeholder="Description / détails..." style="width:100%;margin-top:6px;padding:4px 6px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:11px">
+        <div id="edl-thumbs-${domKey}" style="display:flex;gap:4px;margin-top:4px;flex-wrap:wrap">
+          ${photos.map(p=>`<img src="${p.url}" style="width:36px;height:36px;object-fit:cover;border-radius:4px;cursor:pointer" onclick="window.open('${p.url}','_blank')">`).join('')}
+        </div>
+      </div>`;
+    };
+    html=`${mhd((isSortie?'📋 État des lieux de SORTIE':"📋 État des lieux d'ENTRÉE")+(t.nom?' — '+t.nom:''))}
+    ${isSortie&&!entreeRef?`<div class="alert-r">⚠ Aucun état des lieux d'entrée trouvé pour ce locataire — impossible de comparer. Générez d'abord l'état des lieux d'entrée.</div>`:''}
+    <div class="g2c">
+      <div class="form-group"><label>Date</label><input id="edl-date" type="date" value="${edl.date||new Date().toISOString().slice(0,10)}"></div>
+      <div class="form-group"><label>Logement</label><input value="${t.logement||''}" readonly style="background:var(--bg2)"></div>
     </div>
     <div class="g2c">
-      <div class="form-group"><label>Date</label><input id="edl-date" type="date" value="${new Date().toISOString().slice(0,10)}"></div>
-      <div class="form-group"><label>Logement</label><input id="edl-log" value="${t.logement||''}" readonly style="background:var(--bg2)"></div>
-    </div>
-    <div class="g2c">
-      <div class="form-group"><label>Locataire</label><input id="edl-loc" value="${t.nom||''}" readonly style="background:var(--bg2)"></div>
-      <div class="form-group"><label>Bailleur</label><input id="edl-bail" value="J&A SAVADUR — Antoine JOSSE" readonly style="background:var(--bg2)"></div>
-    </div>
-
-    <div class="sec" style="margin:10px 0 6px">🚰 Compteurs</div>
-    <div class="g2c">
-      <div class="form-group"><label>Index eau (m³)</label><input id="edl-eau" type="number" step="0.001" value="${existingEdl.index_eau||''}" placeholder="Ex: 142.350"></div>
-      <div class="form-group"><label>N° de compteur</label><input id="edl-cpt" value="${existingEdl.num_cpt||''}" placeholder="Ex: 123456"></div>
-    </div>
-
-    <div class="sec" style="margin:10px 0 6px">🔑 Inventaire des clefs</div>
-    <div class="g3c" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px">
-      <div class="form-group"><label>Badges immeuble</label><input id="edl-badge" type="number" min="0" value="${existingEdl.cles_badge||0}"></div>
-      <div class="form-group"><label>Clés appartement</label><input id="edl-clef" type="number" min="0" value="${existingEdl.cles_appart||0}"></div>
-      <div class="form-group"><label>Clés boîte aux lettres</label><input id="edl-bal" type="number" min="0" value="${existingEdl.cles_bal||0}"></div>
-    </div>
-
-    <div class="sec" style="margin:10px 0 6px">🏠 État des pièces</div>
-    <div style="overflow-x:auto;margin-bottom:12px">
-      <table style="width:100%;border-collapse:collapse">
-        <thead><tr style="background:var(--bg2)">
-          <th style="padding:8px;text-align:left;font-size:11px">Pièce</th>
-          <th style="padding:8px;text-align:left;font-size:11px;min-width:130px">État général</th>
-          <th style="padding:8px;text-align:left;font-size:11px;min-width:160px">Observations</th>
-        </tr></thead>
-        <tbody>${pieceRows}</tbody>
-      </table>
-    </div>
-
-    <div class="form-group"><label>Équipements cuisine</label>
-      <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:4px">
-        ${['Plaque de cuisson','Hotte aspirante','Réfrigérateur','Lave-vaisselle','Micro-ondes'].map((eq,i)=>
-          `<label style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer">
-            <input type="checkbox" id="edl_eq_${i}" ${existingEdl['eq_'+i]?'checked':''}> ${eq}
-          </label>`).join('')}
+      <div class="form-group"><label>Locataire</label><input value="${t.nom||''}" readonly style="background:var(--bg2)">
+        ${isSortie?`<input id="edl-nouvelle-adresse" placeholder="Nouvelle adresse (si état des lieux de sortie)" style="width:100%;margin-top:4px">`:''}
       </div>
+      <div class="form-group"><label>Bailleur</label><input value="J&A SAVADUR — Antoine JOSSE" readonly style="background:var(--bg2)"></div>
     </div>
 
-    <div class="form-group"><label>📝 Observations générales et annotations libres</label>
-      <textarea id="edl-notes" rows="4" placeholder="Remarques générales, réserves, travaux à prévoir..." style="width:100%;padding:8px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px;resize:vertical">${existingEdl.notes||''}</textarea>
+    <div class="sec" style="margin:10px 0 6px">🚰 Compteurs et relevés</div>
+    <div class="g2c">
+      <div class="form-group"><label>Électricité — N° compteur</label><input id="edl-elec-num" value="${edl.compteurs?.elec_num||''}"></div>
+      <div class="form-group"><label>Électricité — Relevé</label><input id="edl-elec-releve" value="${edl.compteurs?.elec_releve||''}"></div>
+    </div>
+    ${logFicheE?.gaz_present!==false?`<div class="g2c">
+      <div class="form-group"><label>Gaz — N° compteur</label><input id="edl-gaz-num" value="${edl.compteurs?.gaz_num||''}"></div>
+      <div class="form-group"><label>Gaz — Relevé</label><input id="edl-gaz-releve" value="${edl.compteurs?.gaz_releve||''}"></div>
+    </div>`:''}
+    <div class="g2c">
+      <div class="form-group"><label>Eau — Relevé froide (m³)</label><input id="edl-eau-froide" type="number" step="0.001" value="${edl.compteurs?.eau_froide||''}"></div>
+      <div class="form-group"><label>Eau — Relevé chaude (m³)</label><input id="edl-eau-chaude" type="number" step="0.001" value="${edl.compteurs?.eau_chaude||''}" ${logFicheE?.eau_chaude==='Collective'?'disabled placeholder="Collective"':''}></div>
+    </div>
+    <div style="font-size:11px;color:var(--text2);margin-top:-6px;margin-bottom:10px">Chauffage ${logFicheE?.chauffage||'—'} · Eau chaude ${logFicheE?.eau_chaude||'—'} (depuis la fiche du logement)</div>
+
+    <div class="sec" style="margin:10px 0 6px">🔑 Clés et accès</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px">
+      <div class="form-group"><label>Clés immeuble</label><input id="edl-cles-immeuble" type="number" min="0" value="${edl.cles?.cles_immeuble||0}"></div>
+      <div class="form-group"><label>Boîtes aux lettres</label><input id="edl-cles-bal" type="number" min="0" value="${edl.cles?.boites_lettres||0}"></div>
+      <div class="form-group"><label>Badge / clé portail</label><input id="edl-cles-badge" type="number" min="0" value="${edl.cles?.badge_portail||0}"></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px">
+      <div class="form-group"><label>Clés porte d'entrée</label><input id="edl-cles-porte" type="number" min="0" value="${edl.cles?.cles_porte||0}"></div>
+      <div class="form-group"><label>Clés cave</label><input id="edl-cles-cave" type="number" min="0" value="${edl.cles?.cles_cave||0}"></div>
+      <div class="form-group"><label>Parking</label><input id="edl-cles-parking" type="number" min="0" value="${edl.cles?.parking||0}"></div>
+    </div>
+    <div class="g2c">
+      <div class="form-group"><label>Autre — libellé</label><input id="edl-cles-autre-label" value="${edl.cles?.autre_label||''}"></div>
+      <div class="form-group"><label>Autre — nombre</label><input id="edl-cles-autre-nb" type="number" min="0" value="${edl.cles?.autre_nb||0}"></div>
     </div>
 
-    <div class="sec" style="margin:10px 0 6px">✍ Signatures</div>
+    <div class="sec" style="margin:12px 0 6px">🏠 État des pièces</div>
+    ${(edl.structure||[]).map(room=>`<div style="margin-bottom:10px">
+      <div style="font-size:12px;font-weight:600;margin-bottom:4px">${room.label}</div>
+      ${room.items.map(itemKey=>itemRow(room,itemKey)).join('')}
+    </div>`).join('')}
+
+    <div class="form-group"><label>📝 Observations ou réserves</label>
+      <textarea id="edl-observations" rows="3" placeholder="Remarques générales, réserves..." style="width:100%;padding:8px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px;resize:vertical">${edl.observations||''}</textarea>
+    </div>
+
+    <div class="sec" style="margin:10px 0 6px">✍ Paraphe et signature</div>
+    <p style="font-size:12px;color:var(--text2);margin-bottom:8px">Le paraphe sera reproduit sur toutes les pages du document (et des photos annexées). La signature sera apposée à la fin.</p>
     <div class="g2c">
       <div class="form-group">
-        <label>Bailleur — J&A SAVADUR</label>
-        <canvas id="sig-bailleur" width="240" height="80" style="border:0.5px solid var(--border2);border-radius:var(--radius);background:#fff;cursor:crosshair;display:block;touch-action:none"></canvas>
-        <button type="button" class="btn btn-sm" style="margin-top:4px" onclick="clearSig('sig-bailleur')">↺ Effacer</button>
+        <label>Paraphe du bailleur</label>
+        <canvas id="edl-paraphe-bailleur" width="200" height="60" style="border:0.5px solid var(--border2);border-radius:var(--radius);background:#fff;cursor:crosshair;display:block;touch-action:none"></canvas>
+        <button type="button" class="btn btn-sm" style="margin-top:4px" onclick="clearSig('edl-paraphe-bailleur')">↺ Effacer</button>
       </div>
       <div class="form-group">
-        <label>Locataire — ${t.nom||'Locataire'}</label>
-        <canvas id="sig-locataire" width="240" height="80" style="border:0.5px solid var(--border2);border-radius:var(--radius);background:#fff;cursor:crosshair;display:block;touch-action:none"></canvas>
-        <button type="button" class="btn btn-sm" style="margin-top:4px" onclick="clearSig('sig-locataire')">↺ Effacer</button>
+        <label>Paraphe du locataire</label>
+        <canvas id="edl-paraphe-locataire" width="200" height="60" style="border:0.5px solid var(--border2);border-radius:var(--radius);background:#fff;cursor:crosshair;display:block;touch-action:none"></canvas>
+        <button type="button" class="btn btn-sm" style="margin-top:4px" onclick="clearSig('edl-paraphe-locataire')">↺ Effacer</button>
+      </div>
+    </div>
+    <div class="g2c" style="margin-top:8px">
+      <div class="form-group">
+        <label>Signature du bailleur</label>
+        <canvas id="edl-sig-bailleur" width="200" height="70" style="border:0.5px solid var(--border2);border-radius:var(--radius);background:#fff;cursor:crosshair;display:block;touch-action:none"></canvas>
+        <button type="button" class="btn btn-sm" style="margin-top:4px" onclick="clearSig('edl-sig-bailleur')">↺ Effacer</button>
+      </div>
+      <div class="form-group">
+        <label>Signature du locataire</label>
+        <canvas id="edl-sig-locataire" width="200" height="70" style="border:0.5px solid var(--border2);border-radius:var(--radius);background:#fff;cursor:crosshair;display:block;touch-action:none"></canvas>
+        <button type="button" class="btn btn-sm" style="margin-top:4px" onclick="clearSig('edl-sig-locataire')">↺ Effacer</button>
       </div>
     </div>
 
-    <div style="display:flex;gap:8px;margin-top:8px">
-      <button type="button" class="btn btn-sm" id="btn-print-edl" style="flex:1">🖨 Imprimer / PDF</button>
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <button type="button" class="btn btn-sm" id="btn-preview-edl" style="flex:1" ${isSortie&&!entreeRef?'disabled':''}>👁 Prévisualiser</button>
+      <button type="button" class="btn btn-sm btn-p" id="btn-save-edl" style="flex:1" ${isSortie&&!entreeRef?'disabled':''}>✓ Enregistrer l'état des lieux signé</button>
     </div>
     ${mf}`;
   }
@@ -6345,14 +6427,18 @@ function renderModal(){
         ${t.email?`<button type="button" class="btn btn-sm btn-p" id="btn-email-bail" style="flex:1">📧 Envoyer au locataire</button>`:''}
       </div>`:''}
     </div>
-    <div class="form-group"><label>🔗 Lien état des lieux scanné (Drive/URL)</label>
+    <div class="form-group"><label>🔗 Lien état des lieux scanné, ancien locataire (Drive/URL)</label>
       <input id="m-tedl-url" value="${t.edl_url||''}" placeholder="https://drive.google.com/...">
+      ${t.edl_url?`<a href="${t.edl_url}" target="_blank" class="btn btn-sm" style="display:block;margin-top:6px;text-align:center;text-decoration:none">🏠 Ouvrir le dernier état des lieux</a>`:''}
     </div>
     <div class="form-group"><label>🛡 Attestation assurance locataire (URL)</label>
       <input id="m-tassur-url" value="${t.assurance_url||''}" placeholder="https://drive.google.com/...">
     </div>
     <div style="display:flex;gap:8px;margin-bottom:4px;flex-wrap:wrap">
-      <button type="button" class="btn btn-sm btn-p" id="btn-open-edl-form" style="flex:1">📋 État des lieux en ligne</button>
+      <button type="button" class="btn btn-sm btn-p" id="btn-open-edl-entree" style="flex:1">📋 État des lieux d'entrée</button>
+      <button type="button" class="btn btn-sm" id="btn-open-edl-sortie" style="flex:1" ${!findLogementEdlEntree(t.logement,t.id)?'disabled title="Générez d\'abord l\'état des lieux d\'entrée"':''}>📋 État des lieux de sortie</button>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:4px;flex-wrap:wrap">
       <button type="button" class="btn btn-sm" id="btn-open-bail-form" style="flex:1">📝 Générer bail</button>
     </div>
     ${mf}`;
@@ -7143,31 +7229,6 @@ async function saveModal(){
     await saveTopoToDB();
   }
 
-  if(m.type==='edl-form'){
-    const t=m.tenant||{};
-    const today=new Date().toLocaleDateString('fr-FR');
-    const PIECES=['Entrée / Couloir','Séjour - Salle à manger','Cuisine','Chambre côté rue','Chambre côté cour','Salle de douche','WC séparé','Boîte aux lettres'];
-    const ETATS=['Très bon état','Bon état','État moyen','Mauvais état'];
-    const EDL_TYPE=m.edlType||'entree'; // entree ou sortie
-    const existingEdl=m.edl||{};
-
-    const pieceRows=PIECES.map((p,i)=>{
-      const field=p.toLowerCase().replace(/[^a-z]/g,'_').replace(/_+/g,'_');
-      return `<tr style="border-bottom:0.5px solid var(--border)">
-        <td style="padding:8px;font-weight:500;font-size:12px;min-width:140px">${p}</td>
-        <td style="padding:4px">
-          <select id="edl_etat_${i}" style="width:100%;padding:4px 6px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:11px">
-            <option value="">— Sélectionner —</option>
-            ${ETATS.map(e=>`<option value="${e}" ${(existingEdl['etat_'+i]===e)?'selected':''}>${e}</option>`).join('')}
-          </select>
-        </td>
-        <td style="padding:4px">
-          <input id="edl_obs_${i}" value="${existingEdl['obs_'+i]||''}" placeholder="Observations..." style="width:100%;padding:4px 6px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:11px">
-        </td>
-      </tr>`;
-    }).join('');
-
-  }
 
 
 
@@ -8382,6 +8443,243 @@ async function sendBailEmail(tenant){
   }catch(e){alert('Erreur envoi email : '+e.message);}
 }
 
+// Upload immediat d'une photo d'element d'etat des lieux (contrairement au
+// paraphe/signature qui restent en memoire jusqu'a l'enregistrement final) -
+// evite de perdre les photos deja prises si la tablette est interrompue en
+// cours de visite. S.modal.edl.id est genere des l'ouverture du formulaire
+// (avant tout enregistrement en base) pour que le chemin de stockage soit
+// stable du debut a la fin.
+async function uploadEdlPhoto(edlId,roomKey,itemKey,fileInput){
+  const file=fileInput.files?.[0];
+  if(!file)return;
+  const key=roomKey+'.'+itemKey;
+  const domKey=roomKey+'-'+itemKey;
+  if(!S.modal.edl.photos)S.modal.edl.photos={};
+  if(!S.modal.edl.photos[key])S.modal.edl.photos[key]=[];
+  const idx=S.modal.edl.photos[key].length;
+  const ext=(file.name.split('.').pop()||'jpg').toLowerCase();
+  const path='edl/'+edlId+'/'+roomKey+'_'+itemKey+'_'+(idx+1)+'.'+ext;
+  const{error}=await sb.storage.from('documents-locataires').upload(path,file,{contentType:file.type||'image/jpeg',cacheControl:'0'});
+  if(error){alert('Erreur photo : '+error.message);return;}
+  const{data:pub}=sb.storage.from('documents-locataires').getPublicUrl(path);
+  const freshUrl=pub.publicUrl+'?v='+Date.now();
+  S.modal.edl.photos[key].push({url:freshUrl,path});
+  // Mise a jour directe du DOM plutot qu'un render() complet : un re-rendu
+  // recreerait les canvas de paraphe/signature (voir dataset.sigInit) et
+  // effacerait tout trait deja dessine si l'on prend une photo apres avoir
+  // signe.
+  const countEl=document.getElementById('edl-photo-count-'+domKey);
+  if(countEl)countEl.textContent=S.modal.edl.photos[key].length;
+  const thumbWrap=document.getElementById('edl-thumbs-'+domKey);
+  if(thumbWrap){
+    const im=document.createElement('img');
+    im.src=freshUrl;
+    im.style.cssText='width:36px;height:36px;object-fit:cover;border-radius:4px;cursor:pointer';
+    im.onclick=()=>window.open(freshUrl,'_blank');
+    thumbWrap.appendChild(im);
+  }
+  fileInput.value='';
+}
+
+// Lit l'etat courant du formulaire d'etat des lieux directement dans le DOM
+// (meme raison que collectBailFormData : les champs texte ne sont pas
+// synchronises en continu avec S.modal.edl, seules les photos le sont).
+function collectEdlFormData(){
+  const q=id=>document.getElementById(id)?.value||'';
+  const edl=S.modal.edl||{};
+  const structure=edl.structure||[];
+  const data={};
+  structure.forEach(room=>{
+    room.items.forEach(itemKey=>{
+      const key=room.key+'.'+itemKey;
+      const domKey=room.key+'-'+itemKey;
+      data[key]={
+        etat:q('edl-etat-'+domKey),
+        description:q('edl-desc-'+domKey),
+        photos:(edl.photos&&edl.photos[key])||[],
+      };
+    });
+  });
+  return {
+    id:edl.id,
+    type:S.modal.edlType==='sortie'?'sortie':'entree',
+    linked_edl_id:edl.linkedEntree?.id||null,
+    date:q('edl-date'),
+    nouvelle_adresse:q('edl-nouvelle-adresse'),
+    structure,
+    compteurs:{
+      elec_num:q('edl-elec-num'),elec_releve:q('edl-elec-releve'),
+      gaz_num:q('edl-gaz-num'),gaz_releve:q('edl-gaz-releve'),
+      eau_froide:q('edl-eau-froide'),eau_chaude:q('edl-eau-chaude'),
+    },
+    cles:{
+      cles_immeuble:q('edl-cles-immeuble'),boites_lettres:q('edl-cles-bal'),badge_portail:q('edl-cles-badge'),
+      cles_porte:q('edl-cles-porte'),cles_cave:q('edl-cles-cave'),parking:q('edl-cles-parking'),
+      autre_nb:q('edl-cles-autre-nb'),autre_label:q('edl-cles-autre-label'),
+    },
+    data,
+    observations:q('edl-observations'),
+    paraphe_bailleur:sigDataUrl('edl-paraphe-bailleur'),
+    paraphe_locataire:sigDataUrl('edl-paraphe-locataire'),
+    sig_bailleur:sigDataUrl('edl-sig-bailleur'),
+    sig_locataire:sigDataUrl('edl-sig-locataire'),
+  };
+}
+
+// Genere le corps textuel de l'etat des lieux (jsPDF) - meme pattern de
+// pagination que genBailPDF. Pour une sortie, la valeur d'entree est
+// rappelee en regard de chaque element (comparaison directe, coeur meme de
+// l'etat des lieux comparatif) a partir de entreeRef (l'enregistrement
+// d'entree lie, deja charge en memoire au moment de l'ouverture du
+// formulaire de sortie).
+function genEdlPDF(edl,tenant,entreeRef){
+  const {jsPDF}=window.jspdf;
+  const doc=new jsPDF({unit:'mm',format:'a4'});
+  const pageW=210,pageH=297,marginX=15,marginTop=18,marginBottom=24;
+  let y=marginTop;
+  const isSortie=edl.type==='sortie';
+  const dl=d=>d?new Date(d).toLocaleDateString('fr-FR'):'—';
+  function ensureSpace(h){if(y+h>pageH-marginBottom){doc.addPage();y=marginTop;}}
+  function title(txt){
+    ensureSpace(10);doc.setFont('helvetica','bold');doc.setFontSize(13);
+    doc.text(txt,marginX,y);y+=7;doc.setFont('helvetica','normal');doc.setFontSize(9);
+  }
+  function line(txt,size){
+    doc.setFontSize(size||9);
+    const lines=doc.splitTextToSize(txt,pageW-2*marginX);
+    lines.forEach(l=>{ensureSpace(5);doc.text(l,marginX,y);y+=5;});
+  }
+
+  doc.setFont('helvetica','bold');doc.setFontSize(16);
+  doc.text('ÉTAT DES LIEUX '+(isSortie?'DE SORTIE':"D'ENTRÉE"),pageW/2,y,{align:'center'});y+=10;
+  doc.setFont('helvetica','normal');doc.setFontSize(9);
+
+  line('Date : '+dl(edl.date));
+  line('Logement : '+(tenant.logement||'—'));
+  line('Bailleur : J&A SAVADUR — Antoine JOSSE');
+  line('Locataire : '+(tenant.nom||'—')+(isSortie&&edl.nouvelle_adresse?' — Nouvelle adresse : '+edl.nouvelle_adresse:''));
+  y+=2;
+
+  title('Compteurs et relevés');
+  const c=edl.compteurs||{};
+  line('Électricité — N° compteur : '+(c.elec_num||'—')+' · Relevé : '+(c.elec_releve||'—'));
+  if(c.gaz_num||c.gaz_releve)line('Gaz — N° compteur : '+(c.gaz_num||'—')+' · Relevé : '+(c.gaz_releve||'—'));
+  line('Eau — Relevé froide : '+(c.eau_froide||'—')+' m³ · Relevé chaude : '+(c.eau_chaude||'—')+' m³');
+  y+=2;
+
+  title('Clés et accès');
+  const k=edl.cles||{};
+  line("Clés immeuble : "+(k.cles_immeuble||0)+' · Boîtes aux lettres : '+(k.boites_lettres||0)+' · Badge/clé portail : '+(k.badge_portail||0));
+  line("Clés porte d'entrée : "+(k.cles_porte||0)+' · Clés cave : '+(k.cles_cave||0)+' · Parking : '+(k.parking||0));
+  if(k.autre_label)line('Autre ('+k.autre_label+') : '+(k.autre_nb||0));
+  y+=2;
+
+  (edl.structure||[]).forEach(room=>{
+    title(room.label);
+    room.items.forEach(itemKey=>{
+      const key=room.key+'.'+itemKey;
+      const it=(edl.data||{})[key]||{};
+      const itLabel=EDL_ITEM_CATALOG[itemKey]||itemKey;
+      const ref=isSortie&&entreeRef?(entreeRef.data||{})[key]:null;
+      let txt=itLabel+' — État : '+(it.etat||'—')+(ref?' (entrée : '+(ref.etat||'—')+')':'');
+      if(it.description)txt+=' — '+it.description;
+      line(txt);
+      if(ref?.description)line('Description entrée : '+ref.description,8);
+    });
+    y+=1;
+  });
+
+  if(edl.observations){title('Observations ou réserves');line(edl.observations);}
+
+  ensureSpace(20);
+  y+=6;
+  doc.setFontSize(9);
+  doc.text('Fait à Lorient, le '+dl(edl.date),marginX,y);y+=6;
+  doc.text('Signature du bailleur',marginX,y);
+  doc.text('Signature du locataire',pageW-marginX-55,y);
+  return doc;
+}
+
+// Fusionne les photos prises (une page A4 par photo, legendee "Piece —
+// Element") en annexe du corps genere par jsPDF, puis appose le paraphe et
+// le numero de page sur l'ensemble du document final en une seule passe -
+// meme principe que mergeBailWithDiagnostics. La signature est apposee sur
+// la DERNIERE PAGE DU CORPS (capturee avant l'ajout des pages photo), pas
+// sur la derniere page du document final qui peut desormais etre une photo.
+async function mergeEdlWithPhotos(jsDoc,edl){
+  const {PDFDocument,StandardFonts,rgb}=PDFLib;
+  const finalDoc=await PDFDocument.load(jsDoc.output('arraybuffer'));
+  const font=await finalDoc.embedFont(StandardFonts.HelveticaBold);
+  const A4=[595.28,841.89];
+  const bodyPageCount=finalDoc.getPageCount();
+
+  const photoEntries=[];
+  (edl.structure||[]).forEach(room=>{
+    room.items.forEach(itemKey=>{
+      const key=room.key+'.'+itemKey;
+      const it=(edl.data||{})[key];
+      (it?.photos||[]).forEach(p=>photoEntries.push({room:room.label,item:EDL_ITEM_CATALOG[itemKey]||itemKey,url:p.url}));
+    });
+  });
+  for(const p of photoEntries){
+    try{
+      const resp=await fetch(p.url);
+      if(!resp.ok)throw new Error('HTTP '+resp.status);
+      const bytes=new Uint8Array(await resp.arrayBuffer());
+      const ct=resp.headers.get('content-type')||'';
+      const page=finalDoc.addPage(A4);
+      page.drawText(p.room+' — '+p.item,{x:40,y:800,size:12,font,color:rgb(0.1,0.1,0.1)});
+      const isPng=ct.includes('png')||p.url.toLowerCase().includes('.png');
+      const img=isPng?await finalDoc.embedPng(bytes):await finalDoc.embedJpg(bytes);
+      const scale=Math.min((A4[0]-80)/img.width,(A4[1]-160)/img.height,1);
+      page.drawImage(img,{x:40,y:60,width:img.width*scale,height:img.height*scale});
+    }catch(e){console.warn('Photo non incluse dans le PDF final :',e.message);}
+  }
+
+  const parB=edl.paraphe_bailleur?await finalDoc.embedPng(dataUrlToUint8(edl.paraphe_bailleur)):null;
+  const parL=edl.paraphe_locataire?await finalDoc.embedPng(dataUrlToUint8(edl.paraphe_locataire)):null;
+  const sigB=edl.sig_bailleur?await finalDoc.embedPng(dataUrlToUint8(edl.sig_bailleur)):null;
+  const sigL=edl.sig_locataire?await finalDoc.embedPng(dataUrlToUint8(edl.sig_locataire)):null;
+  const pages=finalDoc.getPages();
+  pages.forEach((page,i)=>{
+    const {width}=page.getSize();
+    if(parB)page.drawImage(parB,{x:20,y:12,width:56,height:20});
+    if(parL)page.drawImage(parL,{x:width-76,y:12,width:56,height:20});
+    page.drawText('Page '+(i+1)+'/'+pages.length,{x:width/2-20,y:14,size:8,font,color:rgb(0.6,0.6,0.6)});
+  });
+  const lastBodyPage=finalDoc.getPage(bodyPageCount-1);
+  const{width:lbw}=lastBodyPage.getSize();
+  if(sigB)lastBodyPage.drawImage(sigB,{x:20,y:70,width:110,height:38});
+  if(sigL)lastBodyPage.drawImage(sigL,{x:lbw-130,y:70,width:110,height:38});
+
+  return finalDoc.save();
+}
+
+// Envoie par email au locataire le lien vers son etat des lieux (memes
+// modalites que sendBailEmail, dupliquee plutot que factorisee : le contenu
+// du message differe et les deux fonctions sont deja courtes).
+async function sendEdlEmail(tenant){
+  if(!tenant.email){alert("Pas d'email pour ce locataire");return;}
+  if(!tenant.edl_url){alert("Aucun état des lieux enregistré pour ce locataire");return;}
+  if(!BREVO_API_KEY)BREVO_API_KEY=ensureBrevoKey();
+  if(!BREVO_API_KEY)return;
+  const html=`<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
+    <p>Bonjour ${tenant.nom},</p>
+    <p>Veuillez trouver ci-dessous le lien vers votre état des lieux signé :</p>
+    <p><a href="${tenant.edl_url}" style="background:#1D9E75;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block">📋 Consulter mon état des lieux</a></p>
+    <p>Cordialement,<br>J&A SAVADUR</p>
+  </div>`;
+  try{
+    const resp=await fetch('https://api.brevo.com/v3/smtp/email',{
+      method:'POST',
+      headers:{'api-key':BREVO_API_KEY,'Content-Type':'application/json'},
+      body:JSON.stringify({sender:{name:'J&A SAVADUR',email:'savadur56@gmail.com'},to:[{email:tenant.email,name:tenant.nom}],subject:'Votre état des lieux',htmlContent:html})
+    });
+    if(!resp.ok){const t=await resp.text();throw new Error(t);}
+    alert('✓ Email envoyé à '+tenant.email);
+  }catch(e){alert('Erreur envoi email : '+e.message);}
+}
+
 async function sendFactureEauRelance(tenant, releve, cpt, isRelance){
   const isDubail=dubailFilter(tenant.logement||"");
   const FROM_NAME_L=isDubail?"J&A SAVADUR":"Antoine JOSSE";
@@ -8930,10 +9228,50 @@ function bindAll(){
   });
   setTimeout(_updateLogementPreview,300);
 
-  const btnOpenEdl=document.getElementById('btn-open-edl-form');
-  if(btnOpenEdl)btnOpenEdl.onclick=()=>{
+  const btnOpenEdlEntree=document.getElementById('btn-open-edl-entree');
+  if(btnOpenEdlEntree)btnOpenEdlEntree.onclick=()=>{
     const t=S.modal?.tenant||null;
-    S.modal={type:'edl-form',tenant:t};render();
+    if(!t){alert('Locataire introuvable');return;}
+    const lf=t.logement?findLogementFiche(t.logement):null;
+    if(lf?.edl_structure?.length){
+      S.modal={type:'edl-form',tenant:t,edlType:'entree',edl:{id:crypto.randomUUID(),structure:lf.edl_structure,photos:{}}};
+    }else{
+      S.modal={type:'edl-config-pieces',tenant:t,edlConfig:{nb_chambres:1,nb_sdb:1,nb_wc:0,inc_entree:true,inc_sejour:true,inc_cuisine:true,autres:[]}};
+    }
+    render();
+  };
+  const btnOpenEdlSortie=document.getElementById('btn-open-edl-sortie');
+  if(btnOpenEdlSortie)btnOpenEdlSortie.onclick=()=>{
+    const t=S.modal?.tenant||null;
+    if(!t){alert('Locataire introuvable');return;}
+    const entree=findLogementEdlEntree(t.logement,t.id);
+    if(!entree){alert("Générez d'abord l'état des lieux d'entrée de ce locataire.");return;}
+    S.modal={type:'edl-form',tenant:t,edlType:'sortie',edl:{id:crypto.randomUUID(),structure:entree.structure,photos:{},linkedEntree:entree}};
+    render();
+  };
+  const btnEdlConfigValider=document.getElementById('btn-edlconfig-valider');
+  if(btnEdlConfigValider)btnEdlConfigValider.onclick=async()=>{
+    const cfg=S.modal.edlConfig;
+    const t=S.modal.tenant;
+    const structure=[];
+    if(cfg.inc_entree)structure.push({key:'entree',label:EDL_ROOM_PRESETS.entree.label,items:[...EDL_ROOM_PRESETS.entree.items]});
+    if(cfg.inc_sejour)structure.push({key:'sejour',label:EDL_ROOM_PRESETS.sejour.label,items:[...EDL_ROOM_PRESETS.sejour.items]});
+    if(cfg.inc_cuisine)structure.push({key:'cuisine',label:EDL_ROOM_PRESETS.cuisine.label,items:[...EDL_ROOM_PRESETS.cuisine.items]});
+    for(let i=1;i<=cfg.nb_chambres;i++)structure.push({key:'chambre_'+i,label:'Chambre'+(cfg.nb_chambres>1?' '+i:''),items:[...EDL_ROOM_PRESETS.chambre.items]});
+    for(let i=1;i<=cfg.nb_sdb;i++)structure.push({key:'sdb_'+i,label:'Salle de bain'+(cfg.nb_sdb>1?' '+i:''),items:[...EDL_ROOM_PRESETS.sdb.items]});
+    for(let i=1;i<=cfg.nb_wc;i++)structure.push({key:'wc_'+i,label:'WC'+(cfg.nb_wc>1?' '+i:'')+' séparé',items:[...EDL_ROOM_PRESETS.wc.items]});
+    (cfg.autres||[]).filter(a=>a&&a.trim()).forEach((a,i)=>{
+      const slug=a.trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'')||('autre_'+i);
+      structure.push({key:slug,label:a.trim(),items:[...EDL_ROOM_PRESETS.autre.items]});
+    });
+    if(structure.length===0){alert('Ajoutez au moins une pièce.');return;}
+    const targetBien=findLogementFiche(t.logement)?.bien||t.logement;
+    const{error}=await sb.from('logement_fiches').upsert({bien:targetBien,edl_structure:structure},{onConflict:'bien'});
+    if(error){alert('Erreur : '+error.message);return;}
+    let lf=S.logementFiches.find(x=>x.bien===targetBien);
+    if(lf)lf.edl_structure=structure;else S.logementFiches.push({bien:targetBien,edl_structure:structure});
+    S.modal={type:'edl-form',tenant:t,edlType:'entree',edl:{id:crypto.randomUUID(),structure,photos:{}}};
+    render();
   };
   const btnOpenBail=document.getElementById('btn-open-bail-form');
   if(btnOpenBail)btnOpenBail.onclick=()=>{
@@ -9004,6 +9342,67 @@ function bindAll(){
           sendBailEmail(t);
         }
       }finally{btnSaveBail.disabled=false;btnSaveBail.textContent='✓ Enregistrer le bail signé';}
+    };
+  }
+
+  if(S.modal?.type==='edl-form'){
+    ['edl-paraphe-bailleur','edl-paraphe-locataire','edl-sig-bailleur','edl-sig-locataire'].forEach(initSigCanvas);
+    document.querySelectorAll('[data-edl-photo]').forEach(el=>el.onchange=()=>{
+      const [roomKey,itemKey]=el.dataset.edlPhoto.split('.');
+      uploadEdlPhoto(S.modal.edl.id,roomKey,itemKey,el);
+    });
+    const btnPreviewEdl=document.getElementById('btn-preview-edl');
+    if(btnPreviewEdl)btnPreviewEdl.onclick=async()=>{
+      if(!sigDataUrl('edl-paraphe-bailleur')||!sigDataUrl('edl-paraphe-locataire')){
+        if(!confirm('Le paraphe du bailleur ou du locataire est vide. Continuer quand même ?'))return;
+      }
+      btnPreviewEdl.disabled=true;btnPreviewEdl.textContent='⏳ Génération...';
+      try{
+        const edl=collectEdlFormData();
+        const doc=genEdlPDF(edl,S.modal.tenant||{},S.modal.edl.linkedEntree);
+        const mergedBytes=await mergeEdlWithPhotos(doc,edl);
+        const blob=new Blob([mergedBytes],{type:'application/pdf'});
+        window.open(URL.createObjectURL(blob),'_blank');
+      }finally{btnPreviewEdl.disabled=false;btnPreviewEdl.textContent='👁 Prévisualiser';}
+    };
+    const btnSaveEdl=document.getElementById('btn-save-edl');
+    if(btnSaveEdl)btnSaveEdl.onclick=async()=>{
+      const t=S.modal.tenant;
+      if(!t){alert('Locataire introuvable');return;}
+      if(!sigDataUrl('edl-sig-bailleur')||!sigDataUrl('edl-sig-locataire')){
+        alert('Les 2 signatures (bailleur et locataire) sont requises avant enregistrement.');return;
+      }
+      btnSaveEdl.disabled=true;btnSaveEdl.textContent='⏳ Génération...';
+      try{
+        const edl=collectEdlFormData();
+        const doc=genEdlPDF(edl,t,S.modal.edl.linkedEntree);
+        const mergedBytes=await mergeEdlWithPhotos(doc,edl);
+        const blob=new Blob([mergedBytes],{type:'application/pdf'});
+        const path='edl/'+edl.id+'/edl.pdf';
+        const{error:upErr}=await sb.storage.from('documents-locataires').upload(path,blob,{upsert:true,contentType:'application/pdf',cacheControl:'0'});
+        if(upErr){alert('Erreur upload : '+upErr.message);return;}
+        const{data:pub}=sb.storage.from('documents-locataires').getPublicUrl(path);
+        const freshUrl=pub.publicUrl+'?v='+Date.now();
+        const targetBien=findLogementFiche(t.logement)?.bien||t.logement||'';
+        const rec={
+          id:edl.id,bien:targetBien,tenant_id:t.id,type:edl.type,linked_edl_id:edl.linked_edl_id,
+          date:edl.date||null,structure:edl.structure,compteurs:edl.compteurs,cles:edl.cles,data:edl.data,
+          observations:edl.observations,paraphe_bailleur:edl.paraphe_bailleur,paraphe_locataire:edl.paraphe_locataire,
+          sig_bailleur:edl.sig_bailleur,sig_locataire:edl.sig_locataire,pdf_url:freshUrl,
+        };
+        const{data:inserted,error}=await sb.from('logement_edl').insert(rec).select().single();
+        if(error){alert('État des lieux généré mais erreur enregistrement : '+error.message);return;}
+        S.logementEdl.unshift(inserted);
+        const tenantSync={edl_url:freshUrl};
+        const{error:tErr}=await sb.from('tenants').update(tenantSync).eq('id',t.id);
+        if(tErr){alert('État des lieux enregistré mais erreur mise à jour fiche locataire : '+tErr.message);return;}
+        Object.assign(t,tenantSync);
+        window.open(freshUrl,'_blank');
+        closeModal();render();
+        if(t.email&&confirm('✓ État des lieux enregistré et signé.\n\nL\'envoyer par email à '+t.nom+' ('+t.email+') maintenant ?')){
+          sendEdlEmail(t);
+        }
+      }finally{btnSaveEdl.disabled=false;btnSaveEdl.textContent="✓ Enregistrer l'état des lieux signé";}
     };
   }
 
