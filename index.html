@@ -1049,7 +1049,6 @@ function renderApp(){
     asset_detail: S.selectedAsset ? renderAssetDetail(S.selectedAsset) : '',
   };
   const topBtns = {
-    assets: isAdmin()?`<button class="btn btn-p" id="btn-add-asset">+ Équipement</button>`:'',
     tasks: canEdit()?`<button class="btn btn-p" id="btn-add-task">+ Tâche</button>`:'',
     tools: isAdmin()?`<button class="btn btn-p" id="btn-add-tool">+ Nouvel outil</button>`:'',
     workorders: canEdit()?`<button class="btn btn-p" id="btn-add-wo">+ Bon de travaux</button>`:'',
@@ -4810,7 +4809,7 @@ function woUpdateZone(){
   const assets=propId?S.assets.filter(a=>(a.topo_ref?.propId||'')===(propId)||((a.location||'').includes(p?.name||'XXXXXX'))):S.assets;
   const assetSel=document.getElementById('m-wa');
   if(assetSel){
-    assetSel.innerHTML='<option value="">— Aucun équipement spécifique —</option>'+assets.map(a=>'<option value="'+a.id+'">'+a.name+'</option>').join('');
+    assetSel.innerHTML='<option value="">— Aucun véhicule spécifique —</option>'+assets.map(a=>'<option value="'+a.id+'">'+a.name+'</option>').join('');
   }
 }
 
@@ -4932,7 +4931,7 @@ function renderModal(){
     html=`${mhd(m.type==='add-asset'?'Nouvel équipement':'Modifier — '+a.name)}
     <div class="form-group"><label>Nom *</label><input id="m-name" value="${a.name||''}"></div>
     <div class="g2c">
-      <div class="form-group"><label>Catégorie</label><select id="m-cat"><option ${fc==='Équipement'?'selected':''}>Équipement</option><option ${fc==='Immobilier'?'selected':''}>Immobilier</option><option ${fc==='Véhicule'||fc==='Bateau'?'selected':''} value="Véhicule">Véhicule (voiture, bateau, vélo...)</option></select></div>
+      <div class="form-group"><label>Catégorie</label><select id="m-cat"><option ${fc==='Immobilier'||!fc?'selected':''}>Immobilier</option><option ${fc==='Véhicule'||fc==='Bateau'||fc==='Équipement'?'selected':''} value="Véhicule">Véhicule (voiture, bateau, vélo...)</option></select></div>
       <div class="form-group"><label>Type</label><input id="m-type" value="${a.type||''}"></div>
     </div>
     <div class="form-group"><label>Localisation</label><input id="m-loc" value="${a.location||''}"></div>
@@ -5026,12 +5025,8 @@ function renderModal(){
     const tr=w.topo_ref||{};
     // Build asset options
     const allAssets=isAdmin()?S.assets:accessAssets(S.currentUser);
-    const assetOpts=`<option value="">— Aucun équipement —</option>`
-      +['Équipement','Véhicule','Bateau','Outillage'].flatMap(cat=>{
-        const items=allAssets.filter(a=>a.category===cat);
-        if(!items.length)return[];
-        return [`<optgroup label="${cat}">${items.map(a=>`<option value="${a.id}" ${w.asset_id===a.id?'selected':''}>${a.name}</option>`).join('')}</optgroup>`];
-      }).join('');
+    const assetOpts=`<option value="">— Aucun véhicule —</option>`
+      +allAssets.filter(a=>a.category==='Véhicule'||a.category==='Bateau').map(a=>`<option value="${a.id}" ${w.asset_id===a.id?'selected':''}>${a.name}</option>`).join('');
     // Build topo options
     const topoOpts=[];
     S.topology.properties.forEach(p=>{
@@ -5062,7 +5057,7 @@ function renderModal(){
           ${topoOpts.join('')}
         </select>
       </div>
-      <div class="form-group"><label>Équipement</label>
+      <div class="form-group"><label>Véhicule</label>
         <select id="m-wasset">${assetOpts}</select>
       </div>
     </div>
@@ -5230,21 +5225,14 @@ function renderModal(){
         </select>`;
       })()}
       </div>
-      <div style="font-size:12px;font-weight:500;color:var(--text2);margin:12px 0 8px">🔧 Équipement concerné</div>
-      <div class="form-group"><label>Équipement <span style="color:var(--text3);font-weight:400">(optionnel)</span></label>
+      <div style="font-size:12px;font-weight:500;color:var(--text2);margin:12px 0 8px">🚗 Véhicule concerné</div>
+      <div class="form-group"><label>Véhicule <span style="color:var(--text3);font-weight:400">(optionnel)</span></label>
         <select id="m-wa">
-          <option value="">— Aucun équipement spécifique —</option>
+          <option value="">— Aucun véhicule spécifique —</option>
           ${(()=>{
             const all = isAdmin() ? S.assets : accessAssets(S.currentUser);
-            const groups = {
-              'Équipements': all.filter(a=>a.category==='Équipement'),
-              'Véhicules': all.filter(a=>a.category==='Véhicule'),
-              'Bateaux': all.filter(a=>a.category==='Bateau'),
-              'Outillage': all.filter(a=>a.category==='Outillage'),
-            };
-            return Object.entries(groups).filter(([,items])=>items.length>0).map(([label,items])=>
-              `<optgroup label="${label}">${items.map(a=>`<option value="${a.id}" ${m.assetId===a.id?'selected':''}>${a.name}</option>`).join('')}</optgroup>`
-            ).join('');
+            const vehicules = all.filter(a=>a.category==='Véhicule'||a.category==='Bateau');
+            return vehicules.map(a=>`<option value="${a.id}" ${m.assetId===a.id?'selected':''}>${a.name}</option>`).join('');
           })()}
         </select>
       </div>
@@ -8300,9 +8288,11 @@ function genBailPDF(bail,tenant){
 
   // Logo J&A SAVADUR uniquement sur les baux geres par cette entite (meme
   // detection que pour les quittances/factures loyer : nom du logement).
+  // Pleine largeur de page (comme sur les documents HTML) : en plus petit,
+  // le texte (adresse/tel/email) imprime dans le logo devient illisible.
   if(dubailFilter(tenant?.logement||bail.adresse||'')){
-    const logoW=50,logoH=logoW*159/605;
-    doc.addImage(LOGO_SAVADUR_B64,'PNG',pageW/2-logoW/2,y,logoW,logoH);
+    const logoW=pageW-2*marginX,logoH=logoW*159/605;
+    doc.addImage(LOGO_SAVADUR_B64,'PNG',marginX,y,logoW,logoH);
     y+=logoH+6;
   }
 
@@ -8698,9 +8688,9 @@ function genEdlPDF(edl,tenant,entreeRef){
   // Logo J&A SAVADUR : le bailleur de l'etat des lieux est actuellement
   // toujours affiche comme "J&A SAVADUR" ci-dessous (meme hors bien Dubail),
   // le logo suit donc la meme regle - non conditionne par dubailFilter ici,
-  // contrairement au bail/aux quittances.
-  const logoW=45,logoH=logoW*159/605;
-  doc.addImage(LOGO_SAVADUR_B64,'PNG',pageW/2-logoW/2,y,logoW,logoH);
+  // contrairement au bail/aux quittances. Pleine largeur de page (cf genBailPDF).
+  const logoW=pageW-2*marginX,logoH=logoW*159/605;
+  doc.addImage(LOGO_SAVADUR_B64,'PNG',marginX,y,logoW,logoH);
   y+=logoH+5;
 
   doc.setFont('helvetica','bold');doc.setFontSize(16);
@@ -9094,7 +9084,6 @@ function bindAll(){
   document.querySelectorAll('[data-nav]').forEach(el=>el.onclick=()=>{S.view=el.dataset.nav;S.selectedAsset=null;S.filter={cat:'all',search:''};if(el.dataset.nav!=='topology'){S.topoState.zoneId=null;S.topoState.subZoneId=null;S.topoState.tradeId=null;}render();});
   if(q('btn-logout'))q('btn-logout').onclick=()=>{S.currentUser=null;render();};
   if(q('btn-back'))q('btn-back').onclick=()=>{S.view=S.assetDetailFrom||'topology';S.selectedAsset=null;render();};
-  if(q('btn-add-asset'))q('btn-add-asset').onclick=()=>{S.modal={type:'add-asset'};render();};
   if(q('btn-add-task'))q('btn-add-task').onclick=()=>{S.modal={type:'add-task'};render();};
   if(q('btn-add-tool'))q('btn-add-tool').onclick=()=>{S.modal={type:'add-tool'};render();};
   if(q('btn-add-vehicle'))q('btn-add-vehicle').onclick=()=>{S.modal={type:'add-asset',forceCategory:'Véhicule'};render();};
@@ -12005,7 +11994,7 @@ function buildDocumentLoyer(tenant,payment,mois,annee,loyer,charges,total,datePa
     +'<button onclick="window.print()" style="background:#fff;color:#1D9E75;border:none;padding:8px 18px;border-radius:6px;font-weight:700;cursor:pointer">&#128424; Imprimer</button>'
     +'</div>';
   return '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>'+css+'</style></head><body>'+(showPrintBar?pb:'')
-    +(isDubail?'<div style="text-align:center;margin-bottom:10px"><img src="'+LOGO_SAVADUR_B64+'" style="max-width:260px;height:auto"></div>':'')
+    +(isDubail?'<div style="margin-bottom:10px"><img src="'+LOGO_SAVADUR_B64+'" style="width:100%;height:auto;display:block"></div>':'')
     +'<div class="hdr">'
       +'<div><strong>'+bailNom+'</strong><br>'+bailAddr+'<br>'+bailCP+'<br>'+bailEmail+(bailTel?'<br>'+bailTel:'')+'</div>'
       +'<div style="text-align:right"><strong>'+tenant.nom+'</strong><br>'+tenant.logement+'<br>'+adresseLogement+'</div>'
@@ -12058,7 +12047,7 @@ function buildFactureEauHtml(tenant,cpt,conso,montant,montantHT,montantTVA,prix,
     .total-row td{font-weight:bold;background:#f0f0f0;border-top:2px solid #222}`;
   const eauPrintBar='<div class="print-bar"><div><strong>💧 Facture eau</strong><div class="hint">Cliquez Imprimer pour enregistrer en PDF</div></div><button class="print-btn" onclick="setTimeout(()=>window.print(),300)">🖨 Imprimer / Sauvegarder PDF</button></div>';
   return '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>'+eauCss+'</style></head><body>'+eauPrintBar
-    +'<div style="text-align:center;margin-bottom:10px"><img src="'+LOGO_SAVADUR_B64+'" style="max-width:260px;height:auto"></div>'
+    +'<div style="margin-bottom:10px"><img src="'+LOGO_SAVADUR_B64+'" style="width:100%;height:auto;display:block"></div>'
     +'<div class="header">'
     +'<div><strong>J&A SAVADUR</strong><br>26 RUE GÉNÉRAL DUBAIL<br>56100 LORIENT<br>savadur56@gmail.com</div>'
     +'<div style="text-align:right"><strong>'+tenant.nom+'</strong><br>'+tenant.logement+'<br>26 rue général Dubail<br>56100 Lorient</div>'
