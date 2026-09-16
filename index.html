@@ -4692,6 +4692,72 @@ function renderSettings(){
   </div>`;
 }
 
+// Bloc Bien/Zone/Sous-zone + Véhicule partagé par les modals add-mt et
+// edit-mt (gammes d'entretien) - pre-rempli si mt fourni.
+function gammeLocFields(mt){
+  mt = mt||{};
+  const selBien = mt.bien||'';
+  const p = selBien?S.topology.properties.find(x=>x.name===selBien):null;
+  const zones = p?(p.zones||[]):[];
+  const z = mt.zone_id?zones.find(x=>x.id===mt.zone_id):null;
+  const subs = z?(z.subZones||[]):[];
+  const vehicules = S.assets.filter(a=>a.category==='Véhicule'||a.category==='Bateau');
+  // Une gamme existante peut encore pointer vers un equipement non-vehicule
+  // (ex: "Piscine", cree avant le retrait de la categorie Equipement) - on
+  // garde cette valeur affichee pour ne pas la perdre silencieusement a la
+  // prochaine sauvegarde.
+  const legacyAsset = mt.asset_id&&!vehicules.find(a=>a.id===mt.asset_id)?S.assets.find(a=>a.id===mt.asset_id):null;
+  return `<div class="g2c">
+    <div class="form-group"><label>Bien (optionnel)</label>
+      <select id="m-mbien" onchange="gammeBienChanged()">
+        <option value="">— Tous les biens —</option>
+        ${S.topology.properties.map(p2=>`<option value="${p2.name}" ${selBien===p2.name?'selected':''}>${p2.name}</option>`).join('')}
+      </select>
+    </div>
+    <div class="form-group"><label>🚗 Véhicule (optionnel)</label>
+      <select id="m-ma">
+        <option value="">— Aucun véhicule —</option>
+        ${legacyAsset?`<option value="${legacyAsset.id}" selected>${legacyAsset.name} (ancien équipement)</option>`:''}
+        ${vehicules.map(a=>`<option value="${a.id}" ${mt.asset_id===a.id?'selected':''}>${a.name}</option>`).join('')}
+      </select>
+    </div>
+  </div>
+  <div class="g2c" id="m-mzone-wrap" style="display:${zones.length?'':'none'}">
+    <div class="form-group"><label>Zone</label>
+      <select id="m-mzone" onchange="gammeZoneChanged()">
+        <option value="">— Aucune zone —</option>
+        ${zones.map(z2=>`<option value="${z2.id}|${z2.name}" ${mt.zone_id===z2.id?'selected':''}>${z2.name}</option>`).join('')}
+      </select>
+    </div>
+    <div class="form-group" id="m-msub-wrap" style="display:${subs.length?'':'none'}"><label>Sous-zone</label>
+      <select id="m-msub">
+        <option value="">— Aucune sous-zone —</option>
+        ${subs.map(s=>`<option value="${s.id}|${s.name}" ${mt.sub_id===s.id?'selected':''}>${s.name}</option>`).join('')}
+      </select>
+    </div>
+  </div>`;
+}
+function gammeBienChanged(){
+  const pname=document.getElementById('m-mbien').value;
+  const p=S.topology.properties.find(x=>x.name===pname);
+  const zones=p?(p.zones||[]):[];
+  const zsel=document.getElementById('m-mzone');
+  zsel.innerHTML='<option value="">— Aucune zone —</option>'+zones.map(z=>'<option value="'+z.id+'|'+z.name+'">'+z.name+'</option>').join('');
+  document.getElementById('m-mzone-wrap').style.display=zones.length?'':'none';
+  document.getElementById('m-msub').innerHTML='<option value="">— Aucune sous-zone —</option>';
+  document.getElementById('m-msub-wrap').style.display='none';
+}
+function gammeZoneChanged(){
+  const pname=document.getElementById('m-mbien').value;
+  const p=S.topology.properties.find(x=>x.name===pname);
+  const zsel=document.getElementById('m-mzone');
+  const [zId]=zsel.value.split('|');
+  const z=p?.zones?.find(x=>x.id===zId);
+  const subs=z?(z.subZones||[]):[];
+  document.getElementById('m-msub').innerHTML='<option value="">— Aucune sous-zone —</option>'+subs.map(s=>'<option value="'+s.id+'|'+s.name+'">'+s.name+'</option>').join('');
+  document.getElementById('m-msub-wrap').style.display=subs.length?'':'none';
+}
+
 function renderMaintenance(){
   const sorted = S.maintenanceTemplates.slice().sort((a,b)=>{
     const da = a.type==='periodic'?a.next_due:a.due_date;
@@ -5674,6 +5740,7 @@ function renderModal(){
     const mt=m.mt||{};
     html=`${mhd('Modifier — '+(mt.name||''))}
     <div class="form-group"><label>Nom *</label><input id="m-mn" value="${mt.name||''}"></div>
+    ${gammeLocFields(mt)}
     <div class="form-group"><label>Description</label><textarea id="m-md">${mt.description||''}</textarea></div>
     <div class="g2c">
       <div class="form-group"><label>Priorité</label><select id="m-mprio">
@@ -5708,50 +5775,7 @@ function renderModal(){
 
   if(m.type==='add-mt'){html=`${mhd("Nouvelle gamme d'entretien")}
     <div class="form-group"><label>Nom *</label><input id="m-mn"></div>
-    <div class="g2c">
-      <div class="form-group"><label>Bien (optionnel)</label>
-        <select id="m-mbien" onchange="(function(){
-          const pname=this.value;
-          const p=S.topology.properties.find(x=>x.name===pname);
-          const zones=p?(p.zones||[]):[];
-          const zsel=document.getElementById('m-mzone');
-          zsel.innerHTML='<option value="">— Aucune zone —</option>'+zones.map(z=>'<option value="'+z.id+'|'+z.name+'">'+z.name+'</option>').join('');
-          document.getElementById('m-mzone-wrap').style.display=zones.length?'':'none';
-          document.getElementById('m-msub-wrap').style.display='none';
-          const assets=pname?S.assets.filter(a=>(a.topo_ref?.propName||a.location||'').includes(pname)):S.assets;
-          document.getElementById('m-ma').innerHTML='<option value="">— Aucun équipement —</option>'+assets.map(a=>'<option value="'+a.id+'">'+a.name+'</option>').join('');
-        }).call(this)">
-          <option value="">— Tous les biens —</option>
-          ${S.topology.properties.map(p=>`<option value="${p.name}">${p.name}</option>`).join('')}
-        </select>
-      </div>
-      <div class="form-group"><label>Équipement (optionnel)</label>
-        <select id="m-ma">
-          <option value="">— Aucun équipement —</option>
-          ${S.assets.map(a=>`<option value="${a.id}">${a.name}${a.location?' — '+a.location:''}</option>`).join('')}
-        </select>
-      </div>
-    </div>
-    <div class="g2c" id="m-mzone-wrap" style="display:none">
-      <div class="form-group"><label>Zone</label>
-        <select id="m-mzone" onchange="(function(){
-          const pname=document.getElementById('m-mbien').value;
-          const p=S.topology.properties.find(x=>x.name===pname);
-          const [zId,zName]=this.value.split('|');
-          const z=p?.zones?.find(x=>x.id===zId);
-          const subs=z?(z.subZones||[]):[];
-          document.getElementById('m-msub').innerHTML='<option value="">— Aucune sous-zone —</option>'+subs.map(s=>'<option value="'+s.id+'|'+s.name+'">'+s.name+'</option>').join('');
-          document.getElementById('m-msub-wrap').style.display=subs.length?'':'none';
-        }).call(this)">
-          <option value="">— Aucune zone —</option>
-        </select>
-      </div>
-      <div class="form-group" id="m-msub-wrap" style="display:none"><label>Sous-zone</label>
-        <select id="m-msub">
-          <option value="">— Aucune sous-zone —</option>
-        </select>
-      </div>
-    </div>
+    ${gammeLocFields()}
     <div class="form-group"><label>Description</label><textarea id="m-md"></textarea></div>
     <div class="form-group"><label>Type</label><select id="m-mtype" onchange="document.getElementById('mt-p').style.display=this.value==='periodic'?'':'none';document.getElementById('mt-d').style.display=this.value==='date'?'':'none'">
       <option value="periodic">Périodique (récurrent)</option><option value="date">Date fixe</option></select></div>
@@ -7036,8 +7060,12 @@ async function saveModal(){
   if(m.type==='edit-mt'){
     const mt=m.mt;if(!mt)return;
     const nom=q('m-mn')?.value.trim();if(!nom)return alert('Nom requis');
+    const [zoneId,zoneName]=(q('m-mzone')?.value||'').split('|');
+    const [subId,subName]=(q('m-msub')?.value||'').split('|');
     const rec={
       name:nom,description:q('m-md')?.value||null,
+      asset_id:q('m-ma')?.value||null,bien:q('m-mbien')?.value||null,
+      zone_id:zoneId||null,zone_nom:zoneName||null,sub_id:subId||null,sub_nom:subName||null,
       priority:q('m-mprio')?.value||'medium',
       assigned_to:q('m-muser')?.value||null,
       period_days:mt.type==='periodic'?(parseInt(q('m-mperiod')?.value)||mt.period_days):mt.period_days,
@@ -7057,11 +7085,14 @@ async function saveModal(){
     const type=q('m-mtype')?.value||'periodic';
     const period=parseInt(q('m-mperiod')?.value)||30;
     const lastDone=q('m-mlast')?.value||null;
+    const [zoneId,zoneName]=(q('m-mzone')?.value||'').split('|');
+    const [subId,subName]=(q('m-msub')?.value||'').split('|');
     let nextDue=null;
     if(type==='periodic'&&lastDone){const d=new Date(lastDone);d.setDate(d.getDate()+period);nextDue=d.toISOString().slice(0,10);}
     else if(type==='date'){nextDue=q('m-mdue')?.value||null;}
     const rec={
       name:nom,asset_id:assetId,bien:q('m-mbien')?.value||null,
+      zone_id:zoneId||null,zone_nom:zoneName||null,sub_id:subId||null,sub_nom:subName||null,
       description:q('m-md')?.value||null,type,period_days:type==='periodic'?period:null,
       last_done:lastDone,next_due:nextDue,due_date:type==='date'?nextDue:null,
       priority:q('m-mprio')?.value||'medium',assigned_to:q('m-muser')?.value||null,
