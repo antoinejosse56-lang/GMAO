@@ -1496,7 +1496,10 @@ function renderChantiers(){
         <div><span style="color:var(--text2)">Factures reçues :</span> <b>${totalReel.toFixed(2)} €</b></div>
         <div><span style="color:var(--text2)">Écart :</span> <b style="color:${ecart>0?'var(--red)':'var(--green)'}">${ecart>0?'+':''}${ecart.toFixed(2)} €</b></div>
       </div>`:''}
-      <div class="sec" style="margin-bottom:6px">Bons de travaux (${wos.length})</div>
+      <div class="sec" style="margin-bottom:6px;display:flex;align-items:center;justify-content:space-between">
+        <span>Bons de travaux (${wos.length})</span>
+        ${(canEdit()||isAdmin())?`<button class="btn btn-sm btn-p" data-add-wo-chantier="${c.id}">+ BT</button>`:''}
+      </div>
       ${wos.map(w=>{
         const totalFactWo=S.factures.filter(f=>f.wo_id===w.id).reduce((s,f)=>s+parseFloat(f.montant_ttc||0),0);
         return `<div class="row">
@@ -6553,9 +6556,9 @@ function renderModal(){
       Chantier : <b>${chantier?.nom||'—'}</b>
     </div>
     <div class="form-group"><label>Bon de travaux *</label>
-      <select id="m-ldb-wo">${computeFilteredWoOpts('',m.chantierId,d.wo_id||'',false)}</select>
+      <select id="m-ldb-wo">${computeFilteredWoOpts('',m.chantierId,d.wo_id||'',true)}</select>
     </div>
-    <div style="font-size:11px;color:var(--text2)">Seuls les BT de ce chantier sont proposés. Une fois associé, ce devis n'apparaîtra plus dans "Devis liés directement".</div>
+    <div style="font-size:11px;color:var(--text2)">Seuls les BT de ce chantier sont proposés — choisissez "+ Nouveau BT…" s'il n'y en a pas encore. Une fois associé, ce devis n'apparaîtra plus dans "Devis liés directement".</div>
     ${mf}`;
   }
 
@@ -8921,6 +8924,11 @@ function bindAll(){
   };
   if(q('btn-add-wo-asset'))q('btn-add-wo-asset').onclick=()=>{S.modal={type:'add-wo',assetId:S.selectedAsset?.id};render();};
   if(q('btn-add-wo-here'))q('btn-add-wo-here').onclick=()=>{S.modal={type:'add-wo',assetId:S.selectedAsset?.id};render();};
+  document.querySelectorAll('[data-add-wo-chantier]').forEach(el=>el.onclick=()=>{
+    const c=S.chantiers.find(x=>x.id===el.dataset.addWoChantier);
+    const tr=c?resolveTopoRefFromBienStr(c.bien):null;
+    S.modal={type:'add-wo',chantierId:el.dataset.addWoChantier,propId:tr?.propId||null,zoneId:tr?.zoneId||null,subId:tr?.subId||null};render();
+  });
   if(q('btn-add-mt'))q('btn-add-mt').onclick=()=>{S.modal={type:'add-mt'};render();};
   const autobtCheck=document.getElementById('m-mautobt');
   if(autobtCheck){
@@ -9895,6 +9903,24 @@ function bindAll(){
   document.querySelectorAll('[data-link-devis-bt]').forEach(el=>el.onclick=()=>{
     S.modal={type:'link-devis-bt',devisId:el.dataset.linkDevisBt,chantierId:el.dataset.chantierId};render();
   });
+  // "+ Nouveau BT" dans "Associer a un bon de travaux" : cree le BT a la
+  // volee (rattache au meme chantier) plutot que d'obliger a fermer cette
+  // modale pour aller en creer un depuis "Bons de travaux", pattern deja
+  // utilise pour les factures a valider (.fav-wo).
+  const ldbWoSel=document.getElementById('m-ldb-wo');
+  if(ldbWoSel)ldbWoSel.onchange=async()=>{
+    if(ldbWoSel.value!=='__new__')return;
+    const title=prompt('Titre du nouveau bon de travaux :');
+    if(!title||!title.trim()){ldbWoSel.value='';return;}
+    const chantier=S.chantiers.find(c=>c.id===S.modal.chantierId);
+    const tr=chantier?resolveTopoRefFromBienStr(chantier.bien):null;
+    const rec={title:title.trim(),status:'open',date:NOW,chantier_id:S.modal.chantierId,topo_ref:tr};
+    const{data,error}=await sb.from('work_orders').insert(rec).select().single();
+    if(error){alert('Erreur création BT : '+error.message);ldbWoSel.value='';return;}
+    S.workOrders.unshift(data);
+    ldbWoSel.querySelector('option[value="__new__"]')?.insertAdjacentHTML('afterend',`<option value="${data.id}">${data.title}</option>`);
+    ldbWoSel.value=data.id;
+  };
   document.querySelectorAll('[data-edit-logement-fiche]').forEach(el=>el.onclick=()=>{
     S.modal={type:'logement-fiche-form',bien:el.dataset.editLogementFiche};render();
   });
