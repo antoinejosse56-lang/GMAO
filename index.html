@@ -232,6 +232,47 @@ const CATS_FACTURE=['Travaux/Artisan','Matériaux','Énergie','Téléphone/Inter
 // Corps de metier des artisans/entreprises (fournisseurs.corps_metier) -
 // liste fixe pour permettre le filtrage, a completer librement ici si besoin.
 const CORPS_METIER_LIST=['Plomberie','Électricité','Chauffage / Climatisation','Serrurerie','Peinture','Menuiserie','Maçonnerie','Couverture / Toiture','Vitrerie','Carrelage / Sols','Plâtrerie / Isolation','Électroménager','Ascenseur','Espaces verts','Nettoyage','Sécurité / Alarme','Ramonage','Autre'];
+// Taux de commission Booking.com moyen, calcule sur l'historique des
+// reservations ayant un frais_resa reel connu (12 resa, sept. 2026 : de
+// 18,4% a 28,1% du montant nuits, moyenne 21,5%). Sert uniquement a estimer
+// le "Frais resa" quand Lodgify ne le remonte pas (frequent pour Booking) -
+// a ajuster ici si le taux reel du contrat change.
+const BOOKING_COMMISSION_TAUX=21.5;
+// Calcule (sans rien ecrire en base) le frais_resa/montant_total manquants
+// d'une reservation. Deux cas :
+// - montant_nuits et frais_resa deja connus (reels) : simple calcul exact,
+//   jamais marque "estime".
+// - frais_resa manquant sur une resa Booking : on l'estime via le taux
+//   moyen ci-dessus, et le resultat est marque estime:true pour etre
+//   affiche distinctement (a verifier), comme le fait deja Lodgify pour les
+//   resa Airbnb sur son propre tableau de bord.
+// Renvoie null si rien ne peut etre calcule (ex: montant_nuits inconnu, ou
+// source sans taux etabli).
+function estimateResaMontant(r){
+  if(r.montant_total!=null||!r.montant_nuits)return null;
+  const menage=r.frais_menage||0;
+  if(r.frais_resa!=null){
+    return{frais_resa:r.frais_resa,montant_total:Math.round((r.montant_nuits-r.frais_resa+menage)*100)/100,montant_estime:false};
+  }
+  if(r.source==='booking'){
+    const fraisResaEst=Math.round(r.montant_nuits*BOOKING_COMMISSION_TAUX/100*100)/100;
+    return{frais_resa:fraisResaEst,montant_total:Math.round((r.montant_nuits-fraisResaEst+menage)*100)/100,montant_estime:true};
+  }
+  return null;
+}
+// Parcourt S.reservations, complete en base celles dont le montant_total
+// peut etre calcule/estime, et met a jour S.reservations en memoire.
+// Appelee apres chaque chargement et apres chaque sync Lodgify - ne touche
+// jamais une reservation qui a deja un montant_total (reel ou deja estime).
+async function autoCompleteReservations(){
+  const todo=(S.reservations||[]).filter(r=>r.montant_total==null&&r.montant_nuits);
+  for(const r of todo){
+    const calc=estimateResaMontant(r);
+    if(!calc)continue;
+    const{error}=await sb.from('reservations').update(calc).eq('id',r.id);
+    if(!error)Object.assign(r,calc);
+  }
+}
 // Calcule le "bien" a stocker pour l'archivage/regroupement d'une facture ou
 // d'un devis lie a un bon de travaux. Si ce BT appartient a un chantier, le
 // chemin devient <bien si connu> - <chantier> - <titre du BT> (ex: "17 rue
@@ -695,6 +736,10 @@ async function loadAll() {
     }
     if (S.topology.properties.length > 0) S.topoState.propId = S.topology.properties[0].id;
     S.topoState.zoneId=null;S.topoState.subZoneId=null;S.topoState.tradeId=null;
+    // Complete les Versements hote manquants en tache de fond (ne bloque pas
+    // l'affichage initial) - re-render une fois fait si des lignes ont ete
+    // completees pendant que la vue Reservations etait deja affichee.
+    autoCompleteReservations().then(()=>{if(S.view==='reservations')render();});
   } catch(e) {
     console.error('Load error', e);
     showError(e.message || 'Erreur inconnue — vérifiez votre connexion internet');
@@ -2059,8 +2104,9 @@ function renderVehicles(){
     const rows=items.map(function(r){
       const isFerme=r.statut==='ferme';
       const incomplete=!isFerme&&!r.montant_total;
+      const isEstime=!isFerme&&!!r.montant_total&&r.montant_estime===true;
       const menagePresta=r.menage_prestataire!==false;
-      return '<tr style="'+(isFerme?'background:#f5f5f5;opacity:0.6':incomplete?'background:#FFF9E6':'')+'">'
+      return '<tr style="'+(isFerme?'background:#f5f5f5;opacity:0.6':incomplete?'background:#FFF9E6':isEstime?'background:#E8F8F0':'')+'">'
         +'<td style="font-size:11px">'+dateLabel(r.date_arrivee)+'</td>'
         +'<td style="font-size:11px">'+dateLabel(r.date_depart)+'</td>'
         +'<td style="text-align:center">'+( r.nb_nuits||"-")+'</td>'
@@ -2074,7 +2120,7 @@ function renderVehicles(){
             +(menagePresta?'🧹 Presta':'🙋 Moi')
           +'</button>'
         +'</td>'
-        +'<td style="text-align:right;font-weight:600">'+( r.montant_total?fmt(r.montant_total):'<span style="color:var(--amber)">⚠ à compléter</span>')+'</td>'
+        +'<td style="text-align:right;font-weight:600">'+( r.montant_total?(isEstime?'<span style="color:#1D9E75" title="Estimé — commission Booking moyenne ('+BOOKING_COMMISSION_TAUX+'%), à vérifier">≈ '+fmt(r.montant_total)+'</span>':fmt(r.montant_total)):'<span style="color:var(--amber)">⚠ à compléter</span>')+'</td>'
         +'<td>'+srcBadge(r.source)+'</td>'
         +'<td style="white-space:nowrap">'
           +(isFerme
@@ -2180,6 +2226,10 @@ function renderVehicles(){
   return '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">'
     +'<h2 style="margin:0">Réservations courte durée</h2>'
     +'<button class="btn btn-p" id="btn-sync-lodgify">🔄 Sync Lodgify</button>'
+  +'</div>'
+  +'<div style="font-size:11px;color:var(--text2);margin-bottom:10px">'
+    +'<span style="background:#FFF9E6;padding:1px 6px;border-radius:4px">⚠ à compléter</span> = aucune donnée &nbsp; '
+    +'<span style="background:#E8F8F0;padding:1px 6px;border-radius:4px">≈ estimé</span> = commission Booking moyenne appliquée automatiquement, à vérifier'
   +'</div>'
   +yearBar
   +roomTable(resas.filter(r=>r.room==="Studio"),"Studio")
@@ -4454,13 +4504,32 @@ function printLocationLabel(loc, tools, siteUrl){
 function rngLabel(nom){
   if(!nom)return '—';
   const r=(S.rangements||[]).find(x=>x.nom===nom);
-  return r&&r.bien?r.bien+' / '+r.nom:nom;
+  if(!r)return nom;
+  const parent=r.parent_id?(S.rangements||[]).find(x=>x.id===r.parent_id):null;
+  const bien=parent?parent.bien:r.bien;
+  return [bien,parent?parent.nom:null,r.nom].filter(Boolean).join(' / ');
+}
+
+// Options <option> pour les selects de rangement (outils/consommables) :
+// magasins triés par bien, chacun suivi de ses emplacements (étagères)
+// indentés - reutilise rngLabel pour rester coherent avec l'affichage.
+function rngOptions(selectedNom){
+  const all=S.rangements||[];
+  const top=all.filter(r=>!r.parent_id).sort((a,b)=>(a.bien||'').localeCompare(b.bien||'')||a.nom.localeCompare(b.nom));
+  let out='';
+  top.forEach(r=>{
+    out+=`<option value="${r.nom}" ${selectedNom===r.nom?'selected':''}>${rngLabel(r.nom)}</option>`;
+    all.filter(c=>c.parent_id===r.id).sort((a,b)=>a.nom.localeCompare(b.nom)).forEach(c=>{
+      out+=`<option value="${c.nom}" ${selectedNom===c.nom?'selected':''}>　↳ ${c.nom}</option>`;
+    });
+  });
+  return out;
 }
 
 function renderRangements(){
   const rangements = S.rangements||[];
 
-  // Vue "inventaire" d'un magasin donné, ouverte depuis sa carte
+  // Vue "inventaire" d'un magasin ou d'une étagère donné, ouverte depuis sa carte
   if(S.rngInventFor){
     const r=rangements.find(x=>x.id===S.rngInventFor);
     if(r){
@@ -4469,7 +4538,7 @@ function renderRangements(){
       const checked = locTools.filter(t=>invState[t.id]).length;
       return `<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
         <button class="btn btn-sm" id="btn-rng-inv-back">← Retour</button>
-        <div style="font-size:15px;font-weight:600">📋 Inventaire — ${r.bien?r.bien+' / ':''}${r.nom}</div>
+        <div style="font-size:15px;font-weight:600">📋 Inventaire — ${rngLabel(r.nom)}</div>
       </div>
       <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center">
         <span style="font-size:13px;color:var(--text2)">${checked} / ${locTools.length} vérifiés</span>
@@ -4499,10 +4568,25 @@ function renderRangements(){
     }
   }
 
-  const biens = [...new Set(rangements.map(r=>r.bien).filter(Boolean))].sort();
-  const sansBien = rangements.filter(r=>!r.bien);
+  const topLevel = rangements.filter(r=>!r.parent_id);
+  const biens = [...new Set(topLevel.map(r=>r.bien).filter(Boolean))].sort();
+  const sansBien = topLevel.filter(r=>!r.bien);
+  const shelfRow = s=>{
+    const tools=S.tools.filter(t=>t.location===s.nom);
+    return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-top:0.5px solid var(--border)">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:12px;font-weight:500">${s.nom}</div>
+        <div style="font-size:10px;color:var(--text2)">${tools.length} outil${tools.length>1?'s':''}${s.description?' · '+s.description:''}</div>
+      </div>
+      <button class="btn btn-sm" data-print-loc="${s.nom}" title="Étiquette">🖨</button>
+      <button class="btn btn-sm" data-rng-inv="${s.id}" title="Inventaire">📋</button>
+      ${isAdmin()?`<button class="btn btn-sm" data-edit-rng="${s.id}">✎</button>
+      <button class="btn btn-d btn-sm" data-del-rng="${s.id}">✕</button>`:''}
+    </div>`;
+  };
   const magasinCard = r=>{
     const tools = S.tools.filter(t=>t.location===r.nom);
+    const shelves = rangements.filter(x=>x.parent_id===r.id);
     return `<div class="card" style="padding:14px">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px">
         <div>
@@ -4515,22 +4599,27 @@ function renderRangements(){
         </div>
       </div>
       <div style="font-size:12px;color:var(--text2);margin-bottom:8px">
-        ${tools.length} outil${tools.length>1?'s':''} rangé${tools.length>1?'s':''}
+        ${tools.length} outil${tools.length>1?'s':''} directement dans ${r.nom}
       </div>
       ${tools.length>0?`<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px">
         ${tools.slice(0,5).map(t=>`<span class="badge bgray" style="font-size:10px">${t.name}</span>`).join('')}
         ${tools.length>5?`<span class="badge bgray" style="font-size:10px">+${tools.length-5}</span>`:''}
-      </div>`:'<div style="font-size:11px;color:var(--text3);margin-bottom:10px">Vide</div>'}
-      <div style="display:flex;gap:4px;flex-wrap:wrap">
+      </div>`:''}
+      <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:${shelves.length?'8px':'0'}">
         <button class="btn btn-sm" data-print-loc="${r.nom}">🖨 Étiquette</button>
         <button class="btn btn-sm" data-rng-inv="${r.id}">📋 Inventaire</button>
       </div>
+      ${shelves.length?`<div style="margin-top:8px">
+        <div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:2px">Emplacements dans ${r.nom} (${shelves.length})</div>
+        ${shelves.map(shelfRow).join('')}
+      </div>`:''}
+      ${isAdmin()?`<button class="btn btn-sm" style="margin-top:8px" data-add-rng-child="${r.id}">+ Emplacement dans ${r.nom}</button>`:''}
     </div>`;
   };
 
   return `<div>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:8px;flex-wrap:wrap">
-      <div style="font-size:13px;color:var(--text2)">${rangements.length} rangement${rangements.length>1?'s':''} défini${rangements.length>1?'s':''}</div>
+      <div style="font-size:13px;color:var(--text2)">${topLevel.length} rangement${topLevel.length>1?'s':''} défini${topLevel.length>1?'s':''}${rangements.length>topLevel.length?' · '+(rangements.length-topLevel.length)+' emplacement(s) imbriqué(s)':''}</div>
       <div style="display:flex;gap:6px">
         <button class="btn btn-sm" id="btn-export-rng">&#128229; Exporter Excel</button>
         ${isAdmin()?`<button class="btn btn-p" id="btn-add-rng">+ Rangement</button>`:''}
@@ -4538,15 +4627,15 @@ function renderRangements(){
     </div>
     ${biens.map(bien=>`
       <div class="sec" style="margin:16px 0 8px">🏠 ${bien}</div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px">
-        ${rangements.filter(r=>r.bien===bien).map(magasinCard).join('')}
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px">
+        ${topLevel.filter(r=>r.bien===bien).map(magasinCard).join('')}
       </div>`).join('')}
     ${sansBien.length>0?`
       <div class="sec" style="margin:16px 0 8px">${biens.length>0?'📦 Non classé':''}</div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px">
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px">
         ${sansBien.map(magasinCard).join('')}
       </div>`:''}
-    ${rangements.length===0?`<div style="text-align:center;padding:40px;color:var(--text2)">
+    ${topLevel.length===0?`<div style="text-align:center;padding:40px;color:var(--text2)">
       <div style="font-size:32px;margin-bottom:12px">📦</div>
       <div style="font-size:14px;font-weight:500;margin-bottom:6px">Aucun rangement défini</div>
       <div style="font-size:12px">Créez vos rangements pour organiser votre matériel<br>(étagères, armoires, véhicules...)</div>
@@ -5501,7 +5590,7 @@ function renderModal(){
 
   if(m.type==='add-cso'||m.type==='edit-cso'){
     const c=m.cso||{};
-    const rngOpts=S.rangements.map(r=>`<option value="${r.nom}" ${c.emplacement===r.nom?'selected':''}>${r.bien?r.bien+' — ':''}${r.nom}</option>`).join('');
+    const rngOpts=rngOptions(c.emplacement);
     html=`${mhd(m.type==='add-cso'?'Nouveau consommable':'Modifier — '+c.nom)}
     <div class="form-group"><label>Désignation *</label><input id="m-cnom" value="${c.nom||''}" placeholder="Ex: Prise électrique 2P+T, Raccord 15/21..."></div>
     <div class="g2c">
@@ -5608,20 +5697,28 @@ function renderModal(){
 
   if(m.type==='add-rng'||m.type==='edit-rng'){
     const r=m.rng||{};
+    const parentId=r.parent_id||m.parentId||'';
+    const topMagasins=(S.rangements||[]).filter(x=>!x.parent_id&&x.id!==r.id);
     html=`${mhd(m.type==='add-rng'?'Nouveau rangement':'Modifier — '+r.nom)}
-    <div class="form-group"><label>Bien</label>
+    <div class="form-group"><label>Rangement parent <span style="font-size:11px;color:var(--text2);font-weight:400">(optionnel — pour un emplacement dans un magasin, ex: une étagère dans la Cave)</span></label>
+      <select id="m-rparent" onchange="document.getElementById('m-rbien-wrap').style.display=this.value?'none':'block'">
+        <option value="">— Aucun (nouveau magasin) —</option>
+        ${topMagasins.map(p=>`<option value="${p.id}" ${parentId===p.id?'selected':''}>${p.bien?p.bien+' — ':''}${p.nom}</option>`).join('')}
+      </select>
+    </div>
+    <div class="form-group" id="m-rbien-wrap" style="display:${parentId?'none':'block'}"><label>Bien</label>
       <select id="m-rbien">
         <option value="">— Non classé —</option>
         ${S.topology.properties.map(p=>`<option value="${p.name}" ${r.bien===p.name?'selected':''}>${p.name}</option>`).join('')}
       </select>
     </div>
-    <div class="form-group"><label>Nom du magasin *</label><input id="m-rnom" value="${r.nom||''}" placeholder="Ex: Cave, Garage, Armoire atelier, Camion..."></div>
+    <div class="form-group"><label>Nom *</label><input id="m-rnom" value="${r.nom||''}" placeholder="Ex: Cave, Garage, Étagère 1 / rang 0..."></div>
     <div class="form-group"><label>Description</label><input id="m-rdesc" value="${r.description||''}" placeholder="Ex: Rez-de-chaussée, côté gauche"></div>
     ${mf}`;
   }
   if(m.type==='add-tool'||m.type==='edit-tool'){
     const t = m.tool||{};
-    const rngOpts = S.rangements.map(r=>`<option value="${r.nom}" ${t.location===r.nom?'selected':''}>${r.bien?r.bien+' — ':''}${r.nom}${r.description?' ('+r.description+')':''}</option>`).join('');
+    const rngOpts = rngOptions(t.location);
     html=`${mhd(m.type==='add-tool'?'Nouvel outil':'Modifier — '+t.name)}
     <div class="form-group"><label>Nom *</label><input id="m-tn" value="${t.name||''}"></div>
     <div class="g2c">
@@ -7624,7 +7721,8 @@ async function saveModal(){
   if(m.type==='add-rng'||m.type==='edit-rng'){
     const nom=q('m-rnom')?.value?.trim()||q('m-rn')?.value?.trim();
     if(!nom)return alert('Nom requis');
-    const rec={nom,bien:q('m-rbien')?.value||null,
+    const parentId=q('m-rparent')?.value||null;
+    const rec={nom,parent_id:parentId,bien:parentId?null:(q('m-rbien')?.value||null),
       description:q('m-rdesc')?.value||q('m-rd')?.value||null};
     if(m.type==='add-rng'){
       const {data,error}=await sb.from('rangements').insert(rec).select().single();
@@ -7750,7 +7848,8 @@ async function saveModal(){
       nb_adultes:parseInt(q('resa-adultes')?.value)||null,source:q('resa-source')?.value||r.source,
       montant_nuits:parseFloat(q('resa-nuits')?.value)||null,frais_menage:parseFloat(q('resa-menage')?.value)||null,
       frais_resa:parseFloat(q('resa-fraisresa')?.value)||null,
-      montant_total:parseFloat(q('resa-total')?.value)||null,notes:q('resa-notes')?.value||null};
+      montant_total:parseFloat(q('resa-total')?.value)||null,notes:q('resa-notes')?.value||null,
+      montant_estime:false};
     const{error}=await sb.from('reservations').update(upd).eq('id',r.id);
     if(error){alert('Erreur : '+error.message);return;}
     Object.assign(r,upd);S.modal=null;render();return;
@@ -11213,9 +11312,16 @@ function bindAll(){
     if(r){S.modal={type:'edit-rng',rng:r};render();}
   });
   document.querySelectorAll('[data-del-rng]').forEach(el=>el.onclick=async()=>{
+    const id=el.dataset.delRng;
+    const children=S.rangements.filter(x=>x.parent_id===id);
+    if(children.length){alert('Supprimez ou déplacez d\'abord les '+children.length+' emplacement(s) qu\'il contient ('+children.map(c=>c.nom).join(', ')+').');return;}
     if(!confirm('Supprimer ce rangement ?'))return;
-    await sb.from('rangements').delete().eq('id',el.dataset.delRng);
-    S.rangements=S.rangements.filter(x=>x.id!==el.dataset.delRng);render();
+    const{error}=await sb.from('rangements').delete().eq('id',id);
+    if(error){alert('Erreur : '+error.message);return;}
+    S.rangements=S.rangements.filter(x=>x.id!==id);render();
+  });
+  document.querySelectorAll('[data-add-rng-child]').forEach(el=>el.onclick=()=>{
+    S.modal={type:'add-rng',parentId:el.dataset.addRngChild};render();
   });
   document.querySelectorAll('[data-rng-inv]').forEach(el=>el.onclick=()=>{
     const r=S.rangements.find(x=>x.id===el.dataset.rngInv);
