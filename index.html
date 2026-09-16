@@ -576,10 +576,9 @@ async function loadAll() {
     const test = await sb.from('users').select('count', {count:'exact',head:true});
     if (test.error) { showError(test.error.message || JSON.stringify(test.error)); return; }
 
-    const [u, a, t, tl, l, wo, mt, topo, rev, cpt, rel, ten, rp, rng, fam, crecheRes, ecoleRes, conso, facturesRes, resaRes, favRes, fournRes, chantiersRes, devisRes, devisAvRes, bienDocsRes, tfRegulRes, logFichesRes, logEdlRes] = await Promise.all([
+    const [u, a, tl, l, wo, mt, topo, rev, cpt, rel, ten, rp, rng, fam, crecheRes, ecoleRes, conso, facturesRes, resaRes, favRes, fournRes, chantiersRes, devisRes, devisAvRes, bienDocsRes, tfRegulRes, logFichesRes, logEdlRes] = await Promise.all([
       sb.from('users').select('*'),
       sb.from('assets').select('*'),
-      sb.from('tasks').select('*'),
       sb.from('tools').select('*'),
       sb.from('loans').select('*'),
       sb.from('work_orders').select('*'),
@@ -613,7 +612,7 @@ async function loadAll() {
       if (res.error) { showError(`Table "${name}" : ${res.error.message}`); return; }
     }
     // Non-blocking tables
-    for (const [name, res] of [['tasks',t],['tools',tl],['loans',l],['maintenance_templates',mt],['topology',topo],['revenues',rev],['compteurs',cpt],['releves',rel],['tenants',ten],['rent_payments',rp]]) {
+    for (const [name, res] of [['tools',tl],['loans',l],['maintenance_templates',mt],['topology',topo],['revenues',rev],['compteurs',cpt],['releves',rel],['tenants',ten],['rent_payments',rp]]) {
       if (res.error) { console.warn(`Table "${name}" non disponible:`, res.error.message); }
     }
     // Rangements — non-bloquant si table pas encore créée
@@ -621,7 +620,6 @@ async function loadAll() {
 
     S.users = u.data || [];
     S.assets = a.data || [];
-    S.tasks = t.data || [];
     S.tools = tl.data || [];
     S.loans = l.data || [];
     S.workOrders = wo.data || [];
@@ -889,9 +887,9 @@ function bindLogin(){
 
 const USER_PROFILE_TABS = {
   admin:      null,
-  technicien: ['dashboard','tasks','workorders','tools','consommables','etiquettes','loans','maintenance','rangements'],
+  technicien: ['dashboard','workorders','tools','consommables','etiquettes','loans','maintenance','rangements'],
   dubail:     ['workorders','consommables','locatif','compteurs','finances'],
-  perso:      ['dashboard','tasks','workorders','vehicles','finances','famille'],
+  perso:      ['dashboard','workorders','vehicles','finances','famille'],
   famille_jm: ['dashboard','workorders','vehicles','topology','famille','factures'],
   custom:     null
 };
@@ -912,10 +910,10 @@ function applyUserProfile(prof){
 // ============================================================
 const USER_PROFILES = {
   admin:      {label:'Administrateur',  tabs:null}, // null = tous les onglets
-  technicien: {label:'Technicien',      tabs:['dashboard','tasks','workorders','tools','consommables','etiquettes','loans','maintenance','rangements','vehicles']},
+  technicien: {label:'Technicien',      tabs:['dashboard','workorders','tools','consommables','etiquettes','loans','maintenance','rangements','vehicles']},
   dubail:     {label:'26 rue Dubail',   tabs:['dashboard','workorders','consommables','locatif','compteurs','finances']},
-  perso:      {label:'Perso',           tabs:['dashboard','tasks','workorders','vehicles','finances','famille']},
-  lecteur:    {label:'Lecteur',         tabs:['dashboard','tasks','workorders','maintenance']},
+  perso:      {label:'Perso',           tabs:['dashboard','workorders','vehicles','finances','famille']},
+  lecteur:    {label:'Lecteur',         tabs:['dashboard','workorders','maintenance']},
   famille_jm: {label:'Famille JOSSE MUSEUX', tabs:['dashboard','workorders','vehicles','topology','famille','factures']},
   custom:     {label:'Personnalisé',    tabs:[]}
 };
@@ -969,15 +967,12 @@ function applyUserDuplicate(sourceUserId){
 }
 
 function navItems(){
-  const assets = accessAssets(S.currentUser);
-  const overdueT = S.tasks.filter(t=>t.status==='overdue'&&(isAdmin()||assets.map(a=>a.id).includes(t.asset_id))).length;
   const loanedN = S.loans.filter(l=>!l.returned).length;
   const openWO = getFilteredWOs().filter(w=>w.status==='open').length;
   const allGroups = [
     {group:'Principal', items:[
       {id:'mobile_home', label:'Accueil mobile', icon:'📱'},
       {id:'dashboard', label:'Tableau de bord', icon:'⊞'},
-      {id:'tasks', label:'Échéances', icon:'◫', badge: overdueT},
       {id:'workorders', label:'Bons de travaux', icon:'◪', badge: openWO},
       {id:'chantiers', label:'Chantiers', icon:'🏗️'},
     ]},
@@ -1027,7 +1022,6 @@ function renderApp(){
   const views = {
     mobile_home: renderMobileHome(),
     dashboard: renderDashboard(),
-    tasks: renderTasks(),
     workorders: renderWorkOrders(),
     chantiers: renderChantiers(),
     tools: renderTools(),
@@ -1049,7 +1043,6 @@ function renderApp(){
     asset_detail: S.selectedAsset ? renderAssetDetail(S.selectedAsset) : '',
   };
   const topBtns = {
-    tasks: canEdit()?`<button class="btn btn-p" id="btn-add-task">+ Tâche</button>`:'',
     tools: isAdmin()?`<button class="btn btn-p" id="btn-add-tool">+ Nouvel outil</button>`:'',
     workorders: canEdit()?`<button class="btn btn-p" id="btn-add-wo">+ Bon de travaux</button>`:'',
     chantiers: isAdmin()?`<button class="btn btn-p" id="btn-add-chantier">+ Chantier</button>`:'',
@@ -1103,8 +1096,6 @@ function renderApp(){
 function renderDashboard(){
   const assets = getFilteredAssets();
   const wos = getFilteredWOs();
-  const tasks = S.tasks.filter(t=>isAdmin()||assets.map(a=>a.id).includes(t.asset_id));
-  const overdueT = tasks.filter(t=>t.status==='overdue').length;
   const loanedN = S.loans.filter(l=>!l.returned).length;
   const openWO = wos.filter(w=>w.status==='open').length;
   const dubailAssetIdSet=isDubailProfile()?getDubailAssetIds():null;
@@ -1131,9 +1122,8 @@ function renderDashboard(){
   const openWOs=getFilteredWOs().filter(w=>w.status==='open').map(w=>({w,g:woLabel(w)}))
     .sort((a,b)=>a.g.label.localeCompare(b.g.label)||new Date(a.w.date)-new Date(b.w.date));
 
-  return `<div class="g4" style="margin-bottom:16px">
+  return `<div class="g3" style="margin-bottom:16px">
     <div class="stat"><div class="stat-l">Équipements</div><div class="stat-v">${assets.length}</div></div>
-    <div class="stat"><div class="stat-l">Tâches en retard</div><div class="stat-v" style="color:var(--red)">${overdueT}</div></div>
     <div class="stat"><div class="stat-l">Bons ouverts</div><div class="stat-v" style="color:var(--amber)">${openWO}</div></div>
     <div class="stat"><div class="stat-l">Outils prêtés</div><div class="stat-v">${loanedN}</div></div>
   </div>
@@ -1305,34 +1295,6 @@ function renderAssetDetail(a){
     </div>`).join('')}
     ${docs.length===0?'<div style="font-size:12px;color:var(--text2)">Aucun document.</div>':''}
   </div>`:''}`;
-}
-
-function renderTasks(){
-  const assets = accessAssets(S.currentUser);
-  const tasks = S.tasks.filter(t=>isAdmin()||assets.map(a=>a.id).includes(t.asset_id));
-  const sorted = tasks.slice().sort((a,b)=>{const o={overdue:0,pending:1,done:2};return(o[a.status]||1)-(o[b.status]||1)||new Date(a.due_date)-new Date(b.due_date);});
-  return `<div class="card"><div style="overflow-x:auto"><table>
-    <thead><tr><th>Tâche</th><th>Équipement</th><th>Échéance</th><th>Priorité</th><th>Statut</th><th>Assigné</th><th></th></tr></thead>
-    <tbody>
-    ${sorted.map(t=>{
-      const asset = S.assets.find(a=>a.id===t.asset_id);
-      const user = S.users.find(u=>u.id===t.assigned_to);
-      return `<tr>
-        <td><div style="font-weight:500">${t.title}</div><div style="font-size:11px;color:var(--text2)">${t.description||''}</div></td>
-        <td><span style="cursor:pointer;color:var(--blue)" data-goto-asset="${asset?.id}">${asset?.name||'—'}</span></td>
-        <td style="font-size:12px">${dateLabel(t.due_date)}</td>
-        <td><span class="badge ${t.priority==='high'?'bred':t.priority==='medium'?'bamber':'bblue'}">${t.priority==='high'?'Haute':t.priority==='medium'?'Moyenne':'Basse'}</span></td>
-        <td><span class="badge ${t.status==='overdue'?'bred':t.status==='done'?'bgreen':'bamber'}">${t.status==='overdue'?'Retard':t.status==='done'?'Fait':'À faire'}</span></td>
-        <td>${user?`<div style="display:flex;align-items:center;gap:5px"><div class="avatar">${user.initials}</div><span style="font-size:12px">${user.name}</span></div>`:'—'}</td>
-        <td style="white-space:nowrap">
-          ${canEdit()&&t.status!=='done'?`<button class="btn btn-sm" data-done-task="${t.id}">✓</button> `:''}
-          ${isAdmin()?`<button class="btn btn-d btn-sm" data-del-task="${t.id}">✕</button>`:''}
-        </td>
-      </tr>`;
-    }).join('')}
-    ${sorted.length===0?'<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--text2)">Aucune tâche.</td></tr>':''}
-    </tbody>
-  </table></div></div>`;
 }
 
 function renderWorkOrders(){
@@ -2214,7 +2176,6 @@ function renderMobileHome(){
   const dateStr=now.toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long"});
   const timeStr=now.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"});
   // Quick stats
-  const overdueT=(S.tasks||[]).filter(t=>t.status==="overdue").length;
   const openWO=(S.workOrders||S.work_orders||[]).filter(w=>w.status==="open").length;
   const loanedN=(S.loans||[]).filter(l=>!l.returned).length;
   return '<div style="padding:16px;max-width:480px;margin:0 auto">'
@@ -2229,8 +2190,7 @@ function renderMobileHome(){
       +'<div style="font-size:12px;opacity:0.8">Bonjour, '+(S.currentUser?.name||"Antoine")+' 👋</div>'
     +'</div>'
     // Alerts
-    +(overdueT||openWO||loanedN?'<div style="background:#FFF3CD;border-radius:12px;padding:12px;margin-bottom:16px;font-size:12px">'
-      +(overdueT?'<div>⚠️ '+overdueT+' échéance'+(overdueT>1?"s":"")+" en retard</div>":'')
+    +(openWO||loanedN?'<div style="background:#FFF3CD;border-radius:12px;padding:12px;margin-bottom:16px;font-size:12px">'
       +(openWO?'<div>📋 '+openWO+' bon'+(openWO>1?"s":"")+" de travaux ouvert"+(openWO>1?"s":"")+'</div>':'')
       +(loanedN?'<div>🔧 '+loanedN+' outil'+(loanedN>1?"s":"")+" en prêt</div>":'')
     +'</div>':'')
@@ -4948,31 +4908,6 @@ function renderModal(){
       </select>
     </div>${mf}`;}
 
-  if(m.type==='add-task'){
-    html=`${mhd('Nouvelle tâche')}
-    <div class="form-group"><label>Titre *</label><input id="m-tk-title" placeholder="Ex: Vérifier extincteurs"></div>
-    <div class="form-group"><label>Description</label><textarea id="m-tk-desc"></textarea></div>
-    <div class="g2c">
-      <div class="form-group"><label>Équipement</label><select id="m-tk-asset">
-        <option value="">— Aucun —</option>
-        ${S.assets.map(a=>`<option value="${a.id}">${a.name}</option>`).join('')}
-      </select></div>
-      <div class="form-group"><label>Échéance</label><input id="m-tk-due" type="date" value="${NOW}"></div>
-    </div>
-    <div class="g2c">
-      <div class="form-group"><label>Priorité</label><select id="m-tk-priority">
-        <option value="low">Basse</option>
-        <option value="medium" selected>Moyenne</option>
-        <option value="high">Haute</option>
-      </select></div>
-      <div class="form-group"><label>Assigné à</label><select id="m-tk-assigned">
-        <option value="">— Personne —</option>
-        ${S.users.map(u=>`<option value="${u.id}">${u.name}</option>`).join('')}
-      </select></div>
-    </div>
-    ${mf}`;
-  }
-
   if(m.type==='view-wo'){
     const w=m.wo;
     const chantier=w.chantier_id?S.chantiers.find(c=>c.id===w.chantier_id):null;
@@ -5887,7 +5822,7 @@ function renderModal(){
     </div>
     <div class="form-group"><label>Onglets visibles</label>
       <div style="display:flex;flex-wrap:wrap;gap:4px 8px;background:var(--bg2);padding:8px;border-radius:var(--radius);max-height:130px;overflow-y:auto" id="utab-wrap">
-        <label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="dashboard" ${(u.visible_tabs||[]).includes("dashboard")?"checked":""}> Tableau de bord</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="tasks" ${(u.visible_tabs||[]).includes("tasks")?"checked":""}> Échéances</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="workorders" ${(u.visible_tabs||[]).includes("workorders")?"checked":""}> Bons de travaux</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="chantiers" ${(u.visible_tabs||[]).includes("chantiers")?"checked":""}> Chantiers</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="tools" ${(u.visible_tabs||[]).includes("tools")?"checked":""}> Outils</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="consommables" ${(u.visible_tabs||[]).includes("consommables")?"checked":""}> Consommables</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="etiquettes" ${(u.visible_tabs||[]).includes("etiquettes")?"checked":""}> Étiquettes QR</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="loans" ${(u.visible_tabs||[]).includes("loans")?"checked":""}> Prêts outils</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="vehicles" ${(u.visible_tabs||[]).includes("vehicles")?"checked":""}> Véhicules</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="topology" ${(u.visible_tabs||[]).includes("topology")?"checked":""}> Topologie</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="maintenance" ${(u.visible_tabs||[]).includes("maintenance")?"checked":""}> Gammes</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="locatif" ${(u.visible_tabs||[]).includes("locatif")?"checked":""}> Gestion locative</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="reservations" ${(u.visible_tabs||[]).includes("reservations")?"checked":""}> Réservations</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="compteurs" ${(u.visible_tabs||[]).includes("compteurs")?"checked":""}> Compteurs</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="finances" ${(u.visible_tabs||[]).includes("finances")?"checked":""}> Finances</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="factures" ${(u.visible_tabs||[]).includes("factures")?"checked":""}> Factures</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="rangements" ${(u.visible_tabs||[]).includes("rangements")?"checked":""}> Rangements</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="famille" ${(u.visible_tabs||[]).includes("famille")?"checked":""}> Famille</label>
+        <label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="dashboard" ${(u.visible_tabs||[]).includes("dashboard")?"checked":""}> Tableau de bord</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="workorders" ${(u.visible_tabs||[]).includes("workorders")?"checked":""}> Bons de travaux</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="chantiers" ${(u.visible_tabs||[]).includes("chantiers")?"checked":""}> Chantiers</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="tools" ${(u.visible_tabs||[]).includes("tools")?"checked":""}> Outils</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="consommables" ${(u.visible_tabs||[]).includes("consommables")?"checked":""}> Consommables</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="etiquettes" ${(u.visible_tabs||[]).includes("etiquettes")?"checked":""}> Étiquettes QR</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="loans" ${(u.visible_tabs||[]).includes("loans")?"checked":""}> Prêts outils</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="vehicles" ${(u.visible_tabs||[]).includes("vehicles")?"checked":""}> Véhicules</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="topology" ${(u.visible_tabs||[]).includes("topology")?"checked":""}> Topologie</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="maintenance" ${(u.visible_tabs||[]).includes("maintenance")?"checked":""}> Gammes</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="locatif" ${(u.visible_tabs||[]).includes("locatif")?"checked":""}> Gestion locative</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="reservations" ${(u.visible_tabs||[]).includes("reservations")?"checked":""}> Réservations</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="compteurs" ${(u.visible_tabs||[]).includes("compteurs")?"checked":""}> Compteurs</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="finances" ${(u.visible_tabs||[]).includes("finances")?"checked":""}> Finances</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="factures" ${(u.visible_tabs||[]).includes("factures")?"checked":""}> Factures</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="rangements" ${(u.visible_tabs||[]).includes("rangements")?"checked":""}> Rangements</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="famille" ${(u.visible_tabs||[]).includes("famille")?"checked":""}> Famille</label>
       </div>
     </div>
     <div class="form-group"><label>Équipements accessibles <small style="color:var(--text2)">(vide = tous)</small></label>
@@ -7565,20 +7500,6 @@ async function saveModal(){
       Object.assign(m.asset,rec);
     }
   }
-  if(m.type==='add-task'){
-    const title=q('m-tk-title')?.value?.trim();if(!title)return alert('Titre requis');
-    const rec={
-      title,description:q('m-tk-desc')?.value||null,
-      asset_id:q('m-tk-asset')?.value||null,
-      due_date:q('m-tk-due')?.value||null,
-      priority:q('m-tk-priority')?.value||'medium',
-      assigned_to:q('m-tk-assigned')?.value||null,
-      status:'pending'
-    };
-    const{data,error}=await sb.from('tasks').insert(rec).select().single();
-    if(error){alert('Erreur : '+error.message);return;}
-    if(data)S.tasks.push(data);
-  }
   if(m.type==='edit-cg'){
     const asset=m.asset;
     const gv=id=>document.getElementById(id)?.value||null;
@@ -9084,7 +9005,6 @@ function bindAll(){
   document.querySelectorAll('[data-nav]').forEach(el=>el.onclick=()=>{S.view=el.dataset.nav;S.selectedAsset=null;S.filter={cat:'all',search:''};if(el.dataset.nav!=='topology'){S.topoState.zoneId=null;S.topoState.subZoneId=null;S.topoState.tradeId=null;}render();});
   if(q('btn-logout'))q('btn-logout').onclick=()=>{S.currentUser=null;render();};
   if(q('btn-back'))q('btn-back').onclick=()=>{S.view=S.assetDetailFrom||'topology';S.selectedAsset=null;render();};
-  if(q('btn-add-task'))q('btn-add-task').onclick=()=>{S.modal={type:'add-task'};render();};
   if(q('btn-add-tool'))q('btn-add-tool').onclick=()=>{S.modal={type:'add-tool'};render();};
   if(q('btn-add-vehicle'))q('btn-add-vehicle').onclick=()=>{S.modal={type:'add-asset',forceCategory:'Véhicule'};render();};
   if(q('btn-add-wo'))q('btn-add-wo').onclick=()=>{
@@ -9147,12 +9067,6 @@ function bindAll(){
   document.querySelectorAll('[data-fcat]').forEach(el=>el.onclick=()=>{S.filter.cat=el.dataset.fcat;render();});
   document.querySelectorAll('[data-goto-asset]').forEach(el=>el.onclick=()=>{const a=S.assets.find(x=>x.id===el.dataset.gotoAsset);if(a){S.selectedAsset=a;S.assetDetailFrom=S.view;S.view='asset_detail';S.subTab='info';render();}});
   document.querySelectorAll('[data-tab]').forEach(el=>el.onclick=()=>{S.subTab=el.dataset.tab;render();});
-  document.querySelectorAll('[data-done-task]').forEach(el=>el.onclick=async()=>{
-    await sb.from('tasks').update({status:'done'}).eq('id',el.dataset.doneTask);
-    const t=S.tasks.find(x=>x.id===el.dataset.doneTask);if(t)t.status='done';render();});
-  document.querySelectorAll('[data-del-task]').forEach(el=>el.onclick=async()=>{
-    if(!confirm('Supprimer ?'))return;await sb.from('tasks').delete().eq('id',el.dataset.delTask);
-    S.tasks=S.tasks.filter(t=>t.id!==el.dataset.delTask);render();});
   // Lier un équipement à un nœud topologique
   document.querySelectorAll('[data-link-node]').forEach(el=>el.onclick=e=>{
     e.stopPropagation();
