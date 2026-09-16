@@ -5607,8 +5607,25 @@ function renderModal(){
 
   if(m.type==='lend-tool'){
     const tool = S.tools.find(t=>t.id===m.toolId);
+    // Emprunteurs deja connus : utilisateurs de l'appli + tout nom deja
+    // utilise dans l'historique des prets (memorise ainsi automatiquement les
+    // personnes ajoutees via "Autre...", sans table dediee ni migration).
+    // Deduplique insensible a la casse (garde la forme d'un utilisateur de
+    // l'appli si elle existe, sinon la 1ere orthographe rencontree) pour ne
+    // pas re-fragmenter le suivi avec "Hubert" vs "HUBERT" par exemple.
+    const borrowerSeen=new Map();
+    (S.users||[]).forEach(u=>{if(u.name)borrowerSeen.set(u.name.trim().toLowerCase(),u.name.trim());});
+    (S.loans||[]).forEach(l=>{if(l.borrower){const t=l.borrower.trim();const k=t.toLowerCase();if(!borrowerSeen.has(k))borrowerSeen.set(k,t);}});
+    const borrowerNames=[...borrowerSeen.values()].sort((a,b)=>a.localeCompare(b));
     html=`${mhd('Prêter — '+(tool?.name||''))}
-    <div class="form-group"><label>Emprunté par *</label><input id="m-lb" placeholder="Nom de la personne"></div>
+    <div class="form-group"><label>Emprunté par *</label>
+      <select id="m-lb-sel" onchange="const inp=document.getElementById('m-lb-custom');inp.style.display=this.value==='__autre__'?'':'none';">
+        <option value="">— Sélectionner —</option>
+        ${borrowerNames.map(n=>`<option value="${n.replace(/"/g,'&quot;')}">${n}</option>`).join('')}
+        <option value="__autre__">✏ Autre...</option>
+      </select>
+      <input id="m-lb-custom" placeholder="Nom de la personne..." style="margin-top:6px;display:none">
+    </div>
     <div class="g2c">
       <div class="form-group"><label>Date de prêt</label><input id="m-ld" type="date" value="${NOW}"></div>
       <div class="form-group"><label>Retour prévu *</label><input id="m-lr" type="date"></div>
@@ -7618,7 +7635,8 @@ async function saveModal(){
   }
 
   if(m.type==='lend-tool'){
-    const borrower=q('m-lb')?.value?.trim();
+    const lbSel=q('m-lb-sel')?.value||'';
+    const borrower=(lbSel==='__autre__'?q('m-lb-custom')?.value:lbSel)?.trim();
     if(!borrower)return alert('Nom de l\'emprunteur requis');
     const loanDate=q('m-ld')?.value||new Date().toISOString().slice(0,10);
     const expectedReturn=q('m-lr')?.value||null;
@@ -10343,7 +10361,6 @@ function bindAll(){
     }
   }
 
-  document.querySelectorAll('[data-lend-tool]').forEach(el=>el.onclick=()=>{S.modal={type:'lend-tool',toolId:el.dataset.lendTool};render();});
   document.querySelectorAll('[data-return-tool]').forEach(el=>el.onclick=async()=>{
     const loan=S.loans.find(l=>l.tool_id===el.dataset.returnTool&&!l.returned);
     if(loan){loan.returned=true;await sb.from('loans').update({returned:true}).eq('id',loan.id);}
