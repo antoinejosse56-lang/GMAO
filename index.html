@@ -241,15 +241,24 @@ const CORPS_METIER_LIST=['Plomberie','Électricité','Chauffage / Climatisation'
 // remonte pas (frequent pour Booking) - a ajuster ici si un ecart est
 // constate sur un futur releve.
 const BOOKING_COMMISSION_TAUX=18.2;
+// Taux de commission Airbnb, verifie sur l'historique des resa deja
+// correctement taguees "airbnb" avec un frais_resa reel connu (12 resa) :
+// deux paliers tres nets selon la date d'arrivee - 3,6% du montant brut
+// (nuitees + menage) jusqu'a debut mai 2026, puis 18,6% de facon constante
+// a partir de juin 2026 (probable changement de structure de frais cote
+// Airbnb - "split fee" vers "host-only fee"). On applique le palier le
+// plus recent (18,6%), le seul pertinent pour les resa a venir - a revoir
+// si un nouveau changement de palier est constate.
+const AIRBNB_COMMISSION_TAUX=18.6;
 // Calcule (sans rien ecrire en base) le frais_resa/montant_total manquants
 // d'une reservation. Deux cas :
 // - montant_nuits et frais_resa deja connus (reels) : simple calcul exact,
 //   jamais marque "estime".
-// - frais_resa manquant sur une resa Booking : on l'estime via le taux
-//   moyen ci-dessus applique a (nuitees + menage), comme le fait reellement
-//   Booking sur son releve, et le resultat est marque estime:true pour
-//   etre affiche distinctement (a verifier), comme le fait deja Lodgify
-//   pour les resa Airbnb sur son propre tableau de bord.
+// - frais_resa manquant sur une resa Booking/Airbnb : on l'estime via le
+//   taux moyen ci-dessus applique a (nuitees + menage), et le resultat est
+//   marque estime:true pour etre affiche distinctement (a verifier),
+//   comme le fait deja Lodgify pour les resa Airbnb sur son propre
+//   tableau de bord.
 // Renvoie null si rien ne peut etre calcule (ex: montant_nuits inconnu, ou
 // source sans taux etabli).
 function estimateResaMontant(r){
@@ -258,9 +267,10 @@ function estimateResaMontant(r){
   if(r.frais_resa!=null){
     return{frais_resa:r.frais_resa,montant_total:Math.round((r.montant_nuits-r.frais_resa+menage)*100)/100,montant_estime:false};
   }
-  if(r.source==='booking'){
+  const taux=r.source==='booking'?BOOKING_COMMISSION_TAUX:r.source==='airbnb'?AIRBNB_COMMISSION_TAUX:null;
+  if(taux!=null){
     const brut=r.montant_nuits+menage;
-    const fraisResaEst=Math.round(brut*BOOKING_COMMISSION_TAUX/100*100)/100;
+    const fraisResaEst=Math.round(brut*taux/100*100)/100;
     return{frais_resa:fraisResaEst,montant_total:Math.round((brut-fraisResaEst)*100)/100,montant_estime:true};
   }
   return null;
@@ -2125,7 +2135,7 @@ function renderVehicles(){
             +(menagePresta?'🧹 Presta':'🙋 Moi')
           +'</button>'
         +'</td>'
-        +'<td style="text-align:right;font-weight:600">'+( r.montant_total?(isEstime?'<span style="color:#1D9E75" title="Estimé — commission Booking moyenne ('+BOOKING_COMMISSION_TAUX+'%), à vérifier">≈ '+fmt(r.montant_total)+'</span>':fmt(r.montant_total)):'<span style="color:var(--amber)">⚠ à compléter</span>')+'</td>'
+        +'<td style="text-align:right;font-weight:600">'+( r.montant_total?(isEstime?'<span style="color:#1D9E75" title="Estimé — commission '+(r.source==='airbnb'?'Airbnb':'Booking')+' moyenne ('+(r.source==='airbnb'?AIRBNB_COMMISSION_TAUX:BOOKING_COMMISSION_TAUX)+'%), à vérifier">≈ '+fmt(r.montant_total)+'</span>':fmt(r.montant_total)):'<span style="color:var(--amber)">⚠ à compléter</span>')+'</td>'
         +'<td>'+srcBadge(r.source)+'</td>'
         +'<td style="white-space:nowrap">'
           +(isFerme
@@ -2234,7 +2244,7 @@ function renderVehicles(){
   +'</div>'
   +'<div style="font-size:11px;color:var(--text2);margin-bottom:10px">'
     +'<span style="background:#FFF9E6;padding:1px 6px;border-radius:4px">⚠ à compléter</span> = aucune donnée &nbsp; '
-    +'<span style="background:#E8F8F0;padding:1px 6px;border-radius:4px">≈ estimé</span> = commission Booking moyenne appliquée automatiquement, à vérifier'
+    +'<span style="background:#E8F8F0;padding:1px 6px;border-radius:4px">≈ estimé</span> = commission moyenne (Booking ou Airbnb) appliquée automatiquement, à vérifier'
   +'</div>'
   +yearBar
   +roomTable(resas.filter(r=>r.room==="Studio"),"Studio")
