@@ -8956,7 +8956,12 @@ function genFactureResaPDF(resa){
   const plafond=S.taxeSejourPlafond||4.60;
   const prixNuitUnitaire=resa.montant_nuits&&resa.nb_nuits?Math.round(resa.montant_nuits/resa.nb_nuits*100)/100:0;
   const taxe=resa.taxe_sejour||calcTaxeSejour(resa.nb_adultes||1,resa.nb_nuits||1,resa.montant_nuits||0,taux,plafond);
-  const total=(resa.montant_nuits||0)+(resa.frais_menage||0)+(resa.frais_resa||0)+taxe;
+  // frais_resa est la commission prelevee par Booking/Airbnb sur le
+  // versement au proprietaire - le client ne la paie jamais en plus de son
+  // sejour, donc elle n'a pas sa place sur SA facture (ni dans le total, ni
+  // en ligne : elle gonflerait sinon le montant facture au-dela de ce que
+  // le client a reellement regle).
+  const total=(resa.montant_nuits||0)+(resa.frais_menage||0)+taxe;
   const roomLabel=resa.room==="T2"?"Appartement T2 - Escale Pro Lorient":"Studio - Escale Pro Lorient";
   const arrivee=resa.date_arrivee?new Date(resa.date_arrivee).toLocaleDateString("fr-FR"):"";
   const depart=resa.date_depart?new Date(resa.date_depart).toLocaleDateString("fr-FR"):"";
@@ -8989,7 +8994,6 @@ function genFactureResaPDF(resa){
       +"<tbody>"
       +"<tr><td>Séjour</td><td>"+arrivee+" au "+depart+" ("+( resa.nb_nuits||0)+" nuit"+(resa.nb_nuits>1?"s":"")+")</td><td style=\"text-align:right\">"+fmt(resa.montant_nuits)+"</td></tr>"
       +(resa.frais_menage?"<tr><td>Frais de ménage</td><td></td><td style=\"text-align:right\">"+fmt(resa.frais_menage)+"</td></tr>":"")
-      +(resa.frais_resa?"<tr><td>Frais de réservation</td><td></td><td style=\"text-align:right\">"+fmt(resa.frais_resa)+"</td></tr>":"")
       +"<tr><td>Taxe de séjour</td><td>"+(resa.nb_adultes||1)+" adulte"+(resa.nb_adultes>1?"s":"")+" × "+( resa.nb_nuits||1)+" nuit"+(resa.nb_nuits>1?"s":"")+" ("+taux+"%  plaf. "+plafond+"€/j/pers)</td><td style=\"text-align:right\">"+fmt(taxe)+"</td></tr>"
       +"</tbody>"
       +"<tfoot><tr class=\"total-row\"><td colspan=\"2\"><strong>TOTAL</strong></td><td style=\"text-align:right\"><strong>"+fmt(total)+"</strong></td></tr></tfoot>"
