@@ -391,6 +391,39 @@ function buildBienOptsBase(){
 function buildChantierOptsBase(){
   return [{v:'',l:'— Aucun chantier —'},{v:'__new__',l:'+ Nouveau chantier…'},...[...S.chantiers].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at)).map(c=>({v:c.id,l:c.nom+(c.statut==='termine'?' (terminé)':'')}))];
 }
+// Un chantier n'a pas forcement une zone/sous-zone precise : son "bien" peut
+// etre juste la propriete ("Immeuble X") ou deja une zone ("Immeuble X - 2e
+// gauche"). Il correspond au bien selectionne des que ce dernier est le
+// chantier lui-meme ou une de ses sous-zones.
+function chantierMatchesBien(c,bienVal){
+  if(!c||!c.bien)return false;
+  return bienVal===c.bien||bienVal.startsWith(c.bien+' - ');
+}
+// Reconstruit un select Chantier pour ne proposer que ceux du bien donne (+
+// "Nouveau chantier..." si le select en disposait deja) - reutilise par les
+// 3 formulaires ou Bien et Chantier cohabitent (facture, devis a valider,
+// facture a valider), pour que changer de bien ne laisse jamais affiche un
+// chantier d'un tout autre bien.
+function rebuildChantierSelectForBien(chantierSel,bienVal){
+  if(!chantierSel)return;
+  const hadNew=[...chantierSel.options].some(o=>o.value==='__new__');
+  const matching=S.chantiers.filter(c=>!bienVal||chantierMatchesBien(c,bienVal));
+  const opts=[{v:'',l:'— Aucun chantier —'}];
+  if(hadNew)opts.push({v:'__new__',l:'+ Nouveau chantier…'});
+  matching.forEach(c=>opts.push({v:c.id,l:c.nom+(c.statut==='termine'?' (terminé)':'')}));
+  chantierSel.innerHTML=renderOpts(opts,'');
+}
+// Cascade Bien -> Chantier -> BT du formulaire facture : changer de bien
+// reduit la liste des chantiers a ceux de ce bien puis reinitialise le
+// chantier et le BT choisis (qui ne correspondraient plus forcement).
+function facBienChanged(){
+  const bienVal=document.getElementById('fac-bien')?.value||'';
+  const chantierSel=document.getElementById('fac-chantier');
+  rebuildChantierSelectForBien(chantierSel,bienVal);
+  const hint=document.getElementById('fac-chantier-hint');
+  if(hint)hint.textContent=bienVal?'— filtré sur ce bien':'';
+  document.getElementById('fac-wo').innerHTML=computeFilteredWoOpts(bienVal,'','',false,document.getElementById('fac-asset')?.value);
+}
 // PostgREST plafonne chaque requete a "Max Rows" (1000 par defaut cote Supabase),
 // meme si .range() en demande plus - il faut paginer cote client pour tout recuperer.
 async function fetchAllRows(table, orderCol, ascending){
@@ -5536,7 +5569,21 @@ function renderModal(){
 
   if(m.type==='add-facture'||m.type==='edit-facture'){
     const f=m.facture||{};
-    const rngOpts=S.topology.properties.map(p=>`<option value="${p.name}" ${f.bien===p.name?'selected':''}>${p.name}</option>`).join('');
+    // Reutilise les listes Bien/Chantier partagees (deja utilisees pour les
+    // factures a valider) plutot qu'une construction ad hoc - celle-ci
+    // oubliait de marquer l'option "selected", donc le select retombait
+    // toujours sur "General / Non lie" a l'ouverture d'une facture
+    // existante (le bien est presque toujours "Propriete - Zone", jamais
+    // juste "Propriete", donc aucune option ne matchait jamais visuellement)
+    // et valider l'edition ecrasait alors le vrai bien par null.
+    const bienOptsHtml=renderOpts(buildBienOptsBase().filter(o=>o.v!==''),f.bien||'');
+    // Chantiers filtres par bien selectionne (bien puis zone, puis chantier
+    // si un chantier correspond a ce bien) - chantier.bien peut etre juste la
+    // propriete ("Immeuble X") ou une zone precise ("Immeuble X - 2e gauche"),
+    // donc un chantier correspond des que le bien choisi est lui-meme ou une
+    // de ses sous-zones.
+    const bienVal=f.bien||'';
+    const chantierOptsHtml=renderOpts(buildChantierOptsBase().filter(o=>o.v!=='__new__'&&(!o.v||!bienVal||o.v===f.chantier_id||chantierMatchesBien(S.chantiers.find(c=>c.id===o.v),bienVal))),f.chantier_id||'');
     const woOpts=computeFilteredWoOpts(f.bien||'',f.chantier_id||'',f.wo_id||'',false,f.asset_id||'');
     html=`${mhd(m.type==='add-facture'?'Nouvelle facture':'Modifier facture — '+f.fournisseur)}
     <div class="g2c">
@@ -5558,9 +5605,9 @@ function renderModal(){
     </div>
     <div class="g2c">
       <div class="form-group"><label>Bien / Propriété</label>
-        <select id="fac-bien" onchange="document.getElementById('fac-wo').innerHTML=computeFilteredWoOpts(this.value,document.getElementById('fac-chantier')?.value,'',false,document.getElementById('fac-asset')?.value)">
+        <select id="fac-bien" onchange="facBienChanged()">
           <option value="">— Général / Non lié —</option>
-          ${(()=>{const opts=[];S.topology.properties.forEach(p=>{opts.push('<option value="'+p.name+'">'+p.name+'</option>');(p.zones||[]).forEach(z=>{opts.push('<option value="'+p.name+' - '+z.name+'">&nbsp;&nbsp;'+p.name+' &rsaquo; '+z.name+'</option>');(z.subZones||[]).forEach(s=>{opts.push('<option value="'+p.name+' - '+z.name+' - '+s.name+'">&nbsp;&nbsp;&nbsp;&nbsp;'+p.name+' &rsaquo; '+z.name+' &rsaquo; '+s.name+'</option>');});});});return opts.join('');})()}
+          ${bienOptsHtml}
         </select>
       </div>
       <div class="form-group"><label>BT lié (optionnel)</label>
@@ -5583,10 +5630,9 @@ function renderModal(){
         </select>
       </div>
     </div>
-    <div class="form-group"><label>Chantier lié (optionnel, sans passer par un BT)</label>
+    <div class="form-group"><label>Chantier lié (optionnel, sans passer par un BT) <span style="font-size:11px;color:var(--text2);font-weight:400" id="fac-chantier-hint">${bienVal?'— filtré sur ce bien':''}</span></label>
       <select id="fac-chantier" onchange="document.getElementById('fac-wo').innerHTML=computeFilteredWoOpts(document.getElementById('fac-bien')?.value,this.value,'',false,document.getElementById('fac-asset')?.value)">
-        <option value="">— Aucun chantier —</option>
-        ${S.chantiers.map(c=>`<option value="${c.id}" ${f.chantier_id===c.id?'selected':''}>${c.nom}${c.statut==='termine'?' (terminé)':''}</option>`).join('')}
+        ${chantierOptsHtml}
       </select>
     </div>
     <div class="g2c">
@@ -7774,7 +7820,7 @@ async function saveModal(){
       montant_ht:parseFloat(q('fac-ht')?.value)||0,
       tva_pct:parseFloat(q('fac-tva')?.value)||0,
       montant_ttc:ttc,description:q('fac-desc')?.value||null,
-      numero:q('fac-num')?.value||null,drive_url:q('fac-url')?.value||null,
+      drive_url:q('fac-url')?.value||null,
       date_paiement:q('fac-date-paiement')?.value||null};
     if(m.type==='add-facture'){
       const {data,error}=await sb.from('factures').insert(rec).select().single();
@@ -10094,6 +10140,7 @@ function bindAll(){
         const compteSel=document.querySelector('.fav-compte[data-fav-id="'+id+'"]');
         if(compteSel)compteSel.value=dubailFilter(sel.value)?'savadur':'perso';
       }
+      rebuildChantierSelectForBien(document.querySelector('.fav-chantier[data-fav-id="'+id+'"]'),sel.value);
       updateFavWoFilter(id);
     };
   };
@@ -10364,7 +10411,11 @@ function bindAll(){
     woSel.innerHTML=computeFilteredWoOpts(bienSel?bienSel.value:'',chantierSel?chantierSel.value:'',woSel.value,true);
   };
   document.querySelectorAll('.dev-bien').forEach(sel=>{
-    sel.onchange=()=>updateDevWoFilter(sel.dataset.devId);
+    sel.onchange=()=>{
+      const id=sel.dataset.devId;
+      rebuildChantierSelectForBien(document.querySelector('.dev-chantier[data-dev-id="'+id+'"]'),sel.value);
+      updateDevWoFilter(id);
+    };
   });
   document.querySelectorAll('.dev-chantier').forEach(sel=>{
     sel.onchange=()=>updateDevWoFilter(sel.dataset.devId);
