@@ -812,9 +812,9 @@ function bindLogin(){
 
 const USER_PROFILE_TABS = {
   admin:      null,
-  technicien: ['dashboard','assets','tasks','workorders','tools','consommables','etiquettes','loans','maintenance','rangements'],
-  dubail:     ['assets','workorders','consommables','locatif','compteurs','finances'],
-  perso:      ['dashboard','assets','tasks','workorders','vehicles','finances','famille'],
+  technicien: ['dashboard','tasks','workorders','tools','consommables','etiquettes','loans','maintenance','rangements'],
+  dubail:     ['workorders','consommables','locatif','compteurs','finances'],
+  perso:      ['dashboard','tasks','workorders','vehicles','finances','famille'],
   custom:     null
 };
 function getUserVisibleTabs(){
@@ -834,10 +834,10 @@ function applyUserProfile(prof){
 // ============================================================
 const USER_PROFILES = {
   admin:      {label:'Administrateur',  tabs:null}, // null = tous les onglets
-  technicien: {label:'Technicien',      tabs:['dashboard','assets','tasks','workorders','tools','consommables','etiquettes','loans','maintenance','rangements','vehicles']},
-  dubail:     {label:'26 rue Dubail',   tabs:['dashboard','assets','workorders','consommables','locatif','compteurs','finances']},
-  perso:      {label:'Perso',           tabs:['dashboard','assets','tasks','workorders','vehicles','finances','famille']},
-  lecteur:    {label:'Lecteur',         tabs:['dashboard','assets','tasks','workorders','maintenance']},
+  technicien: {label:'Technicien',      tabs:['dashboard','tasks','workorders','tools','consommables','etiquettes','loans','maintenance','rangements','vehicles']},
+  dubail:     {label:'26 rue Dubail',   tabs:['dashboard','workorders','consommables','locatif','compteurs','finances']},
+  perso:      {label:'Perso',           tabs:['dashboard','tasks','workorders','vehicles','finances','famille']},
+  lecteur:    {label:'Lecteur',         tabs:['dashboard','tasks','workorders','maintenance']},
   custom:     {label:'Personnalisé',    tabs:[]}
 };
 const ALL_TABS_LABELS = {
@@ -882,7 +882,6 @@ function navItems(){
     {group:'Principal', items:[
       {id:'mobile_home', label:'Accueil mobile', icon:'📱'},
       {id:'dashboard', label:'Tableau de bord', icon:'⊞'},
-      {id:'assets', label:'Équipements', icon:'◧', badge: S.assets.filter(a=>a.status==='urgent').length||0},
       {id:'tasks', label:'Échéances', icon:'◫', badge: overdueT},
       {id:'workorders', label:'Bons de travaux', icon:'◪', badge: openWO},
       {id:'chantiers', label:'Chantiers', icon:'🏗️'},
@@ -894,10 +893,10 @@ function navItems(){
       {id:'loans', label:'Prêts en cours', icon:'◉', badge: loanedN},
     ]},
     {group:'Véhicules', items:[
-      {id:'vehicles', label:'Mes véhicules', icon:'🚗'},
+      {id:'vehicles', label:'Mes véhicules', icon:'🚗', badge: S.assets.filter(a=>(a.category==='Véhicule'||a.category==='Bateau')&&a.status==='urgent').length||0},
     ]},
     {group:'Immobilier', items:[
-      {id:'topology', label:'Topologie biens', icon:'◍'},
+      {id:'topology', label:'Topologie biens', icon:'◍', badge: S.assets.filter(a=>a.category==='Immobilier'&&a.status==='urgent').length||0},
       {id:'maintenance', label:'Gammes entretien', icon:'◌'},
     ]},
     {group:'Location courte durée', items:[
@@ -933,7 +932,6 @@ function renderApp(){
   const views = {
     mobile_home: renderMobileHome(),
     dashboard: renderDashboard(),
-    assets: renderAssets(),
     tasks: renderTasks(),
     workorders: renderWorkOrders(),
     chantiers: renderChantiers(),
@@ -1053,245 +1051,6 @@ function renderDashboard(){
   </div>`;
 }
 
-function renderAssets(){
-  const assets = getFilteredAssets();
-  const as = S.assetNav||{propId:null, zoneId:null, subId:null};
-
-  // Helper: get WOs for an asset or topo node
-  function nodeWOs(assetId, propId, zoneId, subId){
-    return getFilteredWOs().filter(w=>{
-      if(assetId && w.asset_id===assetId) return true;
-      if(!w.topo_ref) return false;
-      if(subId && w.topo_ref.subId===subId) return true;
-      if(!subId && zoneId && w.topo_ref.zoneId===zoneId) return true;
-      if(!subId && !zoneId && propId && w.topo_ref.propId===propId) return true;
-      return false;
-    });
-  }
-
-  // Helper: get assets linked to a topo node
-  function nodeAssets(propId, zoneId, subId){
-    const ids = new Set();
-    const prop = S.topology.properties.find(p=>p.id===propId);
-    if(!prop) return [];
-    if(subId){
-      const zone = prop.zones?.find(z=>z.id===zoneId);
-      const sub = zone?.subZones?.find(s=>s.id===subId);
-      if(sub?.assetId) ids.add(sub.assetId);
-      // Also equipment with location matching
-    } else if(zoneId){
-      const zone = prop.zones?.find(z=>z.id===zoneId);
-      if(zone?.assetId) ids.add(zone.assetId);
-      (zone?.subZones||[]).forEach(s=>{ if(s.assetId) ids.add(s.assetId); });
-    } else {
-      if(prop.assetId) ids.add(prop.assetId);
-      (prop.zones||[]).forEach(z=>{
-        if(z.assetId) ids.add(z.assetId);
-        (z.subZones||[]).forEach(s=>{ if(s.assetId) ids.add(s.assetId); });
-      });
-    }
-    return assets.filter(a=>ids.has(a.id));
-  }
-
-  function statusBadge(a){
-    const s = a.status==='ok'?'bgreen':a.status==='attention'?'bamber':'bred';
-    return `<span class="badge ${s}">${a.status==='ok'?'OK':a.status==='attention'?'Attention':'Urgent'}</span>`;
-  }
-
-  function woSummary(wos){
-    const open = wos.filter(w=>w.status==='open').length;
-    const done = wos.filter(w=>w.status==='done').length;
-    if(!wos.length) return '';
-    return `<div style="display:flex;gap:6px;margin-top:6px">
-      ${open>0?`<span class="badge bamber">${open} bon(s) ouvert(s)</span>`:''}
-      ${done>0?`<span class="badge bgreen">${done} terminé(s)</span>`:''}
-    </div>`;
-  }
-
-  function assetCard(a, compact=false){
-    const wos = nodeWOs(a.id);
-    const days = daysUntil(a.next_maint);
-    return `<div class="card" style="cursor:pointer" data-goto-asset="${a.id}">
-      <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:6px">
-        <div><div style="font-weight:500;font-size:13px">${a.name}</div><div style="font-size:11px;color:var(--text2)">${a.type||a.category||''}</div></div>
-        ${statusBadge(a)}
-      </div>
-      ${!compact?`<div style="font-size:12px;color:var(--text2);margin-bottom:6px">${a.description||'—'}</div>`:''}
-      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text2);border-top:0.5px solid var(--border);padding-top:6px">
-        <span>${dateLabel(a.next_maint)||'Aucun entretien prévu'}</span>
-        ${days!==null?`<span class="badge ${days<0?'bred':days<=30?'bamber':'bgray'}">${days<0?`${-days}j retard`:`${days}j`}</span>`:''}
-      </div>
-      ${woSummary(wos)}
-    </div>`;
-  }
-
-  // --- LEVEL 0: No property selected → show all properties ---
-  if(!as.propId){
-    const nonImmo = assets.filter(a=>a.category!=='Immobilier');
-    const nonImmoWOs = nonImmo.map(a=>nodeWOs(a.id)).flat();
-    return `<div>
-      <div style="font-size:12px;color:var(--text2);margin-bottom:14px">Sélectionnez un bien ou consultez directement vos équipements.</div>
-      ${S.topology.properties.length>0?`
-      <div class="sec">Biens immobiliers</div>
-      <div class="g2" style="margin-bottom:20px">
-        ${S.topology.properties.map(p=>{
-          const pAssets = nodeAssets(p.id, null, null);
-          const pWOs = nodeWOs(p.assetId, p.id, null, null);
-          const openWOs = pWOs.filter(w=>w.status==='open').length;
-          const zones = p.zones||[];
-          return `<div class="card" style="cursor:pointer" data-asset-nav-prop="${p.id}">
-            <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px">
-              <div><div style="font-weight:500;font-size:14px">🏠 ${p.name}</div><div style="font-size:11px;color:var(--text2)">${zones.length} zone(s)</div></div>
-              ${openWOs>0?`<span class="badge bred">${openWOs} bon(s) ouvert(s)</span>`:'<span class="badge bgreen">OK</span>'}
-            </div>
-            <div style="font-size:12px;color:var(--text2)">${pAssets.length} équipement(s) lié(s)</div>
-            ${woSummary(pWOs)}
-          </div>`;
-        }).join('')}
-      </div>`:''}
-      ${nonImmo.length>0?`
-      <div class="sec">Équipements, véhicules & outillage</div>
-      <div class="g2">${nonImmo.map(a=>assetCard(a)).join('')}</div>`:''}
-    </div>`;
-  }
-
-  // --- LEVEL 1: Property selected, no zone ---
-  const prop = S.topology.properties.find(p=>p.id===as.propId);
-  if(!prop) { S.assetNav={propId:null,zoneId:null,subId:null}; return renderAssets(); }
-
-  if(!as.zoneId){
-    const propAsset = prop.assetId ? assets.find(a=>a.id===prop.assetId) : null;
-    const propWOs = nodeWOs(prop.assetId, prop.id, null, null);
-    const zones = prop.zones||[];
-    return `<div>
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
-        <span style="cursor:pointer;color:var(--blue);font-size:13px" data-asset-nav-prop="">← Tous les biens</span>
-        <span style="color:var(--text3)">›</span>
-        <span style="font-size:13px;font-weight:500">🏠 ${prop.name}</span>
-      </div>
-      ${propAsset?`<div class="card" style="margin-bottom:14px">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
-          <div><div style="font-weight:500">${prop.name}</div><div style="font-size:11px;color:var(--text2)">Bien immobilier</div></div>
-          ${statusBadge(propAsset)}
-        </div>
-        ${woSummary(propWOs)}
-        <button class="btn btn-sm" style="margin-top:8px" data-goto-asset="${propAsset.id}">Voir la fiche →</button>
-      </div>`:''}
-      ${propWOs.length>0?`<div style="margin-bottom:14px">
-        <div class="sec">Bons de travaux — ${prop.name}</div>
-        ${propWOs.map(w=>`<div class="wo-card">
-          <div style="display:flex;justify-content:space-between;align-items:flex-start">
-            <div><div style="font-weight:500;font-size:13px">${w.title}</div><div style="font-size:11px;color:var(--text2)">${dateLabel(w.date)}</div></div>
-            <span class="badge ${w.status==='done'?'bgreen':'bamber'}">${w.status==='done'?'Terminé':'Ouvert'}</span>
-          </div>
-          ${w.description?`<div style="font-size:12px;color:var(--text2);margin-top:4px">${w.description}</div>`:''}
-        </div>`).join('')}
-      </div>`:''}
-      ${zones.length>0?`<div class="sec">Zones</div>
-      <div class="g2">
-        ${zones.map(z=>{
-          const zAssets = nodeAssets(prop.id, z.id, null);
-          const zWOs = nodeWOs(z.assetId, prop.id, z.id, null);
-          const openWOs = zWOs.filter(w=>w.status==='open').length;
-          return `<div class="card" style="cursor:pointer" data-asset-nav-zone="${z.id}" data-asset-nav-prop2="${prop.id}">
-            <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:6px">
-              <div><div style="font-weight:500">📁 ${z.name}</div><div style="font-size:11px;color:var(--text2)">${(z.subZones||[]).length} sous-zone(s)</div></div>
-              ${openWOs>0?`<span class="badge bred">${openWOs} ouvert(s)</span>`:''}
-            </div>
-            <div style="font-size:12px;color:var(--text2)">${zAssets.length} équipement(s)</div>
-            ${woSummary(zWOs)}
-          </div>`;
-        }).join('')}
-      </div>`:''}
-    </div>`;
-  }
-
-  // --- LEVEL 2: Zone selected ---
-  const zone = prop.zones?.find(z=>z.id===as.zoneId);
-  if(!zone){ S.assetNav.zoneId=null; return renderAssets(); }
-
-  if(!as.subId){
-    const zoneAsset = zone.assetId ? assets.find(a=>a.id===zone.assetId) : null;
-    const zoneWOs = nodeWOs(zone.assetId, prop.id, zone.id, null);
-    const subs = zone.subZones||[];
-    return `<div>
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap">
-        <span style="cursor:pointer;color:var(--blue);font-size:13px" data-asset-nav-prop="">← Tous les biens</span>
-        <span style="color:var(--text3)">›</span>
-        <span style="cursor:pointer;color:var(--blue);font-size:13px" data-asset-nav-zone="">🏠 ${prop.name}</span>
-        <span style="color:var(--text3)">›</span>
-        <span style="font-size:13px;font-weight:500">📁 ${zone.name}</span>
-      </div>
-      ${zoneAsset?`<div class="card" style="margin-bottom:14px">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
-          <div><div style="font-weight:500">${zone.name}</div><div style="font-size:11px;color:var(--text2)">Zone</div></div>
-          ${statusBadge(zoneAsset)}
-        </div>
-        ${woSummary(zoneWOs)}
-        <button class="btn btn-sm" style="margin-top:8px" data-goto-asset="${zoneAsset.id}">Voir la fiche →</button>
-      </div>`:''}
-      ${zoneWOs.length>0?`<div style="margin-bottom:14px">
-        <div class="sec">Bons de travaux — ${zone.name}</div>
-        ${zoneWOs.map(w=>`<div class="wo-card">
-          <div style="display:flex;justify-content:space-between;align-items:flex-start">
-            <div><div style="font-weight:500;font-size:13px">${w.title}</div><div style="font-size:11px;color:var(--text2)">${dateLabel(w.date)}</div></div>
-            <span class="badge ${w.status==='done'?'bgreen':'bamber'}">${w.status==='done'?'Terminé':'Ouvert'}</span>
-          </div>
-          ${w.description?`<div style="font-size:12px;color:var(--text2);margin-top:4px">${w.description}</div>`:''}
-        </div>`).join('')}
-      </div>`:''}
-      ${subs.length>0?`<div class="sec">Sous-zones</div>
-      <div class="g2">
-        ${subs.map(s=>{
-          const sAssets = nodeAssets(prop.id, zone.id, s.id);
-          const sWOs = nodeWOs(s.assetId, prop.id, zone.id, s.id);
-          const openWOs = sWOs.filter(w=>w.status==='open').length;
-          return `<div class="card" style="cursor:pointer" data-asset-nav-sub="${s.id}">
-            <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:6px">
-              <div><div style="font-weight:500">📂 ${s.name}</div><div style="font-size:11px;color:var(--text2)">${(s.trades||[]).length} corps de métier</div></div>
-              ${openWOs>0?`<span class="badge bred">${openWOs} ouvert(s)</span>`:''}
-            </div>
-            <div style="font-size:12px;color:var(--text2)">${sAssets.length} équipement(s)</div>
-            ${woSummary(sWOs)}
-          </div>`;
-        }).join('')}
-      </div>`:''}
-      ${subs.length===0?`<div class="sec" style="margin-top:14px">Équipements directs</div>
-      <div class="g2">${nodeAssets(prop.id,zone.id,null).map(a=>assetCard(a)).join('')}</div>`:''}
-    </div>`;
-  }
-
-  // --- LEVEL 3: Subzone selected ---
-  const sub = zone.subZones?.find(s=>s.id===as.subId);
-  if(!sub){ S.assetNav.subId=null; return renderAssets(); }
-  const subWOs = nodeWOs(sub.assetId, prop.id, zone.id, sub.id);
-  const subAssets = nodeAssets(prop.id, zone.id, sub.id);
-
-  return `<div>
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap">
-      <span style="cursor:pointer;color:var(--blue);font-size:13px" data-asset-nav-prop="">← Tous les biens</span>
-      <span style="color:var(--text3)">›</span>
-      <span style="cursor:pointer;color:var(--blue);font-size:13px" data-asset-nav-zone="">🏠 ${prop.name}</span>
-      <span style="color:var(--text3)">›</span>
-      <span style="cursor:pointer;color:var(--blue);font-size:13px" data-asset-nav-sub="">📁 ${zone.name}</span>
-      <span style="color:var(--text3)">›</span>
-      <span style="font-size:13px;font-weight:500">📂 ${sub.name}</span>
-    </div>
-    ${subWOs.length>0?`<div style="margin-bottom:14px">
-      <div class="sec">Bons de travaux — ${sub.name}</div>
-      ${subWOs.map(w=>`<div class="wo-card">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start">
-          <div><div style="font-weight:500;font-size:13px">${w.title}</div><div style="font-size:11px;color:var(--text2)">${dateLabel(w.date)}</div></div>
-          <span class="badge ${w.status==='done'?'bgreen':'bamber'}">${w.status==='done'?'Terminé':'Ouvert'}</span>
-        </div>
-        ${w.description?`<div style="font-size:12px;color:var(--text2);margin-top:4px">${w.description}</div>`:''}
-      </div>`).join('')}
-    </div>`:''}
-    ${subAssets.length>0?`<div class="sec">Équipements</div>
-    <div class="g2">${subAssets.map(a=>assetCard(a)).join('')}</div>`:''}
-    ${subAssets.length===0&&subWOs.length===0?'<div style="font-size:12px;color:var(--text2)">Aucun équipement ni bon de travaux pour cette sous-zone.</div>':''}
-  </div>`;
-}
 
 
 function renderAssetDetail(a){
@@ -5977,7 +5736,7 @@ function renderModal(){
     </div>
     <div class="form-group"><label>Onglets visibles</label>
       <div style="display:flex;flex-wrap:wrap;gap:4px 8px;background:var(--bg2);padding:8px;border-radius:var(--radius);max-height:130px;overflow-y:auto" id="utab-wrap">
-        <label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="dashboard" ${(u.visible_tabs||[]).includes("dashboard")?"checked":""}> Tableau de bord</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="assets" ${(u.visible_tabs||[]).includes("assets")?"checked":""}> Équipements</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="tasks" ${(u.visible_tabs||[]).includes("tasks")?"checked":""}> Échéances</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="workorders" ${(u.visible_tabs||[]).includes("workorders")?"checked":""}> Bons de travaux</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="tools" ${(u.visible_tabs||[]).includes("tools")?"checked":""}> Outils</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="consommables" ${(u.visible_tabs||[]).includes("consommables")?"checked":""}> Consommables</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="etiquettes" ${(u.visible_tabs||[]).includes("etiquettes")?"checked":""}> Étiquettes QR</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="loans" ${(u.visible_tabs||[]).includes("loans")?"checked":""}> Prêts outils</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="vehicles" ${(u.visible_tabs||[]).includes("vehicles")?"checked":""}> Véhicules</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="topology" ${(u.visible_tabs||[]).includes("topology")?"checked":""}> Topologie</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="maintenance" ${(u.visible_tabs||[]).includes("maintenance")?"checked":""}> Gammes</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="locatif" ${(u.visible_tabs||[]).includes("locatif")?"checked":""}> Gestion locative</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="compteurs" ${(u.visible_tabs||[]).includes("compteurs")?"checked":""}> Compteurs</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="finances" ${(u.visible_tabs||[]).includes("finances")?"checked":""}> Finances</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="rangements" ${(u.visible_tabs||[]).includes("rangements")?"checked":""}> Rangements</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="famille" ${(u.visible_tabs||[]).includes("famille")?"checked":""}> Famille</label>
+        <label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="dashboard" ${(u.visible_tabs||[]).includes("dashboard")?"checked":""}> Tableau de bord</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="tasks" ${(u.visible_tabs||[]).includes("tasks")?"checked":""}> Échéances</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="workorders" ${(u.visible_tabs||[]).includes("workorders")?"checked":""}> Bons de travaux</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="tools" ${(u.visible_tabs||[]).includes("tools")?"checked":""}> Outils</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="consommables" ${(u.visible_tabs||[]).includes("consommables")?"checked":""}> Consommables</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="etiquettes" ${(u.visible_tabs||[]).includes("etiquettes")?"checked":""}> Étiquettes QR</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="loans" ${(u.visible_tabs||[]).includes("loans")?"checked":""}> Prêts outils</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="vehicles" ${(u.visible_tabs||[]).includes("vehicles")?"checked":""}> Véhicules</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="topology" ${(u.visible_tabs||[]).includes("topology")?"checked":""}> Topologie</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="maintenance" ${(u.visible_tabs||[]).includes("maintenance")?"checked":""}> Gammes</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="locatif" ${(u.visible_tabs||[]).includes("locatif")?"checked":""}> Gestion locative</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="compteurs" ${(u.visible_tabs||[]).includes("compteurs")?"checked":""}> Compteurs</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="finances" ${(u.visible_tabs||[]).includes("finances")?"checked":""}> Finances</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="rangements" ${(u.visible_tabs||[]).includes("rangements")?"checked":""}> Rangements</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="famille" ${(u.visible_tabs||[]).includes("famille")?"checked":""}> Famille</label>
       </div>
     </div>
     <div class="form-group"><label>Équipements accessibles <small style="color:var(--text2)">(vide = tous)</small></label>
@@ -9145,9 +8904,9 @@ function bindAll(){
   }));
   const btnExportRng=document.getElementById('btn-export-rng');
   if(btnExportRng)btnExportRng.onclick=exportRangementsExcel;
-  document.querySelectorAll('[data-nav]').forEach(el=>el.onclick=()=>{S.view=el.dataset.nav;S.selectedAsset=null;S.filter={cat:'all',search:''};if(el.dataset.nav!=='topology'){S.topoState.zoneId=null;S.topoState.subZoneId=null;S.topoState.tradeId=null;}if(el.dataset.nav!=='assets'){S.assetNav={propId:null,zoneId:null,subId:null};}render();});
+  document.querySelectorAll('[data-nav]').forEach(el=>el.onclick=()=>{S.view=el.dataset.nav;S.selectedAsset=null;S.filter={cat:'all',search:''};if(el.dataset.nav!=='topology'){S.topoState.zoneId=null;S.topoState.subZoneId=null;S.topoState.tradeId=null;}render();});
   if(q('btn-logout'))q('btn-logout').onclick=()=>{S.currentUser=null;render();};
-  if(q('btn-back'))q('btn-back').onclick=()=>{S.view='assets';S.selectedAsset=null;render();};
+  if(q('btn-back'))q('btn-back').onclick=()=>{S.view=S.assetDetailFrom||'topology';S.selectedAsset=null;render();};
   if(q('btn-add-asset'))q('btn-add-asset').onclick=()=>{S.modal={type:'add-asset'};render();};
   if(q('btn-add-task'))q('btn-add-task').onclick=()=>{S.modal={type:'add-task'};render();};
   if(q('btn-add-tool'))q('btn-add-tool').onclick=()=>{S.modal={type:'add-tool'};render();};
@@ -9203,19 +8962,9 @@ function bindAll(){
   if(q('btn-add-prop'))q('btn-add-prop').onclick=()=>{S.modal={type:'add-prop'};render();};
   if(q('asset-search'))q('asset-search').oninput=e=>{S.filter.search=e.target.value;render();};
 
-  // Asset navigation (topology-style)
-  if(!S.assetNav) S.assetNav={propId:null,zoneId:null,subId:null};
-  document.querySelectorAll('[data-asset-nav-prop]').forEach(el=>el.onclick=e=>{
-    e.stopPropagation();S.assetNav={propId:el.dataset.assetNavProp||null,zoneId:null,subId:null};render();});
-  document.querySelectorAll('[data-asset-nav-zone]').forEach(el=>el.onclick=e=>{
-    e.stopPropagation();
-    if(el.dataset.assetNavProp2) S.assetNav.propId=el.dataset.assetNavProp2;
-    S.assetNav.zoneId=el.dataset.assetNavZone||null;S.assetNav.subId=null;render();});
-  document.querySelectorAll('[data-asset-nav-sub]').forEach(el=>el.onclick=e=>{
-    e.stopPropagation();S.assetNav.subId=el.dataset.assetNavSub||null;render();});
   if(q('tool-search'))q('tool-search').oninput=e=>{S.filter.search=e.target.value;render();};
   document.querySelectorAll('[data-fcat]').forEach(el=>el.onclick=()=>{S.filter.cat=el.dataset.fcat;render();});
-  document.querySelectorAll('[data-goto-asset]').forEach(el=>el.onclick=()=>{const a=S.assets.find(x=>x.id===el.dataset.gotoAsset);if(a){S.selectedAsset=a;S.view='asset_detail';S.subTab='info';render();}});
+  document.querySelectorAll('[data-goto-asset]').forEach(el=>el.onclick=()=>{const a=S.assets.find(x=>x.id===el.dataset.gotoAsset);if(a){S.selectedAsset=a;S.assetDetailFrom=S.view;S.view='asset_detail';S.subTab='info';render();}});
   document.querySelectorAll('[data-tab]').forEach(el=>el.onclick=()=>{S.subTab=el.dataset.tab;render();});
   document.querySelectorAll('[data-done-task]').forEach(el=>el.onclick=async()=>{
     await sb.from('tasks').update({status:'done'}).eq('id',el.dataset.doneTask);
