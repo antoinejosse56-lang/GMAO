@@ -1021,33 +1021,53 @@ function renderDashboard(){
     const n = daysUntil(d); return n!==null && n<=60 && n>=-10;
   }).sort((a,b)=>new Date(a.type==='periodic'?a.next_due:a.due_date)-new Date(b.type==='periodic'?b.next_due:b.due_date)).slice(0,5);
 
+  // Regroupe chaque BT ouvert par bien (topo_ref) ou vehicule/equipement
+  // (asset_id) pour le tableau ci-dessous - meme principe de libelle que
+  // renderFactures/renderChantiers, mais tri simple en une seule table
+  // (demande explicite : "un tableau", pas des sous-groupes par carte).
+  const woLabel=(w)=>{
+    if(w.topo_ref?.propName)return {icon:'🏠',label:w.topo_ref.propName,detail:[w.topo_ref.zoneName,w.topo_ref.subName].filter(Boolean).join(' › ')};
+    const asset=w.asset_id?S.assets.find(a=>a.id===w.asset_id):null;
+    if(asset){
+      const isVeh=asset.category==='Véhicule'||asset.category==='Bateau';
+      return {icon:isVeh?'🚗':'🔧',label:asset.name,detail:''};
+    }
+    return {icon:'—',label:'Sans bien / véhicule',detail:''};
+  };
+  const openWOs=getFilteredWOs().filter(w=>w.status==='open').map(w=>({w,g:woLabel(w)}))
+    .sort((a,b)=>a.g.label.localeCompare(b.g.label)||new Date(a.w.date)-new Date(b.w.date));
+
   return `<div class="g4" style="margin-bottom:16px">
     <div class="stat"><div class="stat-l">Équipements</div><div class="stat-v">${assets.length}</div></div>
     <div class="stat"><div class="stat-l">Tâches en retard</div><div class="stat-v" style="color:var(--red)">${overdueT}</div></div>
     <div class="stat"><div class="stat-l">Bons ouverts</div><div class="stat-v" style="color:var(--amber)">${openWO}</div></div>
     <div class="stat"><div class="stat-l">Outils prêtés</div><div class="stat-v">${loanedN}</div></div>
   </div>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-    <div class="card">
-      <div class="sec">Prochaines gammes (60j)</div>
-      ${upcoming.map(mt=>{
-        const d = mt.type==='periodic' ? mt.next_due : mt.due_date;
-        const days = daysUntil(d);
-        const asset = S.assets.find(a=>a.id===mt.asset_id);
-        return `<div class="row"><div class="fg"><div class="fgs">${mt.name}</div><div class="fgsub">${asset?.name||'—'}</div></div>
-          <span class="badge ${days<0?'bred':days<=15?'bamber':'bblue'}">${days<0?`${-days}j retard`:`${days}j`}</span></div>`;
-      }).join('')}
-      ${upcoming.length===0?'<div style="font-size:12px;color:var(--text2)">Aucune échéance proche.</div>':''}
-    </div>
-    <div class="card">
-      <div class="sec">Bons de travaux ouverts</div>
-      ${getFilteredWOs().filter(w=>w.status==='open').slice(0,5).map(w=>{
-        const asset = S.assets.find(a=>a.id===w.asset_id);
-        return `<div class="row"><div class="fg"><div class="fgs">${w.title}</div><div class="fgsub">${asset?.name||'—'} · ${dateLabel(w.date)}</div></div>
-          <span class="badge ${w.category==='Urgence'?'bred':'bamber'}">${w.category}</span></div>`;
-      }).join('')}
-      ${getFilteredWOs().filter(w=>w.status==='open').length===0?'<div style="font-size:12px;color:var(--text2)">Aucun bon ouvert.</div>':''}
-    </div>
+  <div class="card" style="margin-bottom:12px">
+    <div class="sec">Prochaines gammes (60j)</div>
+    ${upcoming.map(mt=>{
+      const d = mt.type==='periodic' ? mt.next_due : mt.due_date;
+      const days = daysUntil(d);
+      const asset = S.assets.find(a=>a.id===mt.asset_id);
+      return `<div class="row"><div class="fg"><div class="fgs">${mt.name}</div><div class="fgsub">${asset?.name||'—'}</div></div>
+        <span class="badge ${days<0?'bred':days<=15?'bamber':'bblue'}">${days<0?`${-days}j retard`:`${days}j`}</span></div>`;
+    }).join('')}
+    ${upcoming.length===0?'<div style="font-size:12px;color:var(--text2)">Aucune échéance proche.</div>':''}
+  </div>
+  <div class="card">
+    <div class="sec">Bons de travaux ouverts (${openWOs.length}) — triés par bien / véhicule</div>
+    ${openWOs.length>0?`<div style="overflow-x:auto"><table>
+      <thead><tr><th>Bien / Véhicule</th><th>Bon de travaux</th><th>Catégorie</th><th>Date</th><th></th></tr></thead>
+      <tbody>
+      ${openWOs.map(({w,g})=>`<tr>
+        <td style="font-size:12px;white-space:nowrap">${g.icon} ${g.label}${g.detail?`<div style="font-size:10px;color:var(--text2)">${g.detail}</div>`:''}</td>
+        <td style="font-size:13px;font-weight:500">${w.title}</td>
+        <td><span class="badge ${w.category==='Urgence'?'bred':'bamber'}" style="font-size:10px">${w.category||'—'}</span></td>
+        <td style="font-size:12px;white-space:nowrap">${dateLabel(w.date)}</td>
+        <td><button class="btn btn-sm" data-view-wo="${w.id}">👁</button></td>
+      </tr>`).join('')}
+      </tbody>
+    </table></div>`:'<div style="font-size:12px;color:var(--text2)">Aucun bon ouvert.</div>'}
   </div>`;
 }
 
