@@ -11454,6 +11454,7 @@ function bindAll(){
   // ÉTIQUETTES OUTILS
   // ============================================================
   document.querySelectorAll('[data-cso-tab]').forEach(el=>el.onclick=()=>{S.csoTab=el.dataset.csoTab;render();});
+  if(q('cso-search'))q('cso-search').oninput=e=>{S.csoSearch=e.target.value;render();};
   document.querySelectorAll('[data-print-label]').forEach(el=>el.onclick=e=>{
     e.stopPropagation();
     const t=S.tools.find(x=>x.id===el.dataset.printLabel);
