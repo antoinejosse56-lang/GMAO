@@ -112,6 +112,20 @@ tr:last-child td{border-bottom:none}
 .split{display:flex;gap:14px;height:calc(100vh - 86px);overflow:hidden}
 .split-left{width:260px;min-width:180px;overflow-y:auto}
 .split-right{flex:1;overflow-y:auto}
+.mobile-back{display:none}
+/* Topologie des biens : l'arbre a largeur fixe (260px) ecrasait le panneau
+   de detail sur mobile, rendant les infos du bien illisibles - empile les
+   deux colonnes et masque l'arbre des qu'un bien est selectionne (classe
+   .has-prop), avec un lien de retour dedie. Bloc separe du media query du
+   haut : les regles split et mobile-back sont definies plus bas dans la
+   feuille, un media query plus haut serait donc ecrase par elles (meme
+   specificite, ordre source). */
+@media(max-width:768px){
+  .split{flex-direction:column;height:auto;overflow:visible}
+  .split-left,.split-right{width:100%}
+  .split.has-prop .split-left{display:none}
+  .mobile-back{display:block;color:var(--blue);font-size:13px;padding:8px 0;cursor:pointer}
+}
 .tree-row{display:flex;align-items:center;gap:6px;padding:5px 6px;border-radius:var(--radius);cursor:pointer;font-size:13px}
 .tree-row:hover{background:var(--bg2)}
 .tree-row.selected{background:var(--bg2);font-weight:500}
@@ -1975,7 +1989,7 @@ function renderTopology(){
     ${topoAssetPanel(prop.assetId, prop.name, prop.name)}`;
   }
 
-  return `<div class="split">
+  return `<div class="split ${prop?'has-prop':''}">
     <div class="split-left">
       <div class="card" style="padding:10px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
@@ -1994,7 +2008,7 @@ function renderTopology(){
         ${(prop.zones||[]).length===0?'<div style="font-size:11px;color:var(--text3)">Aucune zone.</div>':''}
       </div>`:''}
     </div>
-    <div class="split-right">${rightPanel}</div>
+    <div class="split-right">${prop?`<div class="mobile-back" data-topo-prop="">← Tous les biens</div>`:''}${rightPanel}</div>
   </div>`;
 }
 
