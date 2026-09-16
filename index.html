@@ -692,6 +692,63 @@ function getDubailAssetIds(){
   return ids;
 }
 
+// Version generique de getDubailAssetIds() pour un profil restreint a UN
+// bien precis (ex: "Famille JOSSE MUSEUX" -> Rue CALVIN) : cascade
+// bien -> zones -> sous-zones et retourne tous les assetId lies.
+function getPropertyAssetIds(propName){
+  const ids=new Set();
+  const prop=S.topology.properties.find(p=>p.name===propName);
+  if(!prop)return ids;
+  if(prop.assetId)ids.add(prop.assetId);
+  (prop.zones||[]).forEach(z=>{
+    if(z.assetId)ids.add(z.assetId);
+    (z.subZones||[]).forEach(s=>{if(s.assetId)ids.add(s.assetId);});
+  });
+  return ids;
+}
+// Resout les assetId d'un topo_ref (bien/zone/sous-zone d'un BT) en
+// remontant les 3 niveaux - utilise pour comparer a visible_assets, qui
+// contient des assetId et non des ids de noeuds de topologie.
+function topoRefNodeAssetIds(tr){
+  const ids=[];
+  if(!tr)return ids;
+  const prop=S.topology.properties.find(p=>p.id===tr.propId);
+  if(!prop)return ids;
+  if(prop.assetId)ids.push(prop.assetId);
+  const zone=tr.zoneId?prop.zones?.find(z=>z.id===tr.zoneId):null;
+  if(!zone)return ids;
+  if(zone.assetId)ids.push(zone.assetId);
+  const sub=tr.subId?zone.subZones?.find(s=>s.id===tr.subId):null;
+  if(sub?.assetId)ids.push(sub.assetId);
+  return ids;
+}
+// Une facture est dans le perimetre visible_assets d'un utilisateur restreint
+// si elle est rattachee directement a un equipement autorise, ou via son
+// bien (chaine "Bien - Zone - SousZone"), le BT qu'elle referme, ou le
+// chantier auquel elle est directement liee (sans BT).
+function isFactureInVisibleScope(f,va){
+  if(f.asset_id&&va.includes(f.asset_id))return true;
+  if(f.bien){
+    const tr=resolveTopoRefFromBienStr(f.bien);
+    if(tr&&topoRefNodeAssetIds(tr).some(id=>va.includes(id)))return true;
+  }
+  if(f.wo_id){
+    const w=S.workOrders.find(x=>x.id===f.wo_id);
+    if(w){
+      if(w.asset_id&&va.includes(w.asset_id))return true;
+      if(w.topo_ref&&topoRefNodeAssetIds(w.topo_ref).some(id=>va.includes(id)))return true;
+    }
+  }
+  if(f.chantier_id){
+    const c=S.chantiers.find(x=>x.id===f.chantier_id);
+    if(c?.bien){
+      const tr=resolveTopoRefFromBienStr(c.bien);
+      if(tr&&topoRefNodeAssetIds(tr).some(id=>va.includes(id)))return true;
+    }
+  }
+  return false;
+}
+
 // Retourne les BT filtrés selon le profil
 function getFilteredWOs(){
   const u=S.currentUser;
@@ -703,9 +760,10 @@ function getFilteredWOs(){
       if(!w.asset_id&&!w.topo_ref)return false; // no link = hide
       if(w.asset_id&&va.includes(w.asset_id))return true;
       if(w.topo_ref){
-        // Check if topo_ref's asset is in visible_assets
-        const a=S.assets.find(x=>x.id===w.topo_ref.assetId);
-        if(a&&va.includes(a.id))return true;
+        // Check si le bien, la zone OU la sous-zone du topo_ref a un asset
+        // dans visible_assets (topo_ref n'a jamais de champ .assetId propre -
+        // il faut le resoudre via la topologie, cf topoRefNodeAssetIds).
+        if(topoRefNodeAssetIds(w.topo_ref).some(id=>va.includes(id)))return true;
         // Fallback: dubail name check
         if(isDubailProfile()&&dubailFilter(w.topo_ref.propName||''))return true;
       }
@@ -815,6 +873,7 @@ const USER_PROFILE_TABS = {
   technicien: ['dashboard','tasks','workorders','tools','consommables','etiquettes','loans','maintenance','rangements'],
   dubail:     ['workorders','consommables','locatif','compteurs','finances'],
   perso:      ['dashboard','tasks','workorders','vehicles','finances','famille'],
+  famille_jm: ['dashboard','workorders','vehicles','topology','famille','factures'],
   custom:     null
 };
 function getUserVisibleTabs(){
@@ -838,6 +897,7 @@ const USER_PROFILES = {
   dubail:     {label:'26 rue Dubail',   tabs:['dashboard','workorders','consommables','locatif','compteurs','finances']},
   perso:      {label:'Perso',           tabs:['dashboard','tasks','workorders','vehicles','finances','famille']},
   lecteur:    {label:'Lecteur',         tabs:['dashboard','tasks','workorders','maintenance']},
+  famille_jm: {label:'Famille JOSSE MUSEUX', tabs:['dashboard','workorders','vehicles','topology','famille','factures']},
   custom:     {label:'Personnalisé',    tabs:[]}
 };
 const ALL_TABS_LABELS = {
@@ -1636,9 +1696,22 @@ function renderLoans(){
   </div>`;
 }
 
+// Biens visibles dans Topologie pour un utilisateur restreint a certains
+// equipements (visible_assets) : un bien est visible des qu'au moins un de
+// ses noeuds (bien/zone/sous-zone) a un asset autorise.
+function getFilteredProperties(){
+  const all=S.topology.properties||[];
+  if(isAdmin())return all;
+  const va=S.currentUser?.visible_assets||S.currentUser?.assets||[];
+  if(va.length===0)return all;
+  return all.filter(p=>{
+    const ids=[p.assetId,...(p.zones||[]).flatMap(z=>[z.assetId,...(z.subZones||[]).map(s=>s.assetId)])].filter(Boolean);
+    return ids.some(id=>va.includes(id));
+  });
+}
 function renderTopology(){
   const ts = S.topoState;
-  const prop = S.topology.properties?.find(p=>p.id===ts.propId);
+  const prop = getFilteredProperties().find(p=>p.id===ts.propId);
   const zone = prop?.zones?.find(z=>z.id===ts.zoneId);
   const subZone = zone?.subZones?.find(s=>s.id===ts.subZoneId);
   const trade = subZone?.trades?.find(t=>t.id===ts.tradeId)
@@ -1904,7 +1977,7 @@ function renderTopology(){
           <div class="sec" style="margin:0">Biens</div>
           ${isAdmin()?`<button class="btn btn-sm btn-p" id="btn-add-prop">+</button>`:''}
         </div>
-        ${(S.topology.properties||[]).map(p=>`<div class="tree-row ${ts.propId===p.id?'selected':''}" data-topo-prop="${p.id}">
+        ${getFilteredProperties().map(p=>`<div class="tree-row ${ts.propId===p.id?'selected':''}" data-topo-prop="${p.id}">
           <span>🏠</span><span style="flex:1;font-size:13px">${p.name}</span>
           ${isAdmin()?`<span style="font-size:11px;cursor:pointer;color:var(--text3);padding:0 3px" data-add-zone-prop="${p.id}" title="Ajouter zone">+</span>`:''}
           ${isAdmin()?`<span style="font-size:11px;color:#E24B4A;cursor:pointer;padding:0 3px" data-del-prop="${p.id}">✕</span>`:''}
@@ -2868,8 +2941,15 @@ function renderFactures(){
 
   let facts = S.factures.filter(f=>{
     if(S.factYear&&f.date&&!f.date.startsWith(String(S.factYear)))return false;
-    if(fTab==='savadur')return f.compte==='savadur';
-    if(fTab==='perso')return f.compte==='perso';
+    if(fTab==='savadur'&&f.compte!=='savadur')return false;
+    if(fTab==='perso'&&f.compte!=='perso')return false;
+    // Utilisateur restreint a certains equipements/biens (visible_assets) :
+    // ne montre que les factures rattachees a son perimetre, directement
+    // (asset_id) ou via le bien/BT/chantier lie.
+    if(!isAdmin()){
+      const va=S.currentUser?.visible_assets||S.currentUser?.assets||[];
+      if(va.length>0&&!isFactureInVisibleScope(f,va))return false;
+    }
     return true;
   }).sort((a,b)=>new Date(b.date)-new Date(a.date));
 
@@ -5788,6 +5868,7 @@ function renderModal(){
         <option value="technicien" ${(u.profile||'custom')==='technicien'?'selected':''}>🔧 Technicien</option>
         <option value="dubail" ${(u.profile||'custom')==='dubail'?'selected':''}>🏢 26 rue Dubail</option>
         <option value="perso" ${(u.profile||'custom')==='perso'?'selected':''}>🏠 Perso</option>
+        <option value="famille_jm" ${(u.profile||'custom')==='famille_jm'?'selected':''}>👨‍👩‍👧 Famille JOSSE MUSEUX</option>
         <option value="custom" ${(u.profile||'custom')==='custom'?'selected':''}>⚙ Personnalisé</option>
       </select>
     </div>
@@ -5799,7 +5880,7 @@ function renderModal(){
     </div>
     <div class="form-group"><label>Onglets visibles</label>
       <div style="display:flex;flex-wrap:wrap;gap:4px 8px;background:var(--bg2);padding:8px;border-radius:var(--radius);max-height:130px;overflow-y:auto" id="utab-wrap">
-        <label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="dashboard" ${(u.visible_tabs||[]).includes("dashboard")?"checked":""}> Tableau de bord</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="tasks" ${(u.visible_tabs||[]).includes("tasks")?"checked":""}> Échéances</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="workorders" ${(u.visible_tabs||[]).includes("workorders")?"checked":""}> Bons de travaux</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="tools" ${(u.visible_tabs||[]).includes("tools")?"checked":""}> Outils</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="consommables" ${(u.visible_tabs||[]).includes("consommables")?"checked":""}> Consommables</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="etiquettes" ${(u.visible_tabs||[]).includes("etiquettes")?"checked":""}> Étiquettes QR</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="loans" ${(u.visible_tabs||[]).includes("loans")?"checked":""}> Prêts outils</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="vehicles" ${(u.visible_tabs||[]).includes("vehicles")?"checked":""}> Véhicules</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="topology" ${(u.visible_tabs||[]).includes("topology")?"checked":""}> Topologie</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="maintenance" ${(u.visible_tabs||[]).includes("maintenance")?"checked":""}> Gammes</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="locatif" ${(u.visible_tabs||[]).includes("locatif")?"checked":""}> Gestion locative</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="compteurs" ${(u.visible_tabs||[]).includes("compteurs")?"checked":""}> Compteurs</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="finances" ${(u.visible_tabs||[]).includes("finances")?"checked":""}> Finances</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="rangements" ${(u.visible_tabs||[]).includes("rangements")?"checked":""}> Rangements</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="famille" ${(u.visible_tabs||[]).includes("famille")?"checked":""}> Famille</label>
+        <label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="dashboard" ${(u.visible_tabs||[]).includes("dashboard")?"checked":""}> Tableau de bord</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="tasks" ${(u.visible_tabs||[]).includes("tasks")?"checked":""}> Échéances</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="workorders" ${(u.visible_tabs||[]).includes("workorders")?"checked":""}> Bons de travaux</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="chantiers" ${(u.visible_tabs||[]).includes("chantiers")?"checked":""}> Chantiers</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="tools" ${(u.visible_tabs||[]).includes("tools")?"checked":""}> Outils</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="consommables" ${(u.visible_tabs||[]).includes("consommables")?"checked":""}> Consommables</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="etiquettes" ${(u.visible_tabs||[]).includes("etiquettes")?"checked":""}> Étiquettes QR</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="loans" ${(u.visible_tabs||[]).includes("loans")?"checked":""}> Prêts outils</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="vehicles" ${(u.visible_tabs||[]).includes("vehicles")?"checked":""}> Véhicules</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="topology" ${(u.visible_tabs||[]).includes("topology")?"checked":""}> Topologie</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="maintenance" ${(u.visible_tabs||[]).includes("maintenance")?"checked":""}> Gammes</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="locatif" ${(u.visible_tabs||[]).includes("locatif")?"checked":""}> Gestion locative</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="reservations" ${(u.visible_tabs||[]).includes("reservations")?"checked":""}> Réservations</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="compteurs" ${(u.visible_tabs||[]).includes("compteurs")?"checked":""}> Compteurs</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="finances" ${(u.visible_tabs||[]).includes("finances")?"checked":""}> Finances</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="factures" ${(u.visible_tabs||[]).includes("factures")?"checked":""}> Factures</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="rangements" ${(u.visible_tabs||[]).includes("rangements")?"checked":""}> Rangements</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="famille" ${(u.visible_tabs||[]).includes("famille")?"checked":""}> Famille</label>
       </div>
     </div>
     <div class="form-group"><label>Équipements accessibles <small style="color:var(--text2)">(vide = tous)</small></label>
