@@ -253,6 +253,20 @@ function bienForWorkOrder(wo){
   }
   return wo.topo_ref?[wo.topo_ref.propName,wo.topo_ref.zoneName,wo.topo_ref.subName].filter(Boolean).join(' - '):'';
 }
+// Cree l'artisan dans la liste des fournisseurs s'il n'y existe pas deja
+// (comparaison insensible a la casse), lors de la validation d'une facture
+// ou d'un devis - jusqu'ici le nom tape restait uniquement sur la ligne
+// validee, sans jamais rejoindre la liste "Artisans" ni ses coordonnees
+// (tel/email). Retourne le fournisseur (existant ou nouvellement cree).
+async function ensureFournisseur(nom){
+  if(!nom)return null;
+  const existing=(S.fournisseurs||[]).find(f=>(f.nom||'').trim().toLowerCase()===nom.trim().toLowerCase());
+  if(existing)return existing;
+  const{data,error}=await sb.from('fournisseurs').insert({nom:nom.trim()}).select().single();
+  if(error){console.warn('Création artisan échouée :',error.message);return null;}
+  S.fournisseurs=[...(S.fournisseurs||[]),data];
+  return data;
+}
 // Reconstruit un topo_ref {propId,propName,zoneId,zoneName,subId,subName} a
 // partir d'un texte "Bien - Zone - SousZone" (format utilise par le champ
 // bien des factures) - permet a un BT cree a la volee depuis une facture de
@@ -271,13 +285,15 @@ function resolveTopoRefFromBienStr(bienStr){
 // choisis (le BT selectionnable doit appartenir a ce chantier, et/ou son
 // chemin topologique doit correspondre au bien choisi ou etre plus precis) -
 // evite de proposer des BT sans rapport une fois qu'un bien/chantier est fixe.
-function computeFilteredWoOpts(bienStr, chantierId, selectedWoId, allowNew){
+function computeFilteredWoOpts(bienStr, chantierId, selectedWoId, allowNew, assetId){
   const bien=(bienStr||'').trim();
   let list=[...S.workOrders];
   // Un chantier determine deja pleinement le perimetre des BT concernes -
   // filtrer EN PLUS par bien exclurait a tort les BT de chantier sans
   // topo_ref (frequent pour une construction neuve), donc le chantier prime
-  // et remplace le filtre par bien plutot que de s'y ajouter.
+  // et remplace le filtre par bien plutot que de s'y ajouter. L'equipement/
+  // vehicule lie (assetId) suit la meme logique de priorite - une facture
+  // liee a un vehicule veut voir SES BT, pas tous les BT du bien general.
   if(chantierId){
     list=list.filter(w=>w.chantier_id===chantierId);
   } else if(bien){
@@ -287,6 +303,8 @@ function computeFilteredWoOpts(bienStr, chantierId, selectedWoId, allowNew){
       const full=[tr.propName,tr.zoneName,tr.subName].filter(Boolean).join(' - ');
       return full===bien||full.startsWith(bien+' - ');
     });
+  } else if(assetId){
+    list=list.filter(w=>w.asset_id===assetId);
   }
   list.sort((a,b)=>new Date(b.date)-new Date(a.date));
   let html='<option value="">— Aucun BT —</option>'+(allowNew?'<option value="__new__">+ Nouveau BT…</option>':'');
@@ -2907,13 +2925,26 @@ function renderFactures(){
     </div>`;
   }
 
+  // Filtre "Bien / Véhicule" : identifie une entree soit par nom de bien
+  // (prefixe "bien:", inclut ses zones/sous-zones via startsWith), soit par
+  // id d'equipement Véhicule/Bateau (prefixe "asset:") - trop de factures a
+  // faire defiler sinon des qu'un bien a plusieurs annees d'historique.
+  const bienVehOpts=[{v:'',l:'— Tous les biens / véhicules —'}]
+    .concat(S.topology.properties.map(p=>({v:'bien:'+p.name,l:'🏠 '+p.name})))
+    .concat(S.assets.filter(a=>a.category==='Véhicule'||a.category==='Bateau').map(a=>({v:'asset:'+a.id,l:'🚗 '+a.name})));
+  const bienVehBar=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+    <select id="fact-bien-filter" style="padding:6px 10px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px;min-width:220px">
+      ${bienVehOpts.map(o=>`<option value="${o.v}" ${(S.factBienFilter||'')===o.v?'selected':''}>${o.l}</option>`).join('')}
+    </select>
+  </div>`;
+
   const yearBar = `<div style="display:flex;gap:6px;margin-bottom:12px;align-items:center;flex-wrap:wrap">
     <span style="font-size:12px;color:var(--text2)">Année :</span>
     ${YEARS.map(y=>`<span class="pill ${year===y?'active':''}" data-fact-year="${y}">${y}</span>`).join('')}
     <span class="pill ${!S.factYear?'active':''}" data-fact-year="0">Tout</span>
     ${isAdmin()?`<button class="btn btn-p btn-sm" id="btn-add-facture" style="margin-left:auto">+ Facture</button>`:''}
     <button class="btn btn-sm" id="btn-export-factures">📥 Export Excel</button>
-  </div>`;
+  </div>${bienVehBar}`;
 
   const CATS = ['Travaux/Réparation','Matériaux','Énergie','Téléphone/Internet','Assurance','Entretien','Abonnement','Autre'];
 
@@ -2921,6 +2952,15 @@ function renderFactures(){
     if(S.factYear&&f.date&&!f.date.startsWith(String(S.factYear)))return false;
     if(fTab==='savadur'&&f.compte!=='savadur')return false;
     if(fTab==='perso'&&f.compte!=='perso')return false;
+    if(S.factBienFilter){
+      const isAssetFilter=S.factBienFilter.startsWith('asset:');
+      const val=S.factBienFilter.slice(S.factBienFilter.indexOf(':')+1);
+      if(isAssetFilter){
+        if(f.asset_id!==val)return false;
+      } else {
+        if(!f.bien||!(f.bien===val||f.bien.startsWith(val+' - ')))return false;
+      }
+    }
     // Utilisateur restreint a certains equipements/biens (visible_assets) :
     // ne montre que les factures rattachees a son perimetre, directement
     // (asset_id) ou via le bien/BT/chantier lie.
@@ -5350,7 +5390,7 @@ function renderModal(){
   if(m.type==='add-facture'||m.type==='edit-facture'){
     const f=m.facture||{};
     const rngOpts=S.topology.properties.map(p=>`<option value="${p.name}" ${f.bien===p.name?'selected':''}>${p.name}</option>`).join('');
-    const woOpts=computeFilteredWoOpts(f.bien||'',f.chantier_id||'',f.wo_id||'');
+    const woOpts=computeFilteredWoOpts(f.bien||'',f.chantier_id||'',f.wo_id||'',false,f.asset_id||'');
     html=`${mhd(m.type==='add-facture'?'Nouvelle facture':'Modifier facture — '+f.fournisseur)}
     <div class="g2c">
       <div class="form-group"><label>Fournisseur *</label><input id="fac-four" list="fournisseurs-list" value="${f.fournisseur||''}" placeholder="Ex: Plomberie Martin, EDF..."></div>
@@ -5371,7 +5411,7 @@ function renderModal(){
     </div>
     <div class="g2c">
       <div class="form-group"><label>Bien / Propriété</label>
-        <select id="fac-bien" onchange="document.getElementById('fac-wo').innerHTML=computeFilteredWoOpts(this.value,document.getElementById('fac-chantier')?.value,'')">
+        <select id="fac-bien" onchange="document.getElementById('fac-wo').innerHTML=computeFilteredWoOpts(this.value,document.getElementById('fac-chantier')?.value,'',false,document.getElementById('fac-asset')?.value)">
           <option value="">— Général / Non lié —</option>
           ${(()=>{const opts=[];S.topology.properties.forEach(p=>{opts.push('<option value="'+p.name+'">'+p.name+'</option>');(p.zones||[]).forEach(z=>{opts.push('<option value="'+p.name+' - '+z.name+'">&nbsp;&nbsp;'+p.name+' &rsaquo; '+z.name+'</option>');(z.subZones||[]).forEach(s=>{opts.push('<option value="'+p.name+' - '+z.name+' - '+s.name+'">&nbsp;&nbsp;&nbsp;&nbsp;'+p.name+' &rsaquo; '+z.name+' &rsaquo; '+s.name+'</option>');});});});return opts.join('');})()}
         </select>
@@ -5384,7 +5424,7 @@ function renderModal(){
     </div>
     <div class="g2c">
       <div class="form-group"><label>Équipement lié (optionnel)</label>
-        <select id="fac-asset">
+        <select id="fac-asset" onchange="document.getElementById('fac-wo').innerHTML=computeFilteredWoOpts(document.getElementById('fac-bien')?.value,document.getElementById('fac-chantier')?.value,'',false,this.value)">
           <option value="">— Aucun équipement —</option>
           ${S.assets.map(a=>`<option value="${a.id}" ${f.asset_id===a.id?'selected':''}>${a.name}${a.location?' — '+a.location:''}</option>`).join('')}
         </select>
@@ -5397,7 +5437,7 @@ function renderModal(){
       </div>
     </div>
     <div class="form-group"><label>Chantier lié (optionnel, sans passer par un BT)</label>
-      <select id="fac-chantier" onchange="document.getElementById('fac-wo').innerHTML=computeFilteredWoOpts(document.getElementById('fac-bien')?.value,this.value,'')">
+      <select id="fac-chantier" onchange="document.getElementById('fac-wo').innerHTML=computeFilteredWoOpts(document.getElementById('fac-bien')?.value,this.value,'',false,document.getElementById('fac-asset')?.value)">
         <option value="">— Aucun chantier —</option>
         ${S.chantiers.map(c=>`<option value="${c.id}" ${f.chantier_id===c.id?'selected':''}>${c.nom}${c.statut==='termine'?' (terminé)':''}</option>`).join('')}
       </select>
@@ -9675,6 +9715,7 @@ function bindAll(){
   // FACTURES
   document.querySelectorAll('[data-fact-tab]').forEach(el=>el.onclick=()=>{S.factTab=el.dataset.factTab;render();});
   document.querySelectorAll('[data-fact-year]').forEach(el=>el.onclick=()=>{S.factYear=parseInt(el.dataset.factYear)||0;render();});
+  if(q('fact-bien-filter'))q('fact-bien-filter').onchange=e=>{S.factBienFilter=e.target.value;render();};
   document.querySelectorAll('[data-fav-valider]').forEach(el=>el.onclick=async()=>{
     const id=el.dataset.favValider;
     const fav=(S.facturesAValider||[]).find(x=>x.id===id);
@@ -9756,6 +9797,13 @@ function bindAll(){
     }).eq('id',id);
     if(updErr){alert('Facture enregistrée, mais erreur de mise à jour du suivi : '+updErr.message);}
     S.facturesAValider=(S.facturesAValider||[]).filter(x=>x.id!==id);
+    // Meme logique que pour les devis : nouvel artisan tape ici -> cree dans
+    // la liste des fournisseurs, fiche ouverte aussitot pour tel/email.
+    const existedBefore=(S.fournisseurs||[]).some(f=>(f.nom||'').trim().toLowerCase()===entreprise.trim().toLowerCase());
+    const fournisseur=await ensureFournisseur(entreprise);
+    if(fournisseur&&!existedBefore){
+      S.modal={type:'edit-fournisseur',fournisseur};
+    }
     render();
   });
   // "Classer" : le document n'est pas une facture (DPE, diagnostic...) - au
@@ -9825,10 +9873,14 @@ function bindAll(){
   const updateFavWoFilter=(id)=>{
     const bienSel=document.querySelector('.fav-splits[data-fav-id="'+id+'"] .fav-split-bien');
     const chantierSel=document.querySelector('.fav-chantier[data-fav-id="'+id+'"]');
+    const assetSel=document.querySelector('.fav-asset[data-fav-id="'+id+'"]');
     const woSel=document.querySelector('.fav-wo[data-fav-id="'+id+'"]');
     if(!woSel)return;
-    woSel.innerHTML=computeFilteredWoOpts(bienSel?bienSel.value:'',chantierSel?chantierSel.value:'',woSel.value,true);
+    woSel.innerHTML=computeFilteredWoOpts(bienSel?bienSel.value:'',chantierSel?chantierSel.value:'',woSel.value,true,assetSel?assetSel.value:'');
   };
+  document.querySelectorAll('.fav-asset').forEach(sel=>{
+    sel.onchange=()=>updateFavWoFilter(sel.dataset.favId);
+  });
   const wireFavSplitBienChange=(sel)=>{
     sel.onchange=()=>{
       const id=sel.closest('.fav-splits')?.dataset.favId;
@@ -10173,6 +10225,14 @@ function bindAll(){
     }).eq('id',id);
     if(updErr){alert('Devis enregistré, mais erreur de mise à jour du suivi : '+updErr.message);}
     S.devisAValider=(S.devisAValider||[]).filter(x=>x.id!==id);
+    // Si l'entreprise tapee n'existait pas encore dans la liste des artisans,
+    // la creer puis ouvrir directement sa fiche pour completer tel/email
+    // pendant qu'on y pense, plutot que de laisser un artisan sans coordonnees.
+    const existedBefore=(S.fournisseurs||[]).some(f=>(f.nom||'').trim().toLowerCase()===entreprise.trim().toLowerCase());
+    const fournisseur=await ensureFournisseur(entreprise);
+    if(fournisseur&&!existedBefore){
+      S.modal={type:'edit-fournisseur',fournisseur};
+    }
     render();
   });
   document.querySelectorAll('[data-devis-rejeter]').forEach(el=>el.onclick=async()=>{
