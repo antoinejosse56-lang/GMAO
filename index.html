@@ -232,20 +232,24 @@ const CATS_FACTURE=['Travaux/Artisan','Matériaux','Énergie','Téléphone/Inter
 // Corps de metier des artisans/entreprises (fournisseurs.corps_metier) -
 // liste fixe pour permettre le filtrage, a completer librement ici si besoin.
 const CORPS_METIER_LIST=['Plomberie','Électricité','Chauffage / Climatisation','Serrurerie','Peinture','Menuiserie','Maçonnerie','Couverture / Toiture','Vitrerie','Carrelage / Sols','Plâtrerie / Isolation','Électroménager','Ascenseur','Espaces verts','Nettoyage','Sécurité / Alarme','Ramonage','Autre'];
-// Taux de commission Booking.com moyen, calcule sur l'historique des
-// reservations ayant un frais_resa reel connu (12 resa, sept. 2026 : de
-// 18,4% a 28,1% du montant nuits, moyenne 21,5%). Sert uniquement a estimer
-// le "Frais resa" quand Lodgify ne le remonte pas (frequent pour Booking) -
-// a ajuster ici si le taux reel du contrat change.
-const BOOKING_COMMISSION_TAUX=21.5;
+// Taux de commission Booking.com moyen, verifie sur l'export reel "Payout"
+// de l'extranet Booking (aout 2026, 6 reservations) : commission de 16,28%
+// a 17% du montant brut (nuitees + menage - Booking ne les distingue pas
+// dans son propre releve) + 1,4% de frais de service de paiement toujours
+// present en plus - soit un taux combine reel de 17,68% a 18,40%, moyenne
+// 18,2%. Sert uniquement a estimer le "Frais resa" quand Lodgify ne le
+// remonte pas (frequent pour Booking) - a ajuster ici si un ecart est
+// constate sur un futur releve.
+const BOOKING_COMMISSION_TAUX=18.2;
 // Calcule (sans rien ecrire en base) le frais_resa/montant_total manquants
 // d'une reservation. Deux cas :
 // - montant_nuits et frais_resa deja connus (reels) : simple calcul exact,
 //   jamais marque "estime".
 // - frais_resa manquant sur une resa Booking : on l'estime via le taux
-//   moyen ci-dessus, et le resultat est marque estime:true pour etre
-//   affiche distinctement (a verifier), comme le fait deja Lodgify pour les
-//   resa Airbnb sur son propre tableau de bord.
+//   moyen ci-dessus applique a (nuitees + menage), comme le fait reellement
+//   Booking sur son releve, et le resultat est marque estime:true pour
+//   etre affiche distinctement (a verifier), comme le fait deja Lodgify
+//   pour les resa Airbnb sur son propre tableau de bord.
 // Renvoie null si rien ne peut etre calcule (ex: montant_nuits inconnu, ou
 // source sans taux etabli).
 function estimateResaMontant(r){
@@ -255,8 +259,9 @@ function estimateResaMontant(r){
     return{frais_resa:r.frais_resa,montant_total:Math.round((r.montant_nuits-r.frais_resa+menage)*100)/100,montant_estime:false};
   }
   if(r.source==='booking'){
-    const fraisResaEst=Math.round(r.montant_nuits*BOOKING_COMMISSION_TAUX/100*100)/100;
-    return{frais_resa:fraisResaEst,montant_total:Math.round((r.montant_nuits-fraisResaEst+menage)*100)/100,montant_estime:true};
+    const brut=r.montant_nuits+menage;
+    const fraisResaEst=Math.round(brut*BOOKING_COMMISSION_TAUX/100*100)/100;
+    return{frais_resa:fraisResaEst,montant_total:Math.round((brut-fraisResaEst)*100)/100,montant_estime:true};
   }
   return null;
 }
