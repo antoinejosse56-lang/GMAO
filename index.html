@@ -872,6 +872,22 @@ function applyProfile(prof){
     cb.checked = (prof==='admin')||profileTabs.includes(cb.value);
   });
 }
+// "Dupliquer les droits de..." : reprend role/profil/onglets/equipements
+// d'un utilisateur existant tel quel, pour eviter de recocher a la main
+// chaque case quand personne ne correspond aux 4 profils standards.
+function applyUserDuplicate(sourceUserId){
+  if(!sourceUserId)return;
+  const src=S.users.find(u=>u.id===sourceUserId);
+  if(!src)return;
+  const roleSel=document.getElementById('m-ur');
+  if(roleSel)roleSel.value=src.role||'technicien';
+  const profSel=document.getElementById('m-uprof');
+  if(profSel)profSel.value=src.profile||'custom';
+  const tabs=getUserTabs(src); // null = tout visible (admin, ou role sans restriction)
+  document.querySelectorAll('.utab').forEach(cb=>{cb.checked=!tabs||tabs.includes(cb.value);});
+  const srcAssets=src.visible_assets||src.assets||[];
+  document.querySelectorAll('.ac').forEach(cb=>{cb.checked=srcAssets.includes(cb.value);});
+}
 
 function navItems(){
   const assets = accessAssets(S.currentUser);
@@ -5775,6 +5791,12 @@ function renderModal(){
         <option value="custom" ${(u.profile||'custom')==='custom'?'selected':''}>⚙ Personnalisé</option>
       </select>
     </div>
+    <div class="form-group"><label>Dupliquer les droits de... <small style="color:var(--text2)">(optionnel — pratique si ce n'est aucun des profils ci-dessus)</small></label>
+      <select id="m-udup" onchange="applyUserDuplicate(this.value)">
+        <option value="">— Aucun —</option>
+        ${S.users.filter(usr=>usr.id!==u.id).map(usr=>`<option value="${usr.id}">${usr.name}</option>`).join('')}
+      </select>
+    </div>
     <div class="form-group"><label>Onglets visibles</label>
       <div style="display:flex;flex-wrap:wrap;gap:4px 8px;background:var(--bg2);padding:8px;border-radius:var(--radius);max-height:130px;overflow-y:auto" id="utab-wrap">
         <label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="dashboard" ${(u.visible_tabs||[]).includes("dashboard")?"checked":""}> Tableau de bord</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="tasks" ${(u.visible_tabs||[]).includes("tasks")?"checked":""}> Échéances</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="workorders" ${(u.visible_tabs||[]).includes("workorders")?"checked":""}> Bons de travaux</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="tools" ${(u.visible_tabs||[]).includes("tools")?"checked":""}> Outils</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="consommables" ${(u.visible_tabs||[]).includes("consommables")?"checked":""}> Consommables</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="etiquettes" ${(u.visible_tabs||[]).includes("etiquettes")?"checked":""}> Étiquettes QR</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="loans" ${(u.visible_tabs||[]).includes("loans")?"checked":""}> Prêts outils</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="vehicles" ${(u.visible_tabs||[]).includes("vehicles")?"checked":""}> Véhicules</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="topology" ${(u.visible_tabs||[]).includes("topology")?"checked":""}> Topologie</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="maintenance" ${(u.visible_tabs||[]).includes("maintenance")?"checked":""}> Gammes</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="locatif" ${(u.visible_tabs||[]).includes("locatif")?"checked":""}> Gestion locative</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="compteurs" ${(u.visible_tabs||[]).includes("compteurs")?"checked":""}> Compteurs</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="finances" ${(u.visible_tabs||[]).includes("finances")?"checked":""}> Finances</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="rangements" ${(u.visible_tabs||[]).includes("rangements")?"checked":""}> Rangements</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="famille" ${(u.visible_tabs||[]).includes("famille")?"checked":""}> Famille</label>
@@ -7293,7 +7315,14 @@ async function saveModal(){
     const role=q('m-ur')?.value||'user';
     const profile=q('m-uprof')?.value||'custom';
     const initials=name.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2);
-    const rec={name,email,role,profile,initials};
+    // Les cases "Onglets visibles"/"Equipements accessibles" n'etaient jusqu'ici
+    // jamais lues ici : cocher/decocher n'avait donc aucun effet a
+    // l'enregistrement (seuls role+profile etaient sauves). Un profil
+    // "Personnalise" avec visible_tabs vide equivaut a AUCUN onglet visible
+    // (cf getUserTabs) - bug reel, pas juste une friction UI.
+    const visible_tabs=[...document.querySelectorAll('.utab')].filter(cb=>cb.checked).map(cb=>cb.value);
+    const visible_assets=[...document.querySelectorAll('.ac')].filter(cb=>cb.checked).map(cb=>cb.value);
+    const rec={name,email,role,profile,initials,visible_tabs,visible_assets};
     if(m.type==='add-user'){
       if(!pwd)return alert('Mot de passe requis');
       const{data,error}=await sb.from('users').insert({...rec,password:pwd}).select().single();
