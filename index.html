@@ -4541,6 +4541,24 @@ function rngOptions(selectedNom){
   return out;
 }
 
+// Extrait le numero d'etagere/rang d'un nom "Etagere N / rang M" (tolerant
+// aux variations d'espacement rencontrees dans les donnees existantes) -
+// utilise par l'assistant de creation pour proposer les rangs deja pris.
+function parseEtagereRang(nom){
+  const m=/Etag.re\s*(\d+)\s*\/\s*rang\s*(\d+)/i.exec(nom||'');
+  return m?{etagere:m[1],rang:m[2]}:null;
+}
+// Avance l'assistant de creation de rangement (add-rng) d'une etape :
+// change un champ et reinitialise les etapes suivantes qui en dependaient.
+function rngWizSet(field,val){
+  if(!S.modal)return;
+  S.modal[field]=val;
+  if(field==='wizBien'){S.modal.wizParent=undefined;S.modal.wizEtagere=undefined;S.modal.wizRang=undefined;}
+  if(field==='wizParent'){S.modal.wizEtagere=undefined;S.modal.wizRang=undefined;}
+  if(field==='wizEtagere'){S.modal.wizRang=undefined;}
+  render();
+}
+
 function renderRangements(){
   const rangements = S.rangements||[];
 
@@ -4694,16 +4712,18 @@ function renderConsommables(){
         +'<td style="font-weight:500;font-size:13px">'+c.nom+'</td>'
         +'<td style="font-size:12px;color:var(--text2)">'+c.categorie+'</td>'
         +'<td style="font-size:12px;color:var(--text2)">'+c.affect_label+'</td>'
+        +'<td style="font-size:12px">'+rngLabel(c.emplacement)+(c.location_detail?'<div style="font-size:10px;color:var(--text3)">'+c.location_detail+'</div>':'')+'</td>'
         +'<td style="text-align:right;font-weight:500;color:'+(isLow?'var(--red)':'var(--text)')+'">'+c.stock+' '+c.unite+'</td>'
         +'<td style="text-align:right;font-size:12px;color:var(--text2)">'+c.stock_min+'</td>'
         +'<td style="text-align:right;font-size:12px">'+(c.prix_unitaire?c.prix_unitaire.toFixed(2)+' €':'—')+'</td>'
-        +(isAdmin()?'<td><button class="btn btn-sm" data-edit-cso="'+c.id+'">&#9998;</button>'
-          +'<button class="btn btn-sm" data-adjust-cso="'+c.id+'">+/-</button></td>':'<td></td>')
+        +'<td style="white-space:nowrap"><button class="btn btn-sm" data-print-cso-label="'+c.id+'" title="Étiquette">🖨</button>'
+          +(isAdmin()?' <button class="btn btn-sm" data-edit-cso="'+c.id+'">&#9998;</button>'
+          +' <button class="btn btn-sm" data-adjust-cso="'+c.id+'">+/-</button>':'')+'</td>'
         +'</tr>';
     }).join('');
     return tabBar+filterBar+lowAlert
       +'<div class="card"><div style="overflow-x:auto"><table>'
-      +'<thead><tr><th>Consommable</th><th>Catégorie</th><th>Affectation</th><th style="text-align:right">Stock</th><th style="text-align:right">Min</th><th style="text-align:right">Prix unit.</th><th></th></tr></thead>'
+      +'<thead><tr><th>Consommable</th><th>Catégorie</th><th>Affectation</th><th>Rangement</th><th style="text-align:right">Stock</th><th style="text-align:right">Min</th><th style="text-align:right">Prix unit.</th><th></th></tr></thead>'
       +'<tbody>'+rows+'</tbody></table></div>'
       +(shown.length===0?'<div style="text-align:center;padding:20px;color:var(--text2)">Aucun consommable trouvé.</div>':'')
       +'</div>';
@@ -5710,18 +5730,17 @@ function renderModal(){
     ${mf}`;
   }
 
-  if(m.type==='add-rng'||m.type==='edit-rng'){
+  if(m.type==='edit-rng'){
     const r=m.rng||{};
-    const parentId=r.parent_id||m.parentId||'';
     const topMagasins=(S.rangements||[]).filter(x=>!x.parent_id&&x.id!==r.id);
-    html=`${mhd(m.type==='add-rng'?'Nouveau rangement':'Modifier — '+r.nom)}
+    html=`${mhd('Modifier — '+r.nom)}
     <div class="form-group"><label>Rangement parent <span style="font-size:11px;color:var(--text2);font-weight:400">(optionnel — pour un emplacement dans un magasin, ex: une étagère dans la Cave)</span></label>
       <select id="m-rparent" onchange="document.getElementById('m-rbien-wrap').style.display=this.value?'none':'block'">
         <option value="">— Aucun (nouveau magasin) —</option>
-        ${topMagasins.map(p=>`<option value="${p.id}" ${parentId===p.id?'selected':''}>${p.bien?p.bien+' — ':''}${p.nom}</option>`).join('')}
+        ${topMagasins.map(p=>`<option value="${p.id}" ${r.parent_id===p.id?'selected':''}>${p.bien?p.bien+' — ':''}${p.nom}</option>`).join('')}
       </select>
     </div>
-    <div class="form-group" id="m-rbien-wrap" style="display:${parentId?'none':'block'}"><label>Bien</label>
+    <div class="form-group" id="m-rbien-wrap" style="display:${r.parent_id?'none':'block'}"><label>Bien</label>
       <select id="m-rbien">
         <option value="">— Non classé —</option>
         ${S.topology.properties.map(p=>`<option value="${p.name}" ${r.bien===p.name?'selected':''}>${p.name}</option>`).join('')}
@@ -5730,6 +5749,66 @@ function renderModal(){
     <div class="form-group"><label>Nom *</label><input id="m-rnom" value="${r.nom||''}" placeholder="Ex: Cave, Garage, Étagère 1 / rang 0..."></div>
     <div class="form-group"><label>Description</label><input id="m-rdesc" value="${r.description||''}" placeholder="Ex: Rez-de-chaussée, côté gauche"></div>
     ${mf}`;
+  }
+  // Assistant de creation d'un rangement, en plusieurs etapes de menu
+  // deroulant (Bien -> Magasin -> Etagere -> Rang) pour ne jamais montrer
+  // plus d'un choix a la fois - l'ancien formulaire a plat presentait tous
+  // les champs (bien, parent, nom libre) en meme temps, trop d'informations
+  // pour une simple etagere a ajouter.
+  if(m.type==='add-rng'){
+    const wizBien=m.wizBien||'';
+    const wizParent=m.wizParent;
+    const wizEtagere=m.wizEtagere;
+    const wizRang=m.wizRang;
+    let body='';
+    body+=`<div class="form-group"><label>1. Bien</label>
+      <select onchange="rngWizSet('wizBien',this.value)">
+        <option value="">— Sélectionner —</option>
+        ${S.topology.properties.map(p=>`<option value="${p.name}" ${wizBien===p.name?'selected':''}>${p.name}</option>`).join('')}
+      </select>
+    </div>`;
+    if(wizBien){
+      const magasinsForBien=(S.rangements||[]).filter(x=>!x.parent_id&&x.bien===wizBien);
+      body+=`<div class="form-group"><label>2. Magasin / zone</label>
+        <select onchange="rngWizSet('wizParent',this.value)">
+          <option value="">— Sélectionner —</option>
+          <option value="__new__" ${wizParent==='__new__'?'selected':''}>+ Nouveau magasin</option>
+          ${magasinsForBien.map(p=>`<option value="${p.id}" ${wizParent===p.id?'selected':''}>${p.nom}</option>`).join('')}
+        </select>
+      </div>`;
+    }
+    if(wizParent==='__new__'){
+      body+=`<div class="form-group"><label>Nom du magasin *</label><input id="m-rnom" placeholder="Ex: Cave, Garage, Camion..."></div>
+      <div class="form-group"><label>Description</label><input id="m-rdesc" placeholder="Ex: Rez-de-chaussée, côté gauche"></div>`;
+    } else if(wizParent){
+      body+=`<div class="form-group"><label>3. Étagère</label>
+        <select onchange="rngWizSet('wizEtagere',this.value)">
+          <option value="">— Sélectionner —</option>
+          ${Array.from({length:12},(_,i)=>i+1).map(n=>`<option value="${n}" ${wizEtagere===String(n)?'selected':''}>Étagère ${n}</option>`).join('')}
+          <option value="__custom__" ${wizEtagere==='__custom__'?'selected':''}>✏ Nom personnalisé (pas une étagère)</option>
+        </select>
+      </div>`;
+      if(wizEtagere==='__custom__'){
+        body+=`<div class="form-group"><label>Nom *</label><input id="m-rnom" placeholder="Ex: Caisse à outils, Tiroir électricité..."></div>
+        <div class="form-group"><label>Description</label><input id="m-rdesc"></div>`;
+      } else if(wizEtagere){
+        const existingRangs=(S.rangements||[]).filter(x=>x.parent_id===wizParent).map(x=>parseEtagereRang(x.nom)).filter(x=>x&&x.etagere===wizEtagere).map(x=>x.rang);
+        body+=`<div class="form-group"><label>4. Étage / rang</label>
+          <select onchange="rngWizSet('wizRang',this.value)">
+            <option value="">— Sélectionner —</option>
+            ${Array.from({length:10},(_,i)=>i).map(n=>`<option value="${n}" ${wizRang===String(n)?'selected':''}>Rang ${n}${existingRangs.includes(String(n))?' (déjà utilisé)':''}</option>`).join('')}
+            <option value="__other__" ${wizRang==='__other__'?'selected':''}>+ Autre numéro</option>
+          </select>
+        </div>`;
+        if(wizRang==='__other__'){
+          body+=`<div class="form-group"><label>Numéro de rang *</label><input id="m-rrang-custom" type="number" min="0"></div>`;
+        }
+        if(wizRang){
+          body+=`<div class="form-group"><label>Description</label><input id="m-rdesc" placeholder="Optionnel"></div>`;
+        }
+      }
+    }
+    html=`${mhd('Nouveau rangement')}${body}${mf}`;
   }
   if(m.type==='add-tool'||m.type==='edit-tool'){
     const t = m.tool||{};
@@ -7733,23 +7812,44 @@ async function saveModal(){
     }
   }
 
-  if(m.type==='add-rng'||m.type==='edit-rng'){
-    const nom=q('m-rnom')?.value?.trim()||q('m-rn')?.value?.trim();
+  if(m.type==='edit-rng'){
+    const nom=q('m-rnom')?.value?.trim();
     if(!nom)return alert('Nom requis');
     const parentId=q('m-rparent')?.value||null;
     const rec={nom,parent_id:parentId,bien:parentId?null:(q('m-rbien')?.value||null),
-      description:q('m-rdesc')?.value||q('m-rd')?.value||null};
-    if(m.type==='add-rng'){
-      const {data,error}=await sb.from('rangements').insert(rec).select().single();
-      if(error){alert('Erreur : '+error.message);return;}
-      if(data)S.rangements.push(data);
+      description:q('m-rdesc')?.value||null};
+    const {error}=await sb.from('rangements').update(rec).eq('id',m.rng.id);
+    if(error){alert('Erreur : '+error.message);return;}
+    const rngRef=S.rangements.find(r=>r.id===m.rng.id);
+    if(rngRef)Object.assign(rngRef,rec);
+  }
+
+  if(m.type==='add-rng'){
+    const wizParent=m.wizParent;
+    let nom,parentId=null,bien=null;
+    if(wizParent==='__new__'){
+      if(!m.wizBien)return alert('Choisissez un bien');
+      nom=q('m-rnom')?.value?.trim();
+      if(!nom)return alert('Nom du magasin requis');
+      bien=m.wizBien;
+    }else if(wizParent&&m.wizEtagere==='__custom__'){
+      nom=q('m-rnom')?.value?.trim();
+      if(!nom)return alert('Nom requis');
+      parentId=wizParent;
+    }else if(wizParent&&m.wizEtagere){
+      let rang=m.wizRang;
+      if(rang==='__other__')rang=q('m-rrang-custom')?.value?.trim();
+      if(!rang)return alert('Choisissez ou saisissez un étage / rang');
+      nom='Étagère '+m.wizEtagere+' / rang '+rang;
+      parentId=wizParent;
+      if((S.rangements||[]).some(x=>x.parent_id===parentId&&x.nom===nom))return alert('Cet emplacement existe déjà : '+nom);
     }else{
-      const {error}=await sb.from('rangements').update(rec).eq('id',m.rng.id);
-      if(error){alert('Erreur : '+error.message);return;}
-      // Update in S.rangements array
-      const rngRef=S.rangements.find(r=>r.id===m.rng.id);
-      if(rngRef)Object.assign(rngRef,rec);
+      return alert('Complétez toutes les étapes avant d\'enregistrer.');
     }
+    const rec={nom,parent_id:parentId,bien,description:q('m-rdesc')?.value||null};
+    const {data,error}=await sb.from('rangements').insert(rec).select().single();
+    if(error){alert('Erreur : '+error.message);return;}
+    if(data)S.rangements.push(data);
   }
 
   if(m.type==='add-tenant'||m.type==='edit-tenant'){
@@ -11340,7 +11440,8 @@ function bindAll(){
     S.rangements=S.rangements.filter(x=>x.id!==id);render();
   });
   document.querySelectorAll('[data-add-rng-child]').forEach(el=>el.onclick=()=>{
-    S.modal={type:'add-rng',parentId:el.dataset.addRngChild};render();
+    const parent=S.rangements.find(x=>x.id===el.dataset.addRngChild);
+    S.modal={type:'add-rng',wizBien:parent?.bien||'',wizParent:el.dataset.addRngChild};render();
   });
   document.querySelectorAll('[data-rng-inv]').forEach(el=>el.onclick=()=>{
     const r=S.rangements.find(x=>x.id===el.dataset.rngInv);
