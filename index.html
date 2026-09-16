@@ -171,7 +171,7 @@ function isDubailProfile(){
   // Fallback: if user has visible_tabs set with locatif but no tools/etiquettes
   if(u.visible_tabs&&u.visible_tabs.length>0){
     const vt=u.visible_tabs;
-    if(vt.includes('locatif')&&!vt.includes('tools')&&!vt.includes('etiquettes'))return true;
+    if(vt.includes('locatif')&&!vt.includes('tools'))return true;
   }
   return false;
 }
@@ -905,7 +905,7 @@ function bindLogin(){
 
 const USER_PROFILE_TABS = {
   admin:      null,
-  technicien: ['dashboard','workorders','tools','consommables','etiquettes','loans','maintenance','rangements'],
+  technicien: ['dashboard','workorders','tools','consommables','loans','maintenance','rangements'],
   dubail:     ['workorders','consommables','locatif','compteurs','finances'],
   perso:      ['dashboard','workorders','vehicles','finances','famille'],
   famille_jm: ['dashboard','workorders','vehicles','topology','famille','factures'],
@@ -928,7 +928,7 @@ function applyUserProfile(prof){
 // ============================================================
 const USER_PROFILES = {
   admin:      {label:'Administrateur',  tabs:null}, // null = tous les onglets
-  technicien: {label:'Technicien',      tabs:['dashboard','workorders','tools','consommables','etiquettes','loans','maintenance','rangements','vehicles']},
+  technicien: {label:'Technicien',      tabs:['dashboard','workorders','tools','consommables','loans','maintenance','rangements','vehicles']},
   dubail:     {label:'26 rue Dubail',   tabs:['dashboard','workorders','consommables','locatif','compteurs','finances']},
   perso:      {label:'Perso',           tabs:['dashboard','workorders','vehicles','finances','famille']},
   lecteur:    {label:'Lecteur',         tabs:['dashboard','workorders','maintenance']},
@@ -938,7 +938,7 @@ const USER_PROFILES = {
 const ALL_TABS_LABELS = {
   dashboard:'Tableau de bord',assets:'Équipements',tasks:'Échéances',
   workorders:'Bons de travaux',tools:'Outils',consommables:'Consommables',
-  etiquettes:'Étiquettes QR',loans:'Prêts outils',vehicles:'Véhicules',
+  loans:'Prêts outils',vehicles:'Véhicules',
   topology:'Topologie',maintenance:'Gammes',locatif:'Gestion locative',
   compteurs:'Compteurs',finances:'Finances',rangements:'Rangements',
   famille:'Famille',settings:'Paramètres'
@@ -997,7 +997,7 @@ function navItems(){
     {group:'Outils', items:[
       {id:'tools', label:'Inventaire outils', icon:'◈'},
       {id:'consommables', label:'Consommables', icon:'📦'},
-      {id:'etiquettes', label:'Étiquettes & QR', icon:'◩'},
+      {id:'rangements', label:'Rangements', icon:'📦'},
       {id:'loans', label:'Prêts en cours', icon:'◉', badge: loanedN},
     ]},
     {group:'Véhicules', items:[
@@ -1044,7 +1044,6 @@ function renderApp(){
     chantiers: renderChantiers(),
     tools: renderTools(),
     consommables: renderConsommables(),
-    etiquettes: renderEtiquettes(),
     loans: renderLoans(),
     rangements: renderRangements(),
     vehicles: renderVehicles(),
@@ -1647,7 +1646,7 @@ function renderTools(){
       return `<tr>
         <td><div style="font-weight:500">${t.name}</div><div style="font-size:11px;color:var(--text2)">${t.description||''}</div></td>
         <td><span class="badge bgray">${t.category||''}</span></td>
-        <td style="font-size:12px">${t.location||'—'}</td>
+        <td style="font-size:12px">${rngLabel(t.location)}${t.location_detail?`<div style="font-size:10px;color:var(--text3)">${t.location_detail}</div>`:''}</td>
         <td>
           <div style="display:flex;align-items:center;gap:6px">
             <div class="tool-dot ${effStatus==='available'?'dot-green':effStatus==='loaned'?'dot-amber':'dot-red'}"></div>
@@ -1658,7 +1657,7 @@ function renderTools(){
         <td style="white-space:nowrap">
           ${canEdit()&&effStatus==='available'?`<button class="btn btn-sm" data-lend-tool="${t.id}">Prêter</button> `:''}
           ${canEdit()&&effStatus==='loaned'?`<button class="btn btn-sm" data-return-tool="${t.id}">Retour</button> `:''}
-          <button class="btn btn-sm" data-qr-tool="${t.id}" title="Étiquette QR">◩</button>
+          <button class="btn btn-sm" data-print-label="${t.id}" title="Étiquette QR">🖨</button>
           ${isAdmin()?`<button class="btn btn-sm" data-edit-tool="${t.id}">✎</button> <button class="btn btn-d btn-sm" data-del-tool="${t.id}">✕</button>`:''}
         </td>
       </tr>`;
@@ -4183,112 +4182,6 @@ function renderFamille(){
   return tabBar+'<div style="text-align:center;padding:20px;color:var(--text2)">Onglet inconnu</div>';
 }
 
-function renderEtiquettes(){
-  const eTab = S.eTab||'outils';
-  const siteUrl = window.location.origin + window.location.pathname;
-  const toolLocs = new Set(S.tools.map(t=>t.location).filter(Boolean));
-  const rngLocs = new Set((S.rangements||[]).map(r=>r.nom).filter(Boolean));
-  const locations = [...new Set([...rngLocs,...toolLocs])].sort();
-
-  const tabBar = `<div class="tab-bar" style="margin-bottom:14px">
-    <div class="tab ${eTab==='outils'?'active':''}" data-etab="outils">🔧 Outils</div>
-    <div class="tab ${eTab==='emplacements'?'active':''}" data-etab="emplacements">📦 Emplacements</div>
-    <div class="tab ${eTab==='inventaire'?'active':''}" data-etab="inventaire">📋 Inventaire</div>
-  </div>`;
-
-  // === ÉTIQUETTES OUTILS ===
-  if(eTab==='outils'){
-    const selCat = S.eFilter||'all';
-    const cats = ['all',...new Set(S.tools.map(t=>t.category).filter(Boolean))];
-    const filtered = selCat==='all'?S.tools:S.tools.filter(t=>t.category===selCat);
-    return `${tabBar}
-    <div style="display:flex;justify-content:flex-end;margin-bottom:8px"><button class="btn btn-p btn-sm" id="btn-export-rng">&#128229; Exporter Excel</button></div>
-    <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center">
-      ${cats.map(c=>`<span class="pill ${selCat===c?'active':''}" data-efilter="${c}">${c==='all'?'Tous':c}</span>`).join('')}
-    </div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px">
-      ${filtered.map(t=>`
-        <div class="card" style="padding:12px;text-align:center;cursor:pointer" data-qr-tool="${t.id}">
-          <canvas id="qr-tool-${t.id}" style="width:100px;height:100px"></canvas>
-          <div style="font-size:13px;font-weight:500;margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${t.name}</div>
-          <div style="font-size:11px;color:var(--text2)">${t.category||''}</div>
-          <div style="font-size:10px;color:var(--text3)">${t.location||'—'}</div>
-          <div style="display:flex;gap:4px;margin-top:8px;justify-content:center">
-            <button class="btn btn-sm" data-print-label="${t.id}">🖨 Étiquette</button>
-          </div>
-        </div>`).join('')}
-    </div>`;
-  }
-
-  // === ÉTIQUETTES EMPLACEMENTS ===
-  if(eTab==='emplacements'){
-    return `${tabBar}
-    <div style="display:flex;justify-content:flex-end;margin-bottom:12px">
-      <button class="btn btn-p btn-sm" id="btn-add-location">+ Emplacement</button>
-    </div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px">
-      ${locations.map(loc=>{
-        const tools = S.tools.filter(t=>t.location===loc);
-        const rng = (S.rangements||[]).find(r=>r.nom===loc);
-      return `<div class="card" style="padding:12px;text-align:center">
-          <canvas id="qr-loc-${btoa(loc).replace(/[^a-z0-9]/gi,'')}" style="width:100px;height:100px"></canvas>
-          <div style="font-size:13px;font-weight:500;margin-top:6px">${loc}</div>
-          ${rng?.description?`<div style="font-size:11px;color:var(--text2);margin-top:2px">${rng.description}</div>`:''}
-          <div style="font-size:11px;color:var(--text2)">${tools.length} outil${tools.length>1?'s':''}</div>
-          <div style="margin-top:6px;display:flex;gap:4px;justify-content:center;flex-wrap:wrap">
-            <button class="btn btn-sm" data-print-loc="${loc}">🖨 Étiquette</button>
-            ${rng&&isAdmin()?`<button class="btn btn-sm" data-edit-rng="${rng.id}" title="Modifier">&#9998;</button>`:''}
-            ${rng&&isAdmin()?`<button class="btn btn-d btn-sm" data-del-rng-loc="${rng.id}" title="Supprimer">&#10005;</button>`:''}
-          </div>
-        </div>`;
-      }).join('')}
-      ${locations.length===0?'<div style="grid-column:1/-1;text-align:center;padding:30px;color:var(--text2)">Aucun emplacement défini. Ajoutez des emplacements dans la fiche de chaque outil.</div>':''}
-    </div>`;
-  }
-
-  // === INVENTAIRE RAPIDE ===
-  if(eTab==='inventaire'){
-    const selLoc = S.selInventLoc||locations[0]||'';
-    const locTools = S.tools.filter(t=>t.location===selLoc);
-    const invState = S.inventState||{};
-    const checked = locTools.filter(t=>invState[t.id]).length;
-    return `${tabBar}
-    <div style="display:flex;justify-content:flex-end;margin-bottom:8px"><button class="btn btn-p btn-sm" id="btn-export-rng">&#128229; Exporter Excel</button></div>
-    <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center">
-      <select id="inv-loc-sel" style="padding:6px 10px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:13px">
-        ${locations.map(l=>`<option value="${l}" ${l===selLoc?'selected':''}>${l}</option>`).join('')}
-        <option value="">Tous les emplacements</option>
-      </select>
-      <span style="font-size:13px;color:var(--text2)">${checked} / ${locTools.length} vérifiés</span>
-      <div style="flex:1;background:var(--bg3);border-radius:99px;height:6px;min-width:80px">
-        <div style="background:var(--green);height:100%;border-radius:99px;width:${locTools.length>0?Math.round(checked/locTools.length*100):0}%"></div>
-      </div>
-      <button class="btn btn-sm" id="btn-reset-inv">↺ Réinitialiser</button>
-      <button class="btn btn-p btn-sm" id="btn-scan-qr">📷 Scanner QR</button>
-    </div>
-    <div class="card">
-      ${(selLoc?locTools:S.tools).map(t=>{
-        const loan = S.loans.find(l=>l.tool_id===t.id&&!l.returned);
-        const isChecked = invState[t.id];
-        return `<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:0.5px solid var(--border);cursor:pointer" data-inv-check="${t.id}">
-          <div style="width:22px;height:22px;border-radius:4px;border:2px solid ${isChecked?'var(--green)':'var(--border2)'};background:${isChecked?'var(--green)':'transparent'};display:flex;align-items:center;justify-content:center;flex-shrink:0">
-            ${isChecked?'<svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke="#fff" stroke-width="2" fill="none"/></svg>':''}
-          </div>
-          <div style="flex:1">
-            <div style="font-size:13px;font-weight:500;${isChecked?'text-decoration:line-through;color:var(--text2)':''}">${t.name}</div>
-            <div style="font-size:11px;color:var(--text2)">${t.category||''} ${loan?'<span style="color:var(--amber)">⚠ Prêté à '+loan.borrower+'</span>':''}</div>
-          </div>
-          <div class="tool-dot ${t.status==='available'?'dot-green':t.status==='loaned'?'dot-amber':'dot-red'}"></div>
-        </div>`;
-      }).join('')}
-      ${(selLoc?locTools:S.tools).length===0?'<div style="text-align:center;padding:20px;color:var(--text2)">Aucun outil dans cet emplacement.</div>':''}
-    </div>
-    <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
-      <button class="btn btn-p" id="btn-export-inv">📄 Exporter la liste</button>
-    </div>`;
-  }
-  return '';
-}
 
 function openLabelPrinter(opts){
   var qd=opts.qrData||'';
@@ -4558,43 +4451,107 @@ function printLocationLabel(loc, tools, siteUrl){
 
 
 
+function rngLabel(nom){
+  if(!nom)return '—';
+  const r=(S.rangements||[]).find(x=>x.nom===nom);
+  return r&&r.bien?r.bien+' / '+r.nom:nom;
+}
+
 function renderRangements(){
   const rangements = S.rangements||[];
+
+  // Vue "inventaire" d'un magasin donné, ouverte depuis sa carte
+  if(S.rngInventFor){
+    const r=rangements.find(x=>x.id===S.rngInventFor);
+    if(r){
+      const locTools = S.tools.filter(t=>t.location===r.nom);
+      const invState = S.inventState||{};
+      const checked = locTools.filter(t=>invState[t.id]).length;
+      return `<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+        <button class="btn btn-sm" id="btn-rng-inv-back">← Retour</button>
+        <div style="font-size:15px;font-weight:600">📋 Inventaire — ${r.bien?r.bien+' / ':''}${r.nom}</div>
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center">
+        <span style="font-size:13px;color:var(--text2)">${checked} / ${locTools.length} vérifiés</span>
+        <div style="flex:1;background:var(--bg3);border-radius:99px;height:6px;min-width:80px">
+          <div style="background:var(--green);height:100%;border-radius:99px;width:${locTools.length>0?Math.round(checked/locTools.length*100):0}%"></div>
+        </div>
+        <button class="btn btn-sm" id="btn-reset-inv">↺ Réinitialiser</button>
+      </div>
+      <div class="card">
+        ${locTools.map(t=>{
+          const loan = S.loans.find(l=>l.tool_id===t.id&&!l.returned);
+          const isChecked = invState[t.id];
+          return `<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:0.5px solid var(--border);cursor:pointer" data-inv-check="${t.id}">
+            <div style="width:22px;height:22px;border-radius:4px;border:2px solid ${isChecked?'var(--green)':'var(--border2)'};background:${isChecked?'var(--green)':'transparent'};display:flex;align-items:center;justify-content:center;flex-shrink:0">
+              ${isChecked?'<svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke="#fff" stroke-width="2" fill="none"/></svg>':''}
+            </div>
+            <div style="flex:1">
+              <div style="font-size:13px;font-weight:500;${isChecked?'text-decoration:line-through;color:var(--text2)':''}">${t.name}</div>
+              <div style="font-size:11px;color:var(--text2)">${t.category||''} ${loan?'<span style="color:var(--amber)">⚠ Prêté à '+loan.borrower+'</span>':''}</div>
+            </div>
+            <div class="tool-dot ${t.status==='available'?'dot-green':t.status==='loaned'?'dot-amber':'dot-red'}"></div>
+          </div>`;
+        }).join('')}
+        ${locTools.length===0?'<div style="text-align:center;padding:20px;color:var(--text2)">Aucun outil dans ce rangement.</div>':''}
+      </div>
+      <div style="margin-top:12px"><button class="btn btn-p" id="btn-export-inv">📄 Exporter la liste</button></div>`;
+    }
+  }
+
+  const biens = [...new Set(rangements.map(r=>r.bien).filter(Boolean))].sort();
+  const sansBien = rangements.filter(r=>!r.bien);
+  const magasinCard = r=>{
+    const tools = S.tools.filter(t=>t.location===r.nom);
+    return `<div class="card" style="padding:14px">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px">
+        <div>
+          <div style="font-size:15px;font-weight:600">📦 ${r.nom}</div>
+          ${r.description?`<div style="font-size:12px;color:var(--text2);margin-top:2px">${r.description}</div>`:''}
+        </div>
+        <div style="display:flex;gap:4px">
+          ${isAdmin()?`<button class="btn btn-sm" data-edit-rng="${r.id}">✎</button>
+          <button class="btn btn-d btn-sm" data-del-rng="${r.id}">✕</button>`:''}
+        </div>
+      </div>
+      <div style="font-size:12px;color:var(--text2);margin-bottom:8px">
+        ${tools.length} outil${tools.length>1?'s':''} rangé${tools.length>1?'s':''}
+      </div>
+      ${tools.length>0?`<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px">
+        ${tools.slice(0,5).map(t=>`<span class="badge bgray" style="font-size:10px">${t.name}</span>`).join('')}
+        ${tools.length>5?`<span class="badge bgray" style="font-size:10px">+${tools.length-5}</span>`:''}
+      </div>`:'<div style="font-size:11px;color:var(--text3);margin-bottom:10px">Vide</div>'}
+      <div style="display:flex;gap:4px;flex-wrap:wrap">
+        <button class="btn btn-sm" data-print-loc="${r.nom}">🖨 Étiquette</button>
+        <button class="btn btn-sm" data-rng-inv="${r.id}">📋 Inventaire</button>
+      </div>
+    </div>`;
+  };
+
   return `<div>
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:8px;flex-wrap:wrap">
       <div style="font-size:13px;color:var(--text2)">${rangements.length} rangement${rangements.length>1?'s':''} défini${rangements.length>1?'s':''}</div>
-      ${isAdmin()?`<button class="btn btn-p" id="btn-add-rng">+ Rangement</button>`:''}
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-sm" id="btn-export-rng">&#128229; Exporter Excel</button>
+        ${isAdmin()?`<button class="btn btn-p" id="btn-add-rng">+ Rangement</button>`:''}
+      </div>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px">
-      ${rangements.map(r=>{
-        const tools = S.tools.filter(t=>t.location===r.nom);
-        return `<div class="card" style="padding:14px">
-          <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px">
-            <div>
-              <div style="font-size:15px;font-weight:600">📦 ${r.nom}</div>
-              ${r.description?`<div style="font-size:12px;color:var(--text2);margin-top:2px">${r.description}</div>`:''}
-            </div>
-            <div style="display:flex;gap:4px">
-              ${isAdmin()?`<button class="btn btn-sm" data-edit-rng="${r.id}">✎</button>
-              <button class="btn btn-d btn-sm" data-del-rng="${r.id}">✕</button>`:''}
-            </div>
-          </div>
-          <div style="font-size:12px;color:var(--text2);margin-bottom:8px">
-            ${tools.length} outil${tools.length>1?'s':''} rangé${tools.length>1?'s':''}
-          </div>
-          ${tools.length>0?`<div style="display:flex;flex-wrap:wrap;gap:4px">
-            ${tools.slice(0,5).map(t=>`<span class="badge bgray" style="font-size:10px">${t.name}</span>`).join('')}
-            ${tools.length>5?`<span class="badge bgray" style="font-size:10px">+${tools.length-5}</span>`:''}
-          </div>`:'<div style="font-size:11px;color:var(--text3)">Vide</div>'}
-        </div>`;
-      }).join('')}
-      ${rangements.length===0?`<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--text2)">
-        <div style="font-size:32px;margin-bottom:12px">📦</div>
-        <div style="font-size:14px;font-weight:500;margin-bottom:6px">Aucun rangement défini</div>
-        <div style="font-size:12px">Créez vos rangements pour organiser votre matériel<br>(étagères, armoires, véhicules...)</div>
-        ${isAdmin()?`<button class="btn btn-p" style="margin-top:14px" id="btn-add-rng2">+ Créer un rangement</button>`:''}
+    ${biens.map(bien=>`
+      <div class="sec" style="margin:16px 0 8px">🏠 ${bien}</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px">
+        ${rangements.filter(r=>r.bien===bien).map(magasinCard).join('')}
+      </div>`).join('')}
+    ${sansBien.length>0?`
+      <div class="sec" style="margin:16px 0 8px">${biens.length>0?'📦 Non classé':''}</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px">
+        ${sansBien.map(magasinCard).join('')}
       </div>`:''}
-    </div>
+    ${rangements.length===0?`<div style="text-align:center;padding:40px;color:var(--text2)">
+      <div style="font-size:32px;margin-bottom:12px">📦</div>
+      <div style="font-size:14px;font-weight:500;margin-bottom:6px">Aucun rangement défini</div>
+      <div style="font-size:12px">Créez vos rangements pour organiser votre matériel<br>(étagères, armoires, véhicules...)</div>
+      ${isAdmin()?`<button class="btn btn-p" style="margin-top:14px" id="btn-add-rng2">+ Créer un rangement</button>`:''}
+    </div>`:''}
   </div>`;
 }
 
@@ -5478,7 +5435,7 @@ function renderModal(){
 
   if(m.type==='add-cso'||m.type==='edit-cso'){
     const c=m.cso||{};
-    const rngOpts=S.rangements.map(r=>`<option value="${r.nom}" ${c.emplacement===r.nom?'selected':''}>${r.nom}</option>`).join('');
+    const rngOpts=S.rangements.map(r=>`<option value="${r.nom}" ${c.emplacement===r.nom?'selected':''}>${r.bien?r.bien+' — ':''}${r.nom}</option>`).join('');
     html=`${mhd(m.type==='add-cso'?'Nouveau consommable':'Modifier — '+c.nom)}
     <div class="form-group"><label>Désignation *</label><input id="m-cnom" value="${c.nom||''}" placeholder="Ex: Prise électrique 2P+T, Raccord 15/21..."></div>
     <div class="g2c">
@@ -5493,13 +5450,13 @@ function renderModal(){
       <div class="form-group"><label>Stock minimum (alerte)</label><input id="m-cstockmin" type="number" value="${c.stock_min||0}" min="0"></div>
       <div class="form-group"><label>Prix achat unitaire (€)</label><input id="m-cprix2" type="number" step="0.01" value="${c.prix_achat||0}"></div>
     </div>
-    <div class="form-group"><label>Emplacement (boîte/caisse)</label>
+    <div class="form-group"><label>Rangement</label>
       <select id="m-cemp">
-        <option value="">— Saisir manuellement —</option>
+        <option value="">— Aucun —</option>
         ${rngOpts}
-        ${c.emplacement&&!S.rangements.find(r=>r.nom===c.emplacement)?`<option value="${c.emplacement}" selected>${c.emplacement}</option>`:''}
       </select>
-      <input id="m-cemp-custom" value="${c.emplacement||''}" placeholder="Ex: Caisse rouge, Boîte électricité..." style="margin-top:6px">
+      ${S.rangements.length===0?`<div style="font-size:11px;color:var(--text2);margin-top:4px">Aucun rangement défini — créez-en un dans "Rangements".</div>`:''}
+      <input id="m-cemp-detail" value="${c.location_detail||''}" placeholder="Détail : Caisse rouge, Boîte électricité..." style="margin-top:6px">
     </div>
     <div class="form-group"><label>Description / Notes</label><input id="m-cdesc2" value="${c.description||''}"></div>
     <div class="form-group"><label>🛒 Liens commande fournisseurs <span style="font-size:11px;color:var(--text2)">(un lien par ligne)</span></label>
@@ -5586,29 +5543,32 @@ function renderModal(){
   if(m.type==='add-rng'||m.type==='edit-rng'){
     const r=m.rng||{};
     html=`${mhd(m.type==='add-rng'?'Nouveau rangement':'Modifier — '+r.nom)}
-    <div class="form-group"><label>Nom du rangement *</label><input id="m-rnom" value="${r.nom||''}" placeholder="Ex: Étagère A, Armoire atelier, Camion..."></div>
+    <div class="form-group"><label>Bien</label>
+      <select id="m-rbien">
+        <option value="">— Non classé —</option>
+        ${S.topology.properties.map(p=>`<option value="${p.name}" ${r.bien===p.name?'selected':''}>${p.name}</option>`).join('')}
+      </select>
+    </div>
+    <div class="form-group"><label>Nom du magasin *</label><input id="m-rnom" value="${r.nom||''}" placeholder="Ex: Cave, Garage, Armoire atelier, Camion..."></div>
     <div class="form-group"><label>Description</label><input id="m-rdesc" value="${r.description||''}" placeholder="Ex: Rez-de-chaussée, côté gauche"></div>
-    <div class="form-group"><label>Emplacement / Lieu</label><input id="m-rlieu" value="${r.lieu||''}" placeholder="Ex: Atelier, Garage, Van..."></div>
     ${mf}`;
   }
   if(m.type==='add-tool'||m.type==='edit-tool'){
     const t = m.tool||{};
-    const rngOpts = S.rangements.map(r=>`<option value="${r.nom}" ${t.location===r.nom?'selected':''}>${r.nom}${r.description?' — '+r.description:''}</option>`).join('');
+    const rngOpts = S.rangements.map(r=>`<option value="${r.nom}" ${t.location===r.nom?'selected':''}>${r.bien?r.bien+' — ':''}${r.nom}${r.description?' ('+r.description+')':''}</option>`).join('');
     html=`${mhd(m.type==='add-tool'?'Nouvel outil':'Modifier — '+t.name)}
     <div class="form-group"><label>Nom *</label><input id="m-tn" value="${t.name||''}"></div>
     <div class="g2c">
       <div class="form-group"><label>Catégorie</label><input id="m-tc" value="${t.category||''}" placeholder="Ex: Électroportatif"></div>
       <div class="form-group"><label>Statut</label><select id="m-ts"><option value="available" ${t.status==='available'?'selected':''}>Disponible</option><option value="maintenance" ${t.status==='maintenance'?'selected':''}>Maintenance</option></select></div>
     </div>
-    <div class="form-group"><label>Rangement *</label>
-      ${S.rangements.length>0?`
-      <select id="m-tl" onchange="const c=document.getElementById('m-tl-custom');if(this.value==='__autre__'){c.style.display='block';c.focus();}else{c.style.display='none';}">
-        <option value="">— Sélectionner un rangement —</option>
+    <div class="form-group"><label>Rangement</label>
+      <select id="m-tl">
+        <option value="">— Aucun —</option>
         ${rngOpts}
-        <option value="__autre__">✏ Autre (saisie libre)...</option>
       </select>
-      <input id="m-tl-custom" value="${t.location&&!S.rangements.find(r=>r.nom===t.location)?t.location:''}" placeholder="Nom du rangement..." style="margin-top:6px;display:${t.location&&!S.rangements.find(r=>r.nom===t.location)?'block':'none'}">
-      `:`<input id="m-tl" value="${t.location||''}" placeholder="Ex: Étagère A1 — Atelier">`}
+      ${S.rangements.length===0?`<div style="font-size:11px;color:var(--text2);margin-top:4px">Aucun rangement défini — créez-en un dans "Rangements".</div>`:''}
+      <input id="m-tl-detail" value="${t.location_detail||''}" placeholder="Détail : étagère, rang..." style="margin-top:6px">
     </div>
     <div class="form-group"><label>Description</label><input id="m-tdesc" value="${t.description||''}"></div>
     <div class="form-group"><label>Notes</label><input id="m-tnotes" value="${t.notes||''}"></div>${mf}`;}
@@ -5862,7 +5822,7 @@ function renderModal(){
     </div>
     <div class="form-group"><label>Onglets visibles</label>
       <div style="display:flex;flex-wrap:wrap;gap:4px 8px;background:var(--bg2);padding:8px;border-radius:var(--radius);max-height:130px;overflow-y:auto" id="utab-wrap">
-        <label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="dashboard" ${(u.visible_tabs||[]).includes("dashboard")?"checked":""}> Tableau de bord</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="workorders" ${(u.visible_tabs||[]).includes("workorders")?"checked":""}> Bons de travaux</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="chantiers" ${(u.visible_tabs||[]).includes("chantiers")?"checked":""}> Chantiers</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="tools" ${(u.visible_tabs||[]).includes("tools")?"checked":""}> Outils</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="consommables" ${(u.visible_tabs||[]).includes("consommables")?"checked":""}> Consommables</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="etiquettes" ${(u.visible_tabs||[]).includes("etiquettes")?"checked":""}> Étiquettes QR</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="loans" ${(u.visible_tabs||[]).includes("loans")?"checked":""}> Prêts outils</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="vehicles" ${(u.visible_tabs||[]).includes("vehicles")?"checked":""}> Véhicules</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="topology" ${(u.visible_tabs||[]).includes("topology")?"checked":""}> Topologie</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="maintenance" ${(u.visible_tabs||[]).includes("maintenance")?"checked":""}> Gammes</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="locatif" ${(u.visible_tabs||[]).includes("locatif")?"checked":""}> Gestion locative</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="reservations" ${(u.visible_tabs||[]).includes("reservations")?"checked":""}> Réservations</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="compteurs" ${(u.visible_tabs||[]).includes("compteurs")?"checked":""}> Compteurs</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="finances" ${(u.visible_tabs||[]).includes("finances")?"checked":""}> Finances</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="factures" ${(u.visible_tabs||[]).includes("factures")?"checked":""}> Factures</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="rangements" ${(u.visible_tabs||[]).includes("rangements")?"checked":""}> Rangements</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="famille" ${(u.visible_tabs||[]).includes("famille")?"checked":""}> Famille</label>
+        <label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="dashboard" ${(u.visible_tabs||[]).includes("dashboard")?"checked":""}> Tableau de bord</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="workorders" ${(u.visible_tabs||[]).includes("workorders")?"checked":""}> Bons de travaux</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="chantiers" ${(u.visible_tabs||[]).includes("chantiers")?"checked":""}> Chantiers</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="tools" ${(u.visible_tabs||[]).includes("tools")?"checked":""}> Outils</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="consommables" ${(u.visible_tabs||[]).includes("consommables")?"checked":""}> Consommables</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="loans" ${(u.visible_tabs||[]).includes("loans")?"checked":""}> Prêts outils</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="vehicles" ${(u.visible_tabs||[]).includes("vehicles")?"checked":""}> Véhicules</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="topology" ${(u.visible_tabs||[]).includes("topology")?"checked":""}> Topologie</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="maintenance" ${(u.visible_tabs||[]).includes("maintenance")?"checked":""}> Gammes</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="locatif" ${(u.visible_tabs||[]).includes("locatif")?"checked":""}> Gestion locative</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="reservations" ${(u.visible_tabs||[]).includes("reservations")?"checked":""}> Réservations</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="compteurs" ${(u.visible_tabs||[]).includes("compteurs")?"checked":""}> Compteurs</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="finances" ${(u.visible_tabs||[]).includes("finances")?"checked":""}> Finances</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="factures" ${(u.visible_tabs||[]).includes("factures")?"checked":""}> Factures</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="rangements" ${(u.visible_tabs||[]).includes("rangements")?"checked":""}> Rangements</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="famille" ${(u.visible_tabs||[]).includes("famille")?"checked":""}> Famille</label>
       </div>
     </div>
     <div class="form-group"><label>Équipements accessibles <small style="color:var(--text2)">(vide = tous)</small></label>
@@ -7115,18 +7075,16 @@ async function saveModal(){
 
   if(m.type==='add-tool'){
     const name=q('m-tn').value.trim();if(!name)return alert('Nom requis');
-    const locSel=q('m-tl');
-    const locCustom=q('m-tl-custom');
-    const location=locSel?(locSel.value==='__autre__'?locCustom?.value||'':locSel.value):locCustom?.value||'';
-    const {data}=await sb.from('tools').insert({name,category:q('m-tc').value,status:q('m-ts').value,location,description:q('m-tdesc').value,notes:q('m-tnotes').value}).select().single();
+    const location=q('m-tl')?.value||'';
+    const location_detail=q('m-tl-detail')?.value||null;
+    const {data}=await sb.from('tools').insert({name,category:q('m-tc').value,status:q('m-ts').value,location,location_detail,description:q('m-tdesc').value,notes:q('m-tnotes').value}).select().single();
     if(data)S.tools.push(data);}
 
   if(m.type==='edit-tool'){
     const t=m.tool;
-    const locSel2=q('m-tl');
-    const locCustom2=q('m-tl-custom');
-    const location2=locSel2?(locSel2.value==='__autre__'?locCustom2?.value||'':locSel2.value):locCustom2?.value||'';
-    const upd={name:q('m-tn').value,category:q('m-tc').value,status:q('m-ts').value,location:location2,description:q('m-tdesc').value,notes:q('m-tnotes').value};
+    const location2=q('m-tl')?.value||'';
+    const location_detail2=q('m-tl-detail')?.value||null;
+    const upd={name:q('m-tn').value,category:q('m-tc').value,status:q('m-ts').value,location:location2,location_detail:location_detail2,description:q('m-tdesc').value,notes:q('m-tnotes').value};
     await sb.from('tools').update(upd).eq('id',t.id);Object.assign(t,upd);}
 
   if(m.type==='link-asset'){
@@ -7609,15 +7567,13 @@ async function saveModal(){
 
   if(m.type==='add-cso'||m.type==='edit-cso'){
     const nom=q('m-cnom')?.value.trim();if(!nom)return alert('Désignation requise');
-    const empSel=q('m-cemp')?.value||'';
-    const empCustom=q('m-cemp-custom')?.value||'';
-    const emplacement=empSel&&empSel!==''?empSel:empCustom;
+    const emplacement=q('m-cemp')?.value||'';
     const rec={nom,categorie:q('m-ccat')?.value||null,reference:q('m-cref')?.value||null,
       stock:parseFloat(q('m-cstock')?.value)||0,
       unite:q('m-cunite2')?.value||'pièce(s)',
       stock_min:parseFloat(q('m-cstockmin')?.value)||0,
       prix_achat:parseFloat(q('m-cprix2')?.value)||0,
-      emplacement:emplacement||null,description:q('m-cdesc2')?.value||null,
+      emplacement:emplacement||null,location_detail:q('m-cemp-detail')?.value||null,description:q('m-cdesc2')?.value||null,
       order_links:(q('m-clinks')?.value||'').trim().split('\n').map(l=>l.trim()).filter(Boolean),
       affect_type:q('m-caffect-type')?.value||null,
       asset_id:q('m-casset')?.value||null,
@@ -7637,7 +7593,7 @@ async function saveModal(){
   if(m.type==='add-rng'||m.type==='edit-rng'){
     const nom=q('m-rnom')?.value?.trim()||q('m-rn')?.value?.trim();
     if(!nom)return alert('Nom requis');
-    const rec={nom,
+    const rec={nom,bien:q('m-rbien')?.value||null,
       description:q('m-rdesc')?.value||q('m-rd')?.value||null};
     if(m.type==='add-rng'){
       const {data,error}=await sb.from('rangements').insert(rec).select().single();
@@ -10454,21 +10410,6 @@ function bindAll(){
   }
 
 
-  // Toggle custom location input in tool modal
-  const locSel=document.getElementById('m-tl');
-  if(locSel&&locSel.tagName==='SELECT'){
-    locSel.onchange=()=>{
-      const custom=document.getElementById('m-tl-custom');
-      if(custom)custom.style.display=locSel.value==='__autre__'?'':'none';
-    };
-    // Init: if current value matches a rangement, select it; else show custom
-    if(locSel.value===''&&document.getElementById('m-tl-custom')?.value){
-      locSel.value='__autre__';
-      const custom=document.getElementById('m-tl-custom');
-      if(custom)custom.style.display='';
-    }
-  }
-
   document.querySelectorAll('[data-return-tool]').forEach(el=>el.onclick=async()=>{
     const loan=S.loans.find(l=>l.tool_id===el.dataset.returnTool&&!l.returned);
     if(loan){loan.returned=true;await sb.from('loans').update({returned:true}).eq('id',loan.id);}
@@ -11236,8 +11177,6 @@ function bindAll(){
   if(btnAddRng)btnAddRng.onclick=()=>{S.modal={type:'add-rng'};render();};
   const btnAddRng2=document.getElementById('btn-add-rng2');
   if(btnAddRng2)btnAddRng2.onclick=()=>{S.modal={type:'add-rng'};render();};
-  const btnAddLoc=document.getElementById('btn-add-location');
-  if(btnAddLoc)btnAddLoc.onclick=()=>{S.modal={type:'add-rng'};render();};
   document.querySelectorAll('[data-edit-rng]').forEach(el=>el.onclick=()=>{
     const r=S.rangements.find(x=>x.id===el.dataset.editRng);
     if(r){S.modal={type:'edit-rng',rng:r};render();}
@@ -11247,27 +11186,21 @@ function bindAll(){
     await sb.from('rangements').delete().eq('id',el.dataset.delRng);
     S.rangements=S.rangements.filter(x=>x.id!==el.dataset.delRng);render();
   });
+  document.querySelectorAll('[data-rng-inv]').forEach(el=>el.onclick=()=>{
+    const r=S.rangements.find(x=>x.id===el.dataset.rngInv);
+    S.rngInventFor=el.dataset.rngInv;S.selInventLoc=r?r.nom:null;S.inventState={};render();
+  });
+  const btnRngInvBack=document.getElementById('btn-rng-inv-back');
+  if(btnRngInvBack)btnRngInvBack.onclick=()=>{S.rngInventFor=null;render();};
 
   // ============================================================
   // ÉTIQUETTES OUTILS
   // ============================================================
-  document.querySelectorAll('[data-etab]').forEach(el=>el.onclick=()=>{S.eTab=el.dataset.etab;render();});
   document.querySelectorAll('[data-cso-tab]').forEach(el=>el.onclick=()=>{S.csoTab=el.dataset.csoTab;render();});
-  document.querySelectorAll('[data-efilter]').forEach(el=>el.onclick=()=>{S.eFilter=el.dataset.efilter;render();});
   document.querySelectorAll('[data-print-label]').forEach(el=>el.onclick=e=>{
     e.stopPropagation();
     const t=S.tools.find(x=>x.id===el.dataset.printLabel);
     if(t)printLabel(t,window.location.origin+window.location.pathname);
-  });
-
-  document.querySelectorAll('[data-del-rng-loc]').forEach(el=>el.onclick=async()=>{
-    const rng=S.rangements.find(r=>r.id===el.dataset.delRngLoc);
-    if(!rng)return;
-    if(!confirm('Supprimer l\'emplacement "'+rng.nom+'" ?'))return;
-    const {error}=await sb.from('rangements').delete().eq('id',rng.id);
-    if(error){alert('Erreur : '+error.message);return;}
-    S.rangements=S.rangements.filter(r=>r.id!==rng.id);
-    render();
   });
   document.querySelectorAll('[data-print-loc]').forEach(el=>el.onclick=e=>{
     e.stopPropagation();
@@ -11279,8 +11212,6 @@ function bindAll(){
     if(!S.inventState)S.inventState={};
     S.inventState[el.dataset.invCheck]=!S.inventState[el.dataset.invCheck];render();
   });
-  const invLocSel=document.getElementById('inv-loc-sel');
-  if(invLocSel)invLocSel.onchange=()=>{S.selInventLoc=invLocSel.value;S.inventState={};render();};
   const btnResetInv=document.getElementById('btn-reset-inv');
   if(btnResetInv)btnResetInv.onclick=()=>{S.inventState={};render();};
   const btnExportInv=document.getElementById('btn-export-inv');
@@ -11294,8 +11225,6 @@ function bindAll(){
     const a=document.createElement('a');a.href=URL.createObjectURL(blob);
     a.download='Inventaire_'+loc.replace(/\s/g,'_')+'_'+new Date().toISOString().slice(0,10)+'.txt';a.click();
   };
-  const btnScanQr=document.getElementById('btn-scan-qr');
-  if(btnScanQr)btnScanQr.onclick=()=>{alert('📷 Utilisez l\'appareil photo de votre smartphone pour scanner le QR code — le lien s\'ouvrira dans GMAO Pro.');};
   const btnSaveInv=document.getElementById('btn-save-inventaire');
   if(btnSaveInv)btnSaveInv.onclick=async()=>{
     const inputs=document.querySelectorAll('.inv-qty');
@@ -12513,9 +12442,10 @@ if(toolParam||csoParam||empParam){
       S.view="consommables";
       S.qrCso=csoParam;
     } else if(empParam){
-      S.view="etiquettes";
-      S.eTab="inventaire";
-      S.qrEmplacement=decodeURIComponent(empParam);
+      const loc=decodeURIComponent(empParam);
+      const rng=(S.rangements||[]).find(r=>r.nom===loc);
+      S.view="rangements";
+      if(rng){S.rngInventFor=rng.id;S.inventState={};}
     }
     render();
     // Scroll/highlight the item after render
