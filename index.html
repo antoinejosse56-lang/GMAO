@@ -236,6 +236,18 @@ const CORPS_METIER_LIST=['Plomberie','Électricité','Chauffage / Climatisation'
 // renvoie le facteur (0..1) a appliquer au montant mensuel plein, base sur le
 // nombre de jours reellement passes dans le logement ce mois-la (jour d'entree
 // et jour de sortie tous deux comptes comme occupes).
+function vehiculeDefaultUnite(assetId){
+  const last=(S.vehiculeReleves||[]).filter(v=>v.asset_id===assetId).sort((v1,v2)=>new Date(v2.date||0)-new Date(v1.date||0))[0];
+  return last?.unite||'km';
+}
+async function logVehiculeReleveFromWo(assetId,woId,valeur,date){
+  const asset=S.assets.find(a=>a.id===assetId);
+  if(!asset||!(asset.category==='Véhicule'||asset.category==='Bateau'))return;
+  const rec={asset_id:assetId,date:date||NOW,type:'entretien',unite:vehiculeDefaultUnite(assetId),valeur,wo_id:woId};
+  const{data,error}=await sb.from('vehicule_releves').insert(rec).select().single();
+  if(error){console.warn('Relevé véhicule non enregistré :',error.message);return;}
+  S.vehiculeReleves=[data,...(S.vehiculeReleves||[])];
+}
 function joursDansMois(annee,moisIdx0){return new Date(annee,moisIdx0+1,0).getDate();}
 function prorataLoyerInfo(tenant,annee,moisIdx0){
   const joursTotal=joursDansMois(annee,moisIdx0);
@@ -699,7 +711,7 @@ async function loadAll() {
     const test = await sb.from('users').select('count', {count:'exact',head:true});
     if (test.error) { showError(test.error.message || JSON.stringify(test.error)); return; }
 
-    const [u, a, tl, l, wo, mt, topo, rev, cpt, rel, ten, rp, rng, fam, crecheRes, ecoleRes, conso, facturesRes, resaRes, favRes, fournRes, chantiersRes, devisRes, devisAvRes, bienDocsRes, tfRegulRes, logFichesRes, logEdlRes] = await Promise.all([
+    const [u, a, tl, l, wo, mt, topo, rev, cpt, rel, ten, rp, rng, fam, crecheRes, ecoleRes, conso, facturesRes, resaRes, favRes, fournRes, chantiersRes, devisRes, devisAvRes, bienDocsRes, tfRegulRes, logFichesRes, logEdlRes, vehiculeRelevesRes] = await Promise.all([
       sb.from('users').select('*'),
       sb.from('assets').select('*'),
       sb.from('tools').select('*'),
@@ -727,7 +739,8 @@ async function loadAll() {
       sb.from('bien_documents').select('*').order('created_at',{ascending:false}),
       sb.from('tf_regularisations').select('*'),
       sb.from('logement_fiches').select('*'),
-      sb.from('logement_edl').select('*').order('created_at',{ascending:false})
+      sb.from('logement_edl').select('*').order('created_at',{ascending:false}),
+      sb.from('vehicule_releves').select('*').order('date',{ascending:false})
     ]);
 
     // Only block on critical tables
@@ -777,6 +790,8 @@ async function loadAll() {
     S.logementFiches = logFichesRes?.error ? [] : (logFichesRes?.data || []);
     if (logEdlRes?.error) console.warn('Table logement_edl non disponible:', logEdlRes.error.message);
     S.logementEdl = logEdlRes?.error ? [] : (logEdlRes?.data || []);
+    if (vehiculeRelevesRes?.error) console.warn('Table vehicule_releves non disponible:', vehiculeRelevesRes.error.message);
+    S.vehiculeReleves = vehiculeRelevesRes?.error ? [] : (vehiculeRelevesRes?.data || []);
     const loadedTopo = topo.data?.[0]?.data;
     S.topoId = topo.data?.[0]?.id;
     if(loadedTopo?.properties?.length){
@@ -1301,7 +1316,10 @@ function renderAssetDetail(a){
     })),
   ].sort((h1,h2)=>new Date(h2.date||0)-new Date(h1.date||0));
   const isVehicle = a.category==='Véhicule';
+  const isVehicleOrBoat = a.category==='Véhicule'||a.category==='Bateau';
   const cg = a.carte_grise||{};
+  const releves = (S.vehiculeReleves||[]).filter(v=>v.asset_id===a.id).sort((v1,v2)=>new Date(v2.date||0)-new Date(v1.date||0));
+  const dernierReleve = releves[0];
 
   function cgField(label, val){
     return `<div class="row"><span style="color:var(--text2);font-size:12px;min-width:160px">${label}</span><span style="font-size:13px;font-weight:500">${val||'—'}</span></div>`;
@@ -1325,6 +1343,17 @@ function renderAssetDetail(a){
       ${canEdit()?`<button class="btn" style="margin-top:10px;width:100%" id="btn-edit-asset">Modifier</button>`:''}
     </div>
     <div class="card"><div class="sec">Description</div><div style="font-size:13px;color:var(--text2)">${a.description||'—'}</div></div>
+    ${isVehicleOrBoat?`<div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div class="sec" style="margin:0">🚗 Compteur</div>
+        ${canEdit()?`<button class="btn btn-sm btn-p" data-add-vehicule-releve="${a.id}">+ Relevé</button>`:''}
+      </div>
+      <div style="font-size:20px;font-weight:700;margin-bottom:10px">${dernierReleve?new Intl.NumberFormat('fr-FR').format(dernierReleve.valeur)+' '+dernierReleve.unite:'—'}</div>
+      ${releves.length?releves.slice(0,10).map(v=>{
+        const icon=v.type==='plein'?'⛽':v.type==='entretien'?'🔧':'📏';
+        return `<div class="row" style="font-size:12px"><span style="color:var(--text2)">${icon} ${dateLabel(v.date)}</span><span>${new Intl.NumberFormat('fr-FR').format(v.valeur)} ${v.unite}${v.montant?' — '+new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(v.montant):''}</span></div>`;
+      }).join(''):'<div style="font-size:12px;color:var(--text2)">Aucun relevé enregistré.</div>'}
+    </div>`:''}
   </div>`:''}
   ${S.subTab==='cg'&&isVehicle?`<div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
@@ -2358,6 +2387,10 @@ function renderMobileHome(){
 +'<div class="mobile-tile" data-nav="field" style="background:#8E44AD" onclick="S.fieldMode=true;render()">'
   +'<div style="font-size:36px;margin-bottom:8px">📋</div>'
   +'<div style="font-size:13px;font-weight:600;color:#fff">Baux & États des lieux</div>'
++'</div>'
++'<div class="mobile-tile" data-nav="add-facture-photo" style="background:#D35400" onclick="S.modal={type:\'add-facture\'};render()">'
+  +'<div style="font-size:36px;margin-bottom:8px">📸</div>'
+  +'<div style="font-size:13px;font-weight:600;color:#fff">Facture (photo)</div>'
 +'</div>'
     +'</div>'
     // Install PWA hint
@@ -5233,6 +5266,7 @@ function renderModal(){
         <select id="m-wasset">${assetOpts}</select>
       </div>
     </div>
+    <div class="form-group"><label>Kilométrage/heures au moment de l'intervention <span style="color:var(--text3);font-weight:400">(optionnel)</span></label><input id="m-wkm" type="number" step="0.01" placeholder="Ex: 16500"></div>
 
     <div style="border-top:0.5px solid var(--border);margin:12px 0 10px"></div>
     <div class="g2c">
@@ -5408,6 +5442,7 @@ function renderModal(){
           })()}
         </select>
       </div>
+      <div class="form-group"><label>Kilométrage/heures au moment de l'intervention <span style="color:var(--text3);font-weight:400">(optionnel)</span></label><input id="m-wkm" type="number" step="0.01" placeholder="Ex: 16500"></div>
       <div class="form-group"><label>Catégorie</label><select id="m-wc"><option>Réparation</option><option>Urgence</option><option>Amélioration</option><option>Autre</option></select></div>
     </div>
     <div class="g2c">
@@ -5586,6 +5621,8 @@ function renderModal(){
 
   if(m.type==='add-facture'||m.type==='edit-facture'){
     const f=m.facture||{};
+    if(!f.id&&!m.tempPhotoId)m.tempPhotoId=uid();
+    const photoOwnerId=f.id||m.tempPhotoId;
     // Reutilise les listes Bien/Chantier partagees (deja utilisees pour les
     // factures a valider) plutot qu'une construction ad hoc - celle-ci
     // oubliait de marquer l'option "selected", donc le select retombait
@@ -5674,11 +5711,14 @@ function renderModal(){
     </div>
     <div class="form-group"><label>Montant TTC (€) *</label><input id="fac-ttc" type="number" step="0.01" value="${f.montant_ttc||0}"></div>
     <div class="form-group"><label>Description / N° facture</label><input id="fac-desc" value="${f.description||''}" placeholder="Ex: Facture n°2024-001, Réparation toiture appt 3..."></div>
-    <div class="form-group"><label>🔗 Lien Drive (PDF de la facture)</label>
-      <div style="display:flex;gap:6px">
-        <input id="fac-url" value="${f.url_drive||''}" placeholder="https://drive.google.com/..." style="flex:1">
-        <button type="button" class="btn btn-sm" onclick="openDrivePicker(f=>{document.getElementById('fac-url').value=f.url;},(document.getElementById('fac-bien')?.value||document.getElementById('fac-compte')?.value==='savadur'?'dubail':''))">📁</button>
+    <div class="form-group"><label>🔗 Pièce jointe (PDF ou photo du ticket)</label>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <input id="fac-url" value="${f.drive_url||''}" placeholder="https://drive.google.com/..." style="flex:1;min-width:160px">
+        <button type="button" class="btn btn-sm" onclick="openDrivePicker(f=>{document.getElementById('fac-url').value=f.url;},(document.getElementById('fac-bien')?.value||document.getElementById('fac-compte')?.value==='savadur'?'dubail':''))" style="white-space:nowrap">📁 Drive</button>
+        <button type="button" class="btn btn-sm" onclick="document.getElementById('fac-photo-file').click()" style="white-space:nowrap">📷 Prendre une photo</button>
+        <input type="file" accept="image/*" capture="environment" id="fac-photo-file" data-facture-photo-upload="${photoOwnerId}" style="display:none">
       </div>
+      <div id="fac-photo-status" style="font-size:11px;margin-top:4px"></div>
     </div>
     <div class="form-group"><label>Date de paiement</label><input id="fac-date-paiement" type="date" value="${f.date_paiement||''}">
       <div style="font-size:11px;color:var(--text2);margin-top:4px">Une date de paiement renseignée marque automatiquement la facture comme rapprochée.</div>
@@ -7077,6 +7117,41 @@ function renderModal(){
     <div id="m-wdfile-status" style="font-size:11px;margin-bottom:10px"></div>
     ${mf}`;}
 
+  if(m.type==='add-vehicule-releve'){
+    const asset=S.assets.find(a=>a.id===m.assetId);
+    const lastReleve=(S.vehiculeReleves||[]).filter(v=>v.asset_id===m.assetId).sort((v1,v2)=>new Date(v2.date||0)-new Date(v1.date||0))[0];
+    const woOptsVeh=S.workOrders.filter(w=>w.asset_id===m.assetId).sort((w1,w2)=>new Date(w2.date||0)-new Date(w1.date||0));
+    html=`${mhd('Nouveau relevé — '+(asset?.name||''))}
+    <div class="g2c">
+      <div class="form-group"><label>Date *</label><input id="vr-date" type="date" value="${NOW}"></div>
+      <div class="form-group"><label>Type</label><select id="vr-type" onchange="document.getElementById('vr-plein-wrap').style.display=this.value==='plein'?'':'none';document.getElementById('vr-plein-montant-wrap').style.display=this.value==='plein'?'':'none';document.getElementById('vr-wo-wrap').style.display=this.value==='entretien'?'':'none'">
+        <option value="releve">Relevé simple</option>
+        <option value="plein">Plein de carburant</option>
+        <option value="entretien">Entretien</option>
+      </select></div>
+    </div>
+    <div class="g2c">
+      <div class="form-group"><label>Valeur du compteur *</label><input id="vr-valeur" type="number" step="0.01" placeholder="Ex: 185200"></div>
+      <div class="form-group"><label>Unité</label><select id="vr-unite">
+        <option value="km" ${(lastReleve?.unite||'km')==='km'?'selected':''}>Kilomètres</option>
+        <option value="heures" ${lastReleve?.unite==='heures'?'selected':''}>Heures</option>
+      </select></div>
+    </div>
+    <div class="g2c" id="vr-plein-wrap" style="display:none">
+      <div class="form-group"><label>Litres</label><input id="vr-litres" type="number" step="0.01" oninput="(function(){const l=parseFloat(document.getElementById('vr-litres').value)||0;const p=parseFloat(document.getElementById('vr-prix').value)||0;document.getElementById('vr-montant').value=Math.round(l*p*100)/100;})()"></div>
+      <div class="form-group"><label>Prix / litre (€)</label><input id="vr-prix" type="number" step="0.001" oninput="(function(){const l=parseFloat(document.getElementById('vr-litres').value)||0;const p=parseFloat(document.getElementById('vr-prix').value)||0;document.getElementById('vr-montant').value=Math.round(l*p*100)/100;})()"></div>
+    </div>
+    <div class="form-group" id="vr-plein-montant-wrap" style="display:none"><label>Montant (€)</label><input id="vr-montant" type="number" step="0.01" value="0"></div>
+    <div class="form-group" id="vr-wo-wrap" style="display:none"><label>Bon de travaux lié</label>
+      <select id="vr-wo">
+        <option value="">— Aucun —</option>
+        ${woOptsVeh.map(w=>`<option value="${w.id}">${w.title} — ${dateLabel(w.date)}</option>`).join('')}
+      </select>
+    </div>
+    <div class="form-group"><label>Notes</label><input id="vr-notes" placeholder="Ex: Vidange + filtres, plein autoroute..."></div>
+    ${mf}`;
+  }
+
   if(m.type==='link-asset'){
     const immAssets = S.assets.filter(a=>a.category==='Immobilier'||!a.category);
     html=`${mhd('Lier un équipement — '+m.nodeName)}
@@ -7266,6 +7341,8 @@ async function saveModal(){
     const {error}=await sb.from('work_orders').update(upd).eq('id',w.id);
     if(error){alert('Erreur : '+error.message);return;}
     Object.assign(w,upd);
+    const kmVal=q('m-wkm')?.value;
+    if(kmVal)await logVehiculeReleveFromWo(upd.asset_id,w.id,parseFloat(kmVal),upd.date);
   }
 
   if(m.type==='add-wo'){
@@ -7299,7 +7376,12 @@ async function saveModal(){
     };
     const {data,error}=await sb.from('work_orders').insert(rec).select().single();
     if(error){alert('Erreur : '+error.message);return;}
-    if(data){S.workOrders.unshift(data);if(byUser){const u=S.users.find(x=>x.id===byUser);if(u?.email)await sendBTAssignmentEmail(data,u);}}
+    if(data){
+      S.workOrders.unshift(data);
+      if(byUser){const u=S.users.find(x=>x.id===byUser);if(u?.email)await sendBTAssignmentEmail(data,u);}
+      const kmVal=q('m-wkm')?.value;
+      if(kmVal)await logVehiculeReleveFromWo(assetId,data.id,parseFloat(kmVal),rec.date);
+    }
   }
 
   if(m.type==='add-membre-event'){
@@ -7717,6 +7799,23 @@ async function saveModal(){
     const{error}=await sb.from('work_orders').update({docs:newDocs}).eq('id',wo.id);
     if(error){alert('Erreur : '+error.message);return;}
     wo.docs=newDocs;
+  }
+
+  if(m.type==='add-vehicule-releve'){
+    const valeur=parseFloat(q('vr-valeur')?.value);if(!valeur&&valeur!==0)return alert('Valeur du compteur requise');
+    const type=q('vr-type')?.value||'releve';
+    const rec={
+      asset_id:m.assetId,date:q('vr-date')?.value||NOW,type,
+      unite:q('vr-unite')?.value||'km',valeur,
+      wo_id:type==='entretien'?(q('vr-wo')?.value||null):null,
+      litres:type==='plein'?(parseFloat(q('vr-litres')?.value)||null):null,
+      prix_litre:type==='plein'?(parseFloat(q('vr-prix')?.value)||null):null,
+      montant:type==='plein'?(parseFloat(q('vr-montant')?.value)||null):null,
+      notes:q('vr-notes')?.value||null,
+    };
+    const{data,error}=await sb.from('vehicule_releves').insert(rec).select().single();
+    if(error){alert('Erreur : '+error.message);return;}
+    S.vehiculeReleves=[data,...(S.vehiculeReleves||[])];
   }
 
   if(m.type==='add-chantier'||m.type==='edit-chantier'){
@@ -8443,6 +8542,21 @@ async function uploadWoDocPhoto(woId,fileInput){
   if(nameInput&&!nameInput.value)nameInput.value='Photo';
   const typeSelect=document.getElementById('m-wdt');
   if(typeSelect&&typeSelect.value!=='photo'){typeSelect.value='photo';document.getElementById('m-wd-phase-wrap').style.display='';}
+  if(statusEl)statusEl.innerHTML='✓ <a href="'+freshUrl+'" target="_blank">Voir la photo</a>';
+}
+async function uploadFacturePhoto(ownerId,fileInput){
+  const file=fileInput.files?.[0];
+  if(!file)return;
+  const statusEl=document.getElementById('fac-photo-status');
+  if(statusEl)statusEl.textContent='⏳ Envoi...';
+  const ext=(file.name.split('.').pop()||'jpg').toLowerCase();
+  const path='factures/'+ownerId+'/'+Date.now()+'.'+ext;
+  const{error}=await sb.storage.from('documents-locataires').upload(path,file,{contentType:file.type||'image/jpeg',cacheControl:'0'});
+  if(error){if(statusEl)statusEl.textContent='';alert('Erreur upload : '+error.message);return;}
+  const{data:pub}=sb.storage.from('documents-locataires').getPublicUrl(path);
+  const freshUrl=pub.publicUrl+'?v='+Date.now();
+  const urlInput=document.getElementById('fac-url');
+  if(urlInput)urlInput.value=freshUrl;
   if(statusEl)statusEl.innerHTML='✓ <a href="'+freshUrl+'" target="_blank">Voir la photo</a>';
 }
 // Meme nettoyage de nom que cote Python (import_factures.py) pour un chemin
@@ -9424,6 +9538,9 @@ function bindAll(){
   document.querySelectorAll('[data-add-wo-doc]').forEach(el=>el.onclick=e=>{
     e.stopPropagation();S.modal={type:'add-wo-doc',woId:el.dataset.addWoDoc};render();});
 
+  document.querySelectorAll('[data-add-vehicule-releve]').forEach(el=>el.onclick=e=>{
+    e.stopPropagation();S.modal={type:'add-vehicule-releve',assetId:el.dataset.addVehiculeReleve};render();});
+
   document.querySelectorAll('[data-del-wo-doc]').forEach(el=>el.onclick=async e=>{
     e.stopPropagation();if(!confirm('Supprimer ce document ?'))return;
     const wo=S.workOrders.find(x=>x.id===el.dataset.woId);if(!wo)return;
@@ -10363,6 +10480,7 @@ function bindAll(){
   });
   document.querySelectorAll('[data-bien-doc-upload]').forEach(el=>el.onchange=()=>uploadBienDocFile(el.dataset.bienDocUpload,el));
   document.querySelectorAll('[data-wo-doc-upload]').forEach(el=>el.onchange=()=>uploadWoDocPhoto(el.dataset.woDocUpload,el));
+  document.querySelectorAll('[data-facture-photo-upload]').forEach(el=>el.onchange=()=>uploadFacturePhoto(el.dataset.facturePhotoUpload,el));
   document.querySelectorAll('[data-identite-upload]').forEach(el=>el.onchange=()=>uploadIdentitePhoto(el.dataset.identiteUpload,el));
   document.querySelectorAll('[data-identite-label]').forEach(el=>el.onchange=()=>renameIdentitePhoto(el.dataset.tenantId,el.dataset.identiteLabel,el.value));
   document.querySelectorAll('[data-del-identite-photo]').forEach(el=>el.onclick=()=>deleteIdentitePhoto(el.dataset.tenantId,el.dataset.delIdentitePhoto));
