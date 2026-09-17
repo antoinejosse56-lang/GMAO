@@ -232,6 +232,22 @@ const CATS_FACTURE=['Travaux/Artisan','Matériaux','Énergie','Téléphone/Inter
 // Corps de metier des artisans/entreprises (fournisseurs.corps_metier) -
 // liste fixe pour permettre le filtrage, a completer librement ici si besoin.
 const CORPS_METIER_LIST=['Plomberie','Électricité','Chauffage / Climatisation','Serrurerie','Peinture','Menuiserie','Maçonnerie','Couverture / Toiture','Vitrerie','Carrelage / Sols','Plâtrerie / Isolation','Électroménager','Ascenseur','Espaces verts','Nettoyage','Sécurité / Alarme','Ramonage','Autre'];
+// Prorata du loyer/charges pour un mois d'entree ou de sortie en cours de mois :
+// renvoie le facteur (0..1) a appliquer au montant mensuel plein, base sur le
+// nombre de jours reellement passes dans le logement ce mois-la (jour d'entree
+// et jour de sortie tous deux comptes comme occupes).
+function joursDansMois(annee,moisIdx0){return new Date(annee,moisIdx0+1,0).getDate();}
+function prorataLoyerInfo(tenant,annee,moisIdx0){
+  const joursTotal=joursDansMois(annee,moisIdx0);
+  let jourDebut=1,jourFin=joursTotal;
+  const entree=tenant.date_entree?new Date(tenant.date_entree):null;
+  if(entree&&entree.getFullYear()===annee&&entree.getMonth()===moisIdx0)jourDebut=entree.getDate();
+  const sortie=tenant.date_sortie?new Date(tenant.date_sortie):null;
+  if(sortie&&sortie.getFullYear()===annee&&sortie.getMonth()===moisIdx0)jourFin=sortie.getDate();
+  const joursOccupes=Math.max(0,jourFin-jourDebut+1);
+  const factor=joursTotal>0?Math.min(1,joursOccupes/joursTotal):1;
+  return{factor,joursOccupes,joursTotal,estProrata:factor<1};
+}
 // Taux de commission Booking.com moyen, verifie sur l'export reel "Payout"
 // de l'extranet Booking (aout 2026, 6 reservations) : commission de 16,28%
 // a 17% du montant brut (nuitees + menage - Booking ne les distingue pas
@@ -2560,14 +2576,15 @@ function renderLocatif(){
               const isPaid = p?.paye;
               const montant = p?.loyer||0;
               const isComm = t.type_bail==='commercial';
-              const loyerHT = t.loyer_ref||0;
+              const prorata = prorataLoyerInfo(t,year,mi);
+              const loyerHT = (t.loyer_ref||0)*prorata.factor;
               const loyerTVA = isComm ? loyerHT*0.2 : 0;
               const loyerTTC = isComm ? loyerHT*1.2 : loyerHT;
-              const chargesHT = t.charges||0;
+              const chargesHT = (t.charges||0)*prorata.factor;
               const chargesTTC = isComm ? chargesHT*1.2 : chargesHT;
               const totalAttendu = loyerTTC + (isComm ? chargesTTC : chargesHT);
               return `<tr style="${isPaid?'':'background:var(--bg2)'}">
-                <td style="font-weight:500">${mois}</td>
+                <td style="font-weight:500">${mois}${prorata.estProrata?` <span title="Prorata : ${prorata.joursOccupes}/${prorata.joursTotal} jours" style="font-size:9px;color:var(--amber);border:1px solid var(--amber);border-radius:3px;padding:0 3px">prorata</span>`:''}</td>
                 ${isComm?`
                   <td style="font-size:12px">${fmt(loyerHT)}</td>
                   <td style="font-size:12px;color:var(--amber)">${fmt(loyerTVA)}</td>
@@ -6661,6 +6678,9 @@ function renderModal(){
     const loyerRef=t.loyer_ref||0;
     const chargesRef=t.charges||0;
     const totalTTC=isComm?(loyerRef+chargesRef)*1.2:(loyerRef+chargesRef);
+    const moisIdx0Sl=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'].indexOf(m.mois);
+    const prorataSl=prorataLoyerInfo(t,m.annee,moisIdx0Sl);
+    const totalTTCProrata=Math.round(totalTTC*prorataSl.factor*100)/100;
     html=`${mhd('Saisir loyer — '+t.nom+' — '+m.mois+' '+m.annee)}
     <div style="background:var(--bg2);padding:10px;border-radius:var(--radius);margin-bottom:14px;font-size:13px">
       <b>${t.logement||''}</b>
@@ -6671,6 +6691,7 @@ function renderModal(){
       :`— Loyer réf. : <b>${new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(loyerRef)}</b>
        ${chargesRef>0?`+ Charges : <b>${new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(chargesRef)}</b>`:''}
        | <b>Total : ${new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(loyerRef+chargesRef)}</b>`}
+      ${prorataSl.estProrata?`<div style="margin-top:6px;color:var(--amber)">⚠ Entrée/sortie en cours de mois — prorata ${prorataSl.joursOccupes}/${prorataSl.joursTotal} jours → montant dû ce mois : <b>${new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(totalTTCProrata)}</b></div>`:''}
     </div>
 
     <div style="border:0.5px solid var(--border2);border-radius:var(--radius);padding:12px;margin-bottom:12px">
@@ -6693,7 +6714,7 @@ function renderModal(){
       <div class="sec" style="margin-bottom:8px">Dette antérieure</div>
       <div class="g2c">
         <div class="form-group"><label>Dette antérieure (&#8364;)</label><input id="m-sl-dette-ant" type="number" step="0.01" value="${(p._dette_ant!=null?p._dette_ant:p.dette_ant!=null?p.dette_ant:(t.dette||0))}" placeholder="0.00"></div>
-        <div class="form-group"><label>Total attendu (&#8364;)</label><input type="number" value="${Math.round(((t.type_bail==='commercial'?(loyerRef+chargesRef)*1.2:(loyerRef+chargesRef))+(p.dette_ant!=null?p.dette_ant:(t.dette||0)))*100)/100}" readonly style="background:var(--bg2)"></div>
+        <div class="form-group"><label>Total attendu (&#8364;)</label><input type="number" value="${Math.round((totalTTCProrata+(p.dette_ant!=null?p.dette_ant:(t.dette||0)))*100)/100}" readonly style="background:var(--bg2)"></div>
       </div>
     </div>
     <div class="form-group"><label>Payé intégralement ?</label><select id="m-sl-paye">
@@ -9441,13 +9462,15 @@ function bindAll(){
     const tenant=S.tenants.find(t=>t.id===tId);if(!tenant)return;
     const today=new Date().toISOString().split('T')[0];
     const existing=S.rentPayments.find(p=>p.tenant_id===tId&&p.mois===mois&&p.annee===annee);
+    const moisIdx0=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'].indexOf(mois);
+    const montantValide=Math.round((tenant.loyer_ref||0)*prorataLoyerInfo(tenant,annee,moisIdx0).factor*100)/100;
     let payment=existing;
     if(existing){
-      await sb.from('rent_payments').update({paye:true,date_loc:today,loyer:tenant.loyer_ref,locataire_part:tenant.loyer_ref}).eq('id',existing.id);
-      existing.paye=true;existing.date_loc=today;existing.loyer=tenant.loyer_ref;existing.locataire_part=tenant.loyer_ref;
+      await sb.from('rent_payments').update({paye:true,date_loc:today,loyer:montantValide,locataire_part:montantValide}).eq('id',existing.id);
+      existing.paye=true;existing.date_loc=today;existing.loyer=montantValide;existing.locataire_part=montantValide;
     }else{
-      const moisNum=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'].indexOf(mois)+1;
-      const {data}=await sb.from('rent_payments').insert({tenant_id:tId,annee,mois,mois_num:moisNum,loyer:tenant.loyer_ref,paye:true,date_loc:today,quittance_envoyee:false}).select().single();
+      const moisNum=moisIdx0+1;
+      const {data}=await sb.from('rent_payments').insert({tenant_id:tId,annee,mois,mois_num:moisNum,loyer:montantValide,locataire_part:montantValide,paye:true,date_loc:today,quittance_envoyee:false}).select().single();
       if(data){S.rentPayments.push(data);payment=data;}
     }
     if(tenant.email&&payment){
@@ -12099,14 +12122,16 @@ function calcDetteLigne(tenant, moisCourant, anneeCourante, includeAll){
     const p=S.rentPayments.find(x=>x.tenant_id===tenant.id&&x.annee===y&&x.mois===moisNom);
     const recu=p?Math.round(((p.locataire_part||0)+(p.caf||0))*100)/100:0;
     const remise=p?Math.round((p.remise||0)*100)/100:0;
-    // Loyer attendu ce mois = loyer mensuel référence - remise éventuelle
-    const attenduCeMois=Math.max(0,Math.round((loyerMensuel-remise)*100)/100);
+    // Loyer attendu ce mois = loyer mensuel référence proratisé (entrée/sortie en
+    // cours de mois) - remise éventuelle
+    const prorata=prorataLoyerInfo(tenant,y,m);
+    const attenduCeMois=Math.max(0,Math.round((loyerMensuel*prorata.factor-remise)*100)/100);
     const soldePrecedent=solde;
     solde=Math.round((solde+attenduCeMois-recu)*100)/100;
     if(includeAll||Math.abs(solde)>0.01){
       lignes.push({
         mois:moisNom,annee:y,mois_num:moisNum,
-        attendu:attenduCeMois,recu,remise,remise_motif:p?.remise_motif||'',
+        attendu:attenduCeMois,recu,remise,remise_motif:p?.remise_motif||'',estProrata:prorata.estProrata,
         soldePrecedent:Math.round(soldePrecedent*100)/100,
         solde:Math.round(solde*100)/100,
         saisi:!!p,
@@ -12142,7 +12167,9 @@ function buildDocumentLoyer(tenant,payment,mois,annee,loyer,charges,total,datePa
   const loyerMensuelRef=isComm
     ?Math.round((loyerRef+chargesRef)*1.2*100)/100
     :Math.round((loyerRef+chargesRef)*100)/100;
-  const attenduCeMois=Math.max(0,Math.round((loyerMensuelRef-remisePaiement)*100)/100);
+  const moisIdx0Doc=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'].indexOf(mois);
+  const prorataDoc=prorataLoyerInfo(tenant,parseInt(annee),moisIdx0Doc);
+  const attenduCeMois=Math.max(0,Math.round((loyerMensuelRef*prorataDoc.factor-remisePaiement)*100)/100);
   const detteEntreeMois=(()=>{
     try{
       if(typeof S==='undefined'||!S.rentPayments)return Math.max(0,parseFloat(tenant.dette||0));
@@ -12154,11 +12181,11 @@ function buildDocumentLoyer(tenant,payment,mois,annee,loyer,charges,total,datePa
   const dateLoc=payment.date_loc?new Date(payment.date_loc).toLocaleDateString('fr-FR'):datePaiement;
   const moisNum=String(['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'].indexOf(mois)+1).padStart(2,'0');
   const invoiceNum=annee+'-'+moisNum+'-'+(tenant.logement||'').replace(/[^A-Z0-9]/gi,'').toUpperCase().slice(0,6);
-  // Lignes HT/TVA
-  const loyerHT=loyerRef;
+  // Lignes HT/TVA (proratisées si entrée/sortie en cours de mois)
+  const loyerHT=Math.round(loyerRef*prorataDoc.factor*100)/100;
   const loyerTVA=Math.round(loyerHT*tvaTaux*100)/100;
   const loyerTTC=loyerHT+loyerTVA;
-  const chargesHT=chargesRef;
+  const chargesHT=Math.round(chargesRef*prorataDoc.factor*100)/100;
   const chargesTVA=Math.round(chargesHT*tvaTaux*100)/100;
   const chargesTTC=chargesHT+chargesTVA;
   const totalTTC=loyerTTC+chargesTTC; // total brut avant remise
@@ -12243,7 +12270,7 @@ function buildDocumentLoyer(tenant,payment,mois,annee,loyer,charges,total,datePa
     +'</div>':'')
     +'<div style="font-size:13px;margin:16px 0"><strong>POUR LOYER DU LOGEMENT :</strong><br>'+tenant.logement+'<br>'+adresseLogement+'</div>'
     +'<table><thead><tr><th>Description</th>'+(isComm?'<th style="text-align:right">HT</th><th style="text-align:right">TVA '+Math.round(tvaTaux*100)+'%</th>':'')+'<th style="text-align:right">TTC</th></tr></thead><tbody>'
-    +'<tr><td>Loyer mensuel</td>'+(isComm?'<td style="text-align:right">'+fmt(loyerHT)+'</td><td style="text-align:right;color:#E65C00">'+fmt(loyerTVA)+'</td>':'')+'<td style="text-align:right">'+fmt(loyerTTC)+'</td></tr>'
+    +'<tr><td>Loyer mensuel'+(prorataDoc.estProrata?' <span style="font-size:11px;color:#888">(prorata '+prorataDoc.joursOccupes+'/'+prorataDoc.joursTotal+' jours)</span>':'')+'</td>'+(isComm?'<td style="text-align:right">'+fmt(loyerHT)+'</td><td style="text-align:right;color:#E65C00">'+fmt(loyerTVA)+'</td>':'')+'<td style="text-align:right">'+fmt(loyerTTC)+'</td></tr>'
     +(chargesRef>0?'<tr><td>Provisions sur charges</td>'+(isComm?'<td style="text-align:right">'+fmt(chargesHT)+'</td><td style="text-align:right;color:#E65C00">'+fmt(chargesTVA)+'</td>':'')+'<td style="text-align:right">'+fmt(chargesTTC)+'</td></tr>':'')
     +((payment.remise&&payment.remise>0)?'<tr style="background:#F0FFF4"><td style="color:#1D9E75">Remise'+(payment.remise_motif?' — '+payment.remise_motif:'')+'</td>'+(isComm?'<td></td><td></td>':'')+'<td style="text-align:right;color:#1D9E75">- '+fmt(payment.remise)+'</td></tr>':'')
     +'<tr class="tr"><td colspan="'+(isComm?'3':'1')+'">TOTAL TTC APPELÉ</td><td style="text-align:right">'+fmt(totalAppele)+'</td></tr>'

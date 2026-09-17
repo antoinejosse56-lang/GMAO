@@ -261,6 +261,20 @@ const PIN = '2110';
 const H = {'apikey':KEY,'Authorization':'Bearer '+KEY,'Content-Type':'application/json'};
 const fmt = n => new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(n||0);
 const MOIS = ['','Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+// Prorata du loyer si le locataire est entré ou sorti en cours de mois (mois 1-12) -
+// meme logique que prorataLoyerInfo() dans index.html, a garder cohérente (rent_payments partagée).
+function prorataLoyerInfo(tenant, annee, moisNum) {
+  const moisIdx0 = moisNum - 1;
+  const joursTotal = new Date(annee, moisIdx0 + 1, 0).getDate();
+  let jourDebut = 1, jourFin = joursTotal;
+  const entree = tenant.date_entree ? new Date(tenant.date_entree) : null;
+  if (entree && entree.getFullYear() === annee && entree.getMonth() === moisIdx0) jourDebut = entree.getDate();
+  const sortie = tenant.date_sortie ? new Date(tenant.date_sortie) : null;
+  if (sortie && sortie.getFullYear() === annee && sortie.getMonth() === moisIdx0) jourFin = sortie.getDate();
+  const joursOccupes = Math.max(0, jourFin - jourDebut + 1);
+  const factor = joursTotal > 0 ? Math.min(1, joursOccupes / joursTotal) : 1;
+  return { factor, joursOccupes, joursTotal, estProrata: factor < 1 };
+}
 
 let pinValue = '';
 let tenants = [];
@@ -348,10 +362,14 @@ function selectTenant() {
 function showLoyerDetail() {
   if (!selectedTenant) return;
   document.getElementById('loyer-detail').style.display='block';
-  document.getElementById('l-attendu').textContent = fmt(selectedTenant.loyer_ref);
+  const moisNum = parseInt(document.getElementById('l-mois').value);
+  const annee = parseInt(document.getElementById('l-annee').value);
+  const prorata = prorataLoyerInfo(selectedTenant, annee, moisNum);
+  const loyerAttendu = Math.round((selectedTenant.loyer_ref||0)*prorata.factor*100)/100;
+  document.getElementById('l-attendu').textContent = fmt(loyerAttendu) + (prorata.estProrata ? ` (prorata ${prorata.joursOccupes}/${prorata.joursTotal}j)` : '');
   document.getElementById('l-caf-info').textContent = fmt(selectedTenant.caf);
   const p = existingPayment;
-  document.getElementById('l-part-loc').value = p?.locataire_part || selectedTenant.loyer_ref - (selectedTenant.caf||0) || '';
+  document.getElementById('l-part-loc').value = p?.locataire_part || loyerAttendu - (selectedTenant.caf||0) || '';
   document.getElementById('l-part-caf').value = p?.caf || selectedTenant.caf || '';
   document.getElementById('l-date-loc').value = p?.date_loc || '';
   document.getElementById('l-date-caf').value = p?.date_caf || '';
@@ -372,12 +390,13 @@ async function saveLoyer() {
   const dateCaf = document.getElementById('l-date-caf').value||null;
   const partiel = document.getElementById('l-partiel').checked;
   const note = document.getElementById('l-note').value||null;
+  const loyerAttenduSave = Math.round((selectedTenant.loyer_ref||0)*prorataLoyerInfo(selectedTenant, annee, moisNum).factor*100)/100;
   const rec = {
     tenant_id:selectedTenant.id, mois, mois_num:moisNum, annee,
-    loyer:selectedTenant.loyer_ref,
+    loyer:loyerAttenduSave,
     locataire_part:locPart, caf:cafPart,
     date_loc:dateLoc, date_caf:dateCaf,
-    paye: !partiel && (locPart+cafPart) >= (selectedTenant.loyer_ref*0.99),
+    paye: !partiel && (locPart+cafPart) >= (loyerAttenduSave*0.99),
     commentaire:note
   };
   let ok;
