@@ -517,6 +517,66 @@ function sigDataUrl(canvasId){
   for(let i=3;i<data.length;i+=4){if(data[i]!==0)return canvas.toDataURL('image/png');}
   return null;
 }
+// Carte cliquable "Nom -> statut" pour une personne devant parapher/signer.
+// Remplace l'ancienne grille de petits canvas cote a cote (trop petits sur
+// tablette/telephone) : les vrais <canvas> (memes ids qu'avant, donc aucun
+// changement cote collectXFormData/genXPDF) restent caches dans un
+// conteneur display:none jusqu'a ce qu'on ouvre le popup de signature, qui
+// les deplace temporairement en grand format (openSigPopupFor les remet a
+// leur place exacte a la fermeture, sans jamais les recreer ni les vider).
+function sigCardHtml(parapheId,sigId,label,sublabel){
+  return `<div class="sig-person-card" data-sig-ids="${parapheId}|${sigId}" style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;border:0.5px solid var(--border2);border-radius:var(--radius);cursor:pointer;background:var(--bg2)">
+    <div><div style="font-size:14px;font-weight:500">${label}</div>${sublabel?`<div style="font-size:11px;color:var(--text2)">${sublabel}</div>`:''}</div>
+    <div class="sig-status" style="font-size:12px;color:var(--text2);white-space:nowrap">✍️ Toucher pour signer</div>
+  </div>`;
+}
+function openSigPopupFor(cardEl){
+  const [parapheId,sigId]=cardEl.dataset.sigIds.split('|');
+  const label=cardEl.querySelector('div > div').textContent;
+  const overlay=document.createElement('div');
+  overlay.style.cssText='position:fixed;inset:0;z-index:500;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:14px';
+  const box=document.createElement('div');
+  box.style.cssText='background:var(--bg);border-radius:var(--radius);padding:16px;max-width:520px;width:100%;max-height:92vh;overflow:auto';
+  box.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+    <div style="font-size:16px;font-weight:600">✍ ${label}</div>
+    <button type="button" class="btn btn-p btn-sm" id="sig-popup-done">✓ Terminé</button>
+  </div>
+  <div id="sig-popup-slot-paraphe" style="margin-bottom:16px"><div style="font-size:12px;color:var(--text2);margin-bottom:4px">Paraphe <span style="font-size:10px">(reproduit sur chaque page)</span></div></div>
+  <div id="sig-popup-slot-sig"><div style="font-size:12px;color:var(--text2);margin-bottom:4px">Signature <span style="font-size:10px">(fin du document)</span></div></div>`;
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+  const moved=[];
+  [[parapheId,'sig-popup-slot-paraphe'],[sigId,'sig-popup-slot-sig']].forEach(([id,slotId])=>{
+    const canvas=document.getElementById(id);
+    if(!canvas)return;
+    const originalParent=canvas.parentElement;
+    const placeholder=document.createComment('sig-slot-'+id);
+    originalParent.insertBefore(placeholder,canvas);
+    const originalStyle=canvas.getAttribute('style')||'';
+    canvas.setAttribute('style','border:0.5px solid var(--border2);border-radius:var(--radius);background:#fff;width:100%;height:150px;cursor:crosshair;display:block;touch-action:none');
+    box.querySelector('#'+slotId).appendChild(canvas);
+    const clearBtn=document.createElement('button');
+    clearBtn.type='button';clearBtn.className='btn btn-sm';clearBtn.style.marginTop='6px';clearBtn.textContent='↺ Effacer';
+    clearBtn.onclick=()=>clearSig(id);
+    box.querySelector('#'+slotId).appendChild(clearBtn);
+    moved.push({canvas,placeholder,originalParent,originalStyle});
+  });
+  document.getElementById('sig-popup-done').onclick=()=>{
+    moved.forEach(({canvas,placeholder,originalParent,originalStyle})=>{
+      canvas.setAttribute('style',originalStyle);
+      originalParent.insertBefore(canvas,placeholder);
+      placeholder.remove();
+    });
+    overlay.remove();
+    const statusEl=cardEl.querySelector('.sig-status');
+    if(statusEl){
+      const done=sigDataUrl(parapheId)&&sigDataUrl(sigId);
+      const partial=!done&&(sigDataUrl(parapheId)||sigDataUrl(sigId));
+      statusEl.textContent=done?'✓ Signé':partial?'◐ Incomplet (paraphe + signature requis)':'✍️ Toucher pour signer';
+      statusEl.style.color=done?'var(--green)':partial?'var(--amber)':'var(--text2)';
+    }
+  };
+}
 function daysUntil(d){if(!d)return null;return Math.ceil((new Date(d)-new Date())/86400000);}
 // Duree de validite reglementaire de chaque diagnostic (mois) - null = pas de
 // limite de validite dans le temps (amiante/bruit/mesurage restent valables
@@ -6291,30 +6351,16 @@ function renderModal(){
     </div>
 
     <div class="sec" style="margin:10px 0 6px">✍ Paraphe et signature</div>
-    <p style="font-size:12px;color:var(--text2);margin-bottom:8px">Le paraphe sera reproduit sur toutes les pages du document (et des photos annexées). La signature sera apposée à la fin.</p>
-    <div class="g2c">
-      <div class="form-group">
-        <label>Paraphe du bailleur</label>
-        <canvas id="edl-paraphe-bailleur" width="200" height="60" style="border:0.5px solid var(--border2);border-radius:var(--radius);background:#fff;max-width:100%;height:auto;cursor:crosshair;display:block;touch-action:none"></canvas>
-        <button type="button" class="btn btn-sm" style="margin-top:4px" onclick="clearSig('edl-paraphe-bailleur')">↺ Effacer</button>
-      </div>
-      <div class="form-group">
-        <label>Paraphe du locataire</label>
-        <canvas id="edl-paraphe-locataire" width="200" height="60" style="border:0.5px solid var(--border2);border-radius:var(--radius);background:#fff;max-width:100%;height:auto;cursor:crosshair;display:block;touch-action:none"></canvas>
-        <button type="button" class="btn btn-sm" style="margin-top:4px" onclick="clearSig('edl-paraphe-locataire')">↺ Effacer</button>
-      </div>
+    <p style="font-size:12px;color:var(--text2);margin-bottom:8px">Le paraphe sera reproduit sur toutes les pages du document (et des photos annexées). La signature sera apposée à la fin. Touchez un nom pour signer en plein écran.</p>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      ${sigCardHtml('edl-paraphe-bailleur','edl-sig-bailleur','Bailleur')}
+      ${sigCardHtml('edl-paraphe-locataire','edl-sig-locataire','Locataire',t.nom||'')}
     </div>
-    <div class="g2c" style="margin-top:8px">
-      <div class="form-group">
-        <label>Signature du bailleur</label>
-        <canvas id="edl-sig-bailleur" width="200" height="70" style="border:0.5px solid var(--border2);border-radius:var(--radius);background:#fff;max-width:100%;height:auto;cursor:crosshair;display:block;touch-action:none"></canvas>
-        <button type="button" class="btn btn-sm" style="margin-top:4px" onclick="clearSig('edl-sig-bailleur')">↺ Effacer</button>
-      </div>
-      <div class="form-group">
-        <label>Signature du locataire</label>
-        <canvas id="edl-sig-locataire" width="200" height="70" style="border:0.5px solid var(--border2);border-radius:var(--radius);background:#fff;max-width:100%;height:auto;cursor:crosshair;display:block;touch-action:none"></canvas>
-        <button type="button" class="btn btn-sm" style="margin-top:4px" onclick="clearSig('edl-sig-locataire')">↺ Effacer</button>
-      </div>
+    <div style="display:none">
+      <canvas id="edl-paraphe-bailleur" width="500" height="150"></canvas>
+      <canvas id="edl-sig-bailleur" width="500" height="150"></canvas>
+      <canvas id="edl-paraphe-locataire" width="500" height="150"></canvas>
+      <canvas id="edl-sig-locataire" width="500" height="150"></canvas>
     </div>
 
     <div style="display:flex;gap:8px;margin-top:12px">
@@ -6501,40 +6547,19 @@ function renderModal(){
     <div class="form-group"><label>Lieu de signature</label><input id="bail-lieu-sig" value="${bail.lieu_sig||'Lorient'}" placeholder="Ville"></div>
 
     <div class="sec" style="margin-top:12px;margin-bottom:8px">✍ Paraphe et signature</div>
-    <p style="font-size:12px;color:var(--text2);margin-bottom:8px">Le paraphe sera reproduit automatiquement sur toutes les pages du bail (et de ses annexes). La signature sera apposée à la fin du document.</p>
-    <div class="g2c" style="grid-template-columns:1fr 1fr 1fr">
-      <div class="form-group">
-        <label>Paraphe du bailleur <span style="font-size:10px;color:var(--text2)">(sera reproduit sur chaque section)</span></label>
-        <canvas id="bail-paraphe-bailleur" width="200" height="60" style="border:0.5px solid var(--border2);border-radius:var(--radius);background:#fff;max-width:100%;height:auto;cursor:crosshair;display:block;touch-action:none"></canvas>
-        <button type="button" class="btn btn-sm" style="margin-top:4px" onclick="clearSig('bail-paraphe-bailleur')">↺ Effacer</button>
-      </div>
-      <div class="form-group">
-        <label>Paraphe du garant <span style="font-size:10px;color:var(--text2)">(si applicable)</span></label>
-        <canvas id="bail-paraphe-garant" width="200" height="60" style="border:0.5px solid var(--border2);border-radius:var(--radius);background:#fff;max-width:100%;height:auto;cursor:crosshair;display:block;touch-action:none"></canvas>
-        <button type="button" class="btn btn-sm" style="margin-top:4px" onclick="clearSig('bail-paraphe-garant')">↺ Effacer</button>
-      </div>
-      <div class="form-group">
-        <label>Paraphe du locataire</label>
-        <canvas id="bail-paraphe-locataire" width="200" height="60" style="border:0.5px solid var(--border2);border-radius:var(--radius);background:#fff;max-width:100%;height:auto;cursor:crosshair;display:block;touch-action:none"></canvas>
-        <button type="button" class="btn btn-sm" style="margin-top:4px" onclick="clearSig('bail-paraphe-locataire')">↺ Effacer</button>
-      </div>
+    <p style="font-size:12px;color:var(--text2);margin-bottom:8px">Le paraphe sera reproduit automatiquement sur toutes les pages du bail (et de ses annexes). La signature sera apposée à la fin du document. Touchez un nom pour signer en plein écran.</p>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      ${sigCardHtml('bail-paraphe-bailleur','bail-sig-bailleur','Bailleur')}
+      ${bail.gar_nom?sigCardHtml('bail-paraphe-garant','bail-sig-garant','Garant',bail.gar_nom):''}
+      ${sigCardHtml('bail-paraphe-locataire','bail-sig-locataire','Locataire',t.nom||'')}
     </div>
-    <div class="g2c" style="grid-template-columns:1fr 1fr 1fr;margin-top:8px">
-      <div class="form-group">
-        <label>Signature du bailleur <span style="font-size:10px;color:var(--text2)">(fin du document)</span></label>
-        <canvas id="bail-sig-bailleur" width="200" height="70" style="border:0.5px solid var(--border2);border-radius:var(--radius);background:#fff;max-width:100%;height:auto;cursor:crosshair;display:block;touch-action:none"></canvas>
-        <button type="button" class="btn btn-sm" style="margin-top:4px" onclick="clearSig('bail-sig-bailleur')">↺ Effacer</button>
-      </div>
-      <div class="form-group">
-        <label>Signature du garant <span style="font-size:10px;color:var(--text2)">(si applicable)</span></label>
-        <canvas id="bail-sig-garant" width="200" height="70" style="border:0.5px solid var(--border2);border-radius:var(--radius);background:#fff;max-width:100%;height:auto;cursor:crosshair;display:block;touch-action:none"></canvas>
-        <button type="button" class="btn btn-sm" style="margin-top:4px" onclick="clearSig('bail-sig-garant')">↺ Effacer</button>
-      </div>
-      <div class="form-group">
-        <label>Signature du locataire</label>
-        <canvas id="bail-sig-locataire" width="200" height="70" style="border:0.5px solid var(--border2);border-radius:var(--radius);background:#fff;max-width:100%;height:auto;cursor:crosshair;display:block;touch-action:none"></canvas>
-        <button type="button" class="btn btn-sm" style="margin-top:4px" onclick="clearSig('bail-sig-locataire')">↺ Effacer</button>
-      </div>
+    <div style="display:none">
+      <canvas id="bail-paraphe-bailleur" width="500" height="150"></canvas>
+      <canvas id="bail-sig-bailleur" width="500" height="150"></canvas>
+      <canvas id="bail-paraphe-garant" width="500" height="150"></canvas>
+      <canvas id="bail-sig-garant" width="500" height="150"></canvas>
+      <canvas id="bail-paraphe-locataire" width="500" height="150"></canvas>
+      <canvas id="bail-sig-locataire" width="500" height="150"></canvas>
     </div>
     <div style="font-size:11px;color:var(--text2);background:var(--bg2);padding:8px 10px;border-radius:var(--radius);margin-top:10px">
       ⚠ Signature électronique simple (paraphe/signature dessinés) — usage courant pour un bail entre particuliers, mais ne constitue pas une signature électronique qualifiée au sens juridique strict.
@@ -9776,6 +9801,8 @@ function bindAll(){
   });
   const btnEmailBail=document.getElementById('btn-email-bail');
   if(btnEmailBail)btnEmailBail.onclick=()=>sendBailEmail(S.modal.tenant);
+
+  document.querySelectorAll('.sig-person-card').forEach(el=>el.onclick=()=>openSigPopupFor(el));
 
   if(S.modal?.type==='bail-form'){
     ['bail-paraphe-bailleur','bail-paraphe-locataire','bail-sig-bailleur','bail-sig-locataire','bail-paraphe-garant','bail-sig-garant'].forEach(initSigCanvas);
