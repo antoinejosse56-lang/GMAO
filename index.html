@@ -236,6 +236,32 @@ const CORPS_METIER_LIST=['Plomberie','Électricité','Chauffage / Climatisation'
 // renvoie le facteur (0..1) a appliquer au montant mensuel plein, base sur le
 // nombre de jours reellement passes dans le logement ce mois-la (jour d'entree
 // et jour de sortie tous deux comptes comme occupes).
+// Rendu d'une ligne colocataire + re-rendu du conteneur en manipulation DOM
+// directe (jamais via le render() global) : contrairement aux tableaux de
+// pieces jointes (identite_photos) sauvegardes a chaque photo, les
+// colocataires ne sont enregistres qu'au clic sur "Enregistrer" du modal -
+// un render() complet entre-temps reconstruirait tout le formulaire
+// edit-tenant depuis S.modal.tenant et effacerait tout ce qui a ete tape
+// dans les AUTRES champs (nom, date de naissance du locataire principal...)
+// qui ne sont pas synchronises en direct vers l'etat, seulement lus a la
+// sauvegarde via q(id).value.
+function colocRowHtml(c,i){
+  return `<div style="border:0.5px solid var(--border2);border-radius:var(--radius);padding:8px;margin-bottom:8px">
+    <div class="g2c" style="margin-bottom:6px">
+      <div class="form-group" style="margin-bottom:0"><label>Nom complet</label><input value="${(c.nom||'').replace(/"/g,'&quot;')}" oninput="S.modal.colocataires[${i}].nom=this.value"></div>
+      <div class="form-group" style="margin-bottom:0"><label>Date de naissance</label><input type="date" value="${c.date_naissance||''}" oninput="S.modal.colocataires[${i}].date_naissance=this.value"></div>
+    </div>
+    <div class="g2c" style="margin-bottom:0">
+      <div class="form-group" style="margin-bottom:0"><label>Lieu de naissance</label><input value="${(c.lieu_naissance||'').replace(/"/g,'&quot;')}" oninput="S.modal.colocataires[${i}].lieu_naissance=this.value"></div>
+      <div class="form-group" style="margin-bottom:0;display:flex;align-items:flex-end"><button type="button" class="btn btn-d btn-sm" style="width:100%" onclick="S.modal.colocataires=S.modal.colocataires.filter((_,idx)=>idx!==${i});renderColocList()">✕ Retirer</button></div>
+    </div>
+  </div>`;
+}
+function renderColocList(){
+  const container=document.getElementById('m-tcoloc-list');
+  if(!container)return;
+  container.innerHTML=(S.modal.colocataires||[]).map((c,i)=>colocRowHtml(c,i)).join('');
+}
 function vehiculeDefaultUnite(assetId){
   const last=(S.vehiculeReleves||[]).filter(v=>v.asset_id===assetId).sort((v1,v2)=>new Date(v2.date||0)-new Date(v1.date||0))[0];
   return last?.unite||'km';
@@ -6679,18 +6705,9 @@ function renderModal(){
     <div class="form-group"><label>Nationalité</label><input id="m-tnatio" value="${t.nationalite||'Française'}" placeholder="Française"></div>
     <div class="sec" style="margin-top:8px;margin-bottom:6px">👥 Colocataires <span style="font-size:11px;color:var(--text2);text-transform:none;font-weight:400">(autres personnes sur le même bail)</span></div>
     <div id="m-tcoloc-list">
-      ${(()=>{if(!m.colocataires)m.colocataires=(t.colocataires||[]).map(c=>({...c}));return m.colocataires.map((c,i)=>`<div style="border:0.5px solid var(--border2);border-radius:var(--radius);padding:8px;margin-bottom:8px">
-        <div class="g2c" style="margin-bottom:6px">
-          <div class="form-group" style="margin-bottom:0"><label>Nom complet</label><input value="${(c.nom||'').replace(/"/g,'&quot;')}" oninput="S.modal.colocataires[${i}].nom=this.value"></div>
-          <div class="form-group" style="margin-bottom:0"><label>Date de naissance</label><input type="date" value="${c.date_naissance||''}" oninput="S.modal.colocataires[${i}].date_naissance=this.value"></div>
-        </div>
-        <div class="g2c" style="margin-bottom:0">
-          <div class="form-group" style="margin-bottom:0"><label>Lieu de naissance</label><input value="${(c.lieu_naissance||'').replace(/"/g,'&quot;')}" oninput="S.modal.colocataires[${i}].lieu_naissance=this.value"></div>
-          <div class="form-group" style="margin-bottom:0;display:flex;align-items:flex-end"><button type="button" class="btn btn-d btn-sm" style="width:100%" onclick="S.modal.colocataires=S.modal.colocataires.filter((_,idx)=>idx!==${i});render()">✕ Retirer</button></div>
-        </div>
-      </div>`).join('');})()}
+      ${(()=>{if(!m.colocataires)m.colocataires=(t.colocataires||[]).map(c=>({...c}));return m.colocataires.map((c,i)=>colocRowHtml(c,i)).join('');})()}
     </div>
-    <button type="button" class="btn btn-sm" onclick="S.modal.colocataires=[...(S.modal.colocataires||[]),{nom:'',date_naissance:'',lieu_naissance:''}];render()" style="margin-bottom:8px">+ Ajouter un colocataire</button>
+    <button type="button" class="btn btn-sm" onclick="S.modal.colocataires=[...(S.modal.colocataires||[]),{nom:'',date_naissance:'',lieu_naissance:''}];renderColocList()" style="margin-bottom:8px">+ Ajouter un colocataire</button>
     <div class="g2c">
       <div class="form-group"><label>Loyer mensuel (€)</label><input id="m-tloy" type="number" value="${t.loyer_ref||0}"></div>
       <div class="form-group"><label>Charges mensuelles (€)</label><input id="m-tch" type="number" value="${t.charges||0}"></div>
