@@ -1421,7 +1421,7 @@ function renderAssetDetail(a){
       <div style="font-size:20px;font-weight:700;margin-bottom:10px">${dernierReleve?new Intl.NumberFormat('fr-FR').format(dernierReleve.valeur)+' '+dernierReleve.unite:'—'}</div>
       ${releves.length?releves.slice(0,10).map(v=>{
         const icon=v.type==='plein'?'⛽':v.type==='entretien'?'🔧':'📏';
-        return `<div class="row" style="font-size:12px"><span style="color:var(--text2)">${icon} ${dateLabel(v.date)}</span><span>${new Intl.NumberFormat('fr-FR').format(v.valeur)} ${v.unite}${v.montant?' — '+new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(v.montant):''}</span></div>`;
+        return `<div class="row" style="font-size:12px"><span style="color:var(--text2)">${icon} ${dateLabel(v.date)}</span><span>${new Intl.NumberFormat('fr-FR').format(v.valeur)} ${v.unite}${v.montant?' — '+new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(v.montant):''}${v.photo_url?' <a href="'+v.photo_url+'" target="_blank">📷</a>':''}</span></div>`;
       }).join(''):'<div style="font-size:12px;color:var(--text2)">Aucun relevé enregistré.</div>'}
     </div>`:''}
   </div>`:''}
@@ -2461,6 +2461,10 @@ function renderMobileHome(){
 +'<div class="mobile-tile" style="background:#D35400" onclick="S.modal={type:\'add-facture\'};render()">'
   +'<div style="font-size:36px;margin-bottom:8px">📸</div>'
   +'<div style="font-size:13px;font-weight:600;color:#fff">Facture (photo)</div>'
++'</div>'
++'<div class="mobile-tile" style="background:#C0392B" onclick="S.modal={type:\'add-vehicule-releve\',quickPlein:true};render()">'
+  +'<div style="font-size:36px;margin-bottom:8px">⛽</div>'
+  +'<div style="font-size:13px;font-weight:600;color:#fff">Plein carburant</div>'
 +'</div>'
     +'</div>'
     // Install PWA hint
@@ -7178,17 +7182,26 @@ function renderModal(){
     ${mf}`;}
 
   if(m.type==='add-vehicule-releve'){
+    const isQuickPlein=!!m.quickPlein;
+    const vehicules=S.assets.filter(a=>a.category==='Véhicule'||a.category==='Bateau');
+    if(!m.assetId&&vehicules.length===1)m.assetId=vehicules[0].id;
     const asset=S.assets.find(a=>a.id===m.assetId);
     const lastReleve=(S.vehiculeReleves||[]).filter(v=>v.asset_id===m.assetId).sort((v1,v2)=>new Date(v2.date||0)-new Date(v1.date||0))[0];
     const woOptsVeh=S.workOrders.filter(w=>w.asset_id===m.assetId).sort((w1,w2)=>new Date(w2.date||0)-new Date(w1.date||0));
-    html=`${mhd('Nouveau relevé — '+(asset?.name||''))}
+    const defaultType=isQuickPlein?'plein':'releve';
+    html=`${mhd((isQuickPlein?'⛽ Plein de carburant':'Nouveau relevé')+(asset?' — '+asset.name:''))}
+    ${!m.assetId?`<div class="form-group"><label>Véhicule *</label><select id="vr-asset" onchange="S.modal.assetId=this.value;render()">
+      <option value="">— Sélectionner —</option>
+      ${vehicules.map(a=>`<option value="${a.id}">${a.name}</option>`).join('')}
+    </select></div>`:(isQuickPlein?`<input type="hidden" id="vr-asset" value="${m.assetId}">`:'')}
     <div class="g2c">
       <div class="form-group"><label>Date *</label><input id="vr-date" type="date" value="${NOW}"></div>
-      <div class="form-group"><label>Type</label><select id="vr-type" onchange="document.getElementById('vr-plein-wrap').style.display=this.value==='plein'?'':'none';document.getElementById('vr-plein-montant-wrap').style.display=this.value==='plein'?'':'none';document.getElementById('vr-wo-wrap').style.display=this.value==='entretien'?'':'none'">
-        <option value="releve">Relevé simple</option>
-        <option value="plein">Plein de carburant</option>
-        <option value="entretien">Entretien</option>
+      <div class="form-group" style="display:${isQuickPlein?'none':'block'}"><label>Type</label><select id="vr-type" onchange="document.getElementById('vr-plein-wrap').style.display=this.value==='plein'?'':'none';document.getElementById('vr-plein-montant-wrap').style.display=this.value==='plein'?'':'none';document.getElementById('vr-wo-wrap').style.display=this.value==='entretien'?'':'none'">
+        <option value="releve" ${defaultType==='releve'?'selected':''}>Relevé simple</option>
+        <option value="plein" ${defaultType==='plein'?'selected':''}>Plein de carburant</option>
+        <option value="entretien" ${defaultType==='entretien'?'selected':''}>Entretien</option>
       </select></div>
+      ${isQuickPlein?`<input type="hidden" id="vr-type" value="plein">`:''}
     </div>
     <div class="g2c">
       <div class="form-group"><label>Valeur du compteur *</label><input id="vr-valeur" type="number" step="0.01" placeholder="Ex: 185200"></div>
@@ -7197,16 +7210,24 @@ function renderModal(){
         <option value="heures" ${lastReleve?.unite==='heures'?'selected':''}>Heures</option>
       </select></div>
     </div>
-    <div class="g2c" id="vr-plein-wrap" style="display:none">
+    <div class="g2c" id="vr-plein-wrap" style="display:${defaultType==='plein'?'grid':'none'}">
       <div class="form-group"><label>Litres</label><input id="vr-litres" type="number" step="0.01" oninput="(function(){const l=parseFloat(document.getElementById('vr-litres').value)||0;const p=parseFloat(document.getElementById('vr-prix').value)||0;document.getElementById('vr-montant').value=Math.round(l*p*100)/100;})()"></div>
       <div class="form-group"><label>Prix / litre (€)</label><input id="vr-prix" type="number" step="0.001" oninput="(function(){const l=parseFloat(document.getElementById('vr-litres').value)||0;const p=parseFloat(document.getElementById('vr-prix').value)||0;document.getElementById('vr-montant').value=Math.round(l*p*100)/100;})()"></div>
     </div>
-    <div class="form-group" id="vr-plein-montant-wrap" style="display:none"><label>Montant (€)</label><input id="vr-montant" type="number" step="0.01" value="0"></div>
+    <div class="form-group" id="vr-plein-montant-wrap" style="display:${defaultType==='plein'?'block':'none'}"><label>Montant (€)</label><input id="vr-montant" type="number" step="0.01" value="0"></div>
     <div class="form-group" id="vr-wo-wrap" style="display:none"><label>Bon de travaux lié</label>
       <select id="vr-wo">
         <option value="">— Aucun —</option>
         ${woOptsVeh.map(w=>`<option value="${w.id}">${w.title} — ${dateLabel(w.date)}</option>`).join('')}
       </select>
+    </div>
+    <div class="form-group"><label>📷 Photo (compteur de la pompe, ticket...)</label>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button type="button" class="btn btn-sm" onclick="document.getElementById('vr-photo-file').click()">📷 Prendre une photo</button>
+        <input type="file" accept="image/*" capture="environment" id="vr-photo-file" style="display:none">
+      </div>
+      <div id="vr-photo-status" style="font-size:11px;margin-top:4px"></div>
+      <input type="hidden" id="vr-photo-url" value="">
     </div>
     <div class="form-group"><label>Notes</label><input id="vr-notes" placeholder="Ex: Vidange + filtres, plein autoroute..."></div>
     ${mf}`;
@@ -7862,15 +7883,18 @@ async function saveModal(){
   }
 
   if(m.type==='add-vehicule-releve'){
+    const assetId=q('vr-asset')?.value||m.assetId;
+    if(!assetId)return alert('Véhicule requis');
     const valeur=parseFloat(q('vr-valeur')?.value);if(!valeur&&valeur!==0)return alert('Valeur du compteur requise');
     const type=q('vr-type')?.value||'releve';
     const rec={
-      asset_id:m.assetId,date:q('vr-date')?.value||NOW,type,
+      asset_id:assetId,date:q('vr-date')?.value||NOW,type,
       unite:q('vr-unite')?.value||'km',valeur,
       wo_id:type==='entretien'?(q('vr-wo')?.value||null):null,
       litres:type==='plein'?(parseFloat(q('vr-litres')?.value)||null):null,
       prix_litre:type==='plein'?(parseFloat(q('vr-prix')?.value)||null):null,
       montant:type==='plein'?(parseFloat(q('vr-montant')?.value)||null):null,
+      photo_url:q('vr-photo-url')?.value||null,
       notes:q('vr-notes')?.value||null,
     };
     const{data,error}=await sb.from('vehicule_releves').insert(rec).select().single();
@@ -8607,6 +8631,21 @@ async function uploadWoDocPhoto(woId,fileInput){
   if(nameInput&&!nameInput.value)nameInput.value='Photo';
   const typeSelect=document.getElementById('m-wdt');
   if(typeSelect&&typeSelect.value!=='photo'){typeSelect.value='photo';document.getElementById('m-wd-phase-wrap').style.display='';}
+  if(statusEl)statusEl.innerHTML='✓ <a href="'+freshUrl+'" target="_blank">Voir la photo</a>';
+}
+async function uploadVehiculeRelevePhoto(fileInput){
+  const file=fileInput.files?.[0];
+  if(!file)return;
+  const statusEl=document.getElementById('vr-photo-status');
+  if(statusEl)statusEl.textContent='⏳ Envoi...';
+  const ext=(file.name.split('.').pop()||'jpg').toLowerCase();
+  const path='vehicules/'+(S.modal?.assetId||'divers')+'/'+Date.now()+'.'+ext;
+  const{error}=await sb.storage.from('documents-locataires').upload(path,file,{contentType:file.type||'image/jpeg',cacheControl:'0'});
+  if(error){if(statusEl)statusEl.textContent='';alert('Erreur upload : '+error.message);return;}
+  const{data:pub}=sb.storage.from('documents-locataires').getPublicUrl(path);
+  const freshUrl=pub.publicUrl+'?v='+Date.now();
+  const urlInput=document.getElementById('vr-photo-url');
+  if(urlInput)urlInput.value=freshUrl;
   if(statusEl)statusEl.innerHTML='✓ <a href="'+freshUrl+'" target="_blank">Voir la photo</a>';
 }
 async function uploadFacturePhoto(ownerId,fileInput){
@@ -10564,6 +10603,8 @@ function bindAll(){
   document.querySelectorAll('[data-bien-doc-upload]').forEach(el=>el.onchange=()=>uploadBienDocFile(el.dataset.bienDocUpload,el));
   document.querySelectorAll('[data-wo-doc-upload]').forEach(el=>el.onchange=()=>uploadWoDocPhoto(el.dataset.woDocUpload,el));
   document.querySelectorAll('[data-facture-photo-upload]').forEach(el=>el.onchange=()=>uploadFacturePhoto(el.dataset.facturePhotoUpload,el));
+  const vrPhotoFile=document.getElementById('vr-photo-file');
+  if(vrPhotoFile)vrPhotoFile.onchange=()=>uploadVehiculeRelevePhoto(vrPhotoFile);
   document.querySelectorAll('[data-identite-upload]').forEach(el=>el.onchange=()=>uploadIdentitePhoto(el.dataset.identiteUpload,el));
   document.querySelectorAll('[data-identite-label]').forEach(el=>el.onchange=()=>renameIdentitePhoto(el.dataset.tenantId,el.dataset.identiteLabel,el.value));
   document.querySelectorAll('[data-del-identite-photo]').forEach(el=>el.onclick=()=>deleteIdentitePhoto(el.dataset.tenantId,el.dataset.delIdentitePhoto));
