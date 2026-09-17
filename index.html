@@ -666,6 +666,16 @@ const EDL_ROOM_PRESETS={
 };
 const EDL_ETATS=['M','P','B','TB'];
 const EDL_ETAT_LABELS={M:'Mauvais',P:'Passable',B:'Bon',TB:'Très bon'};
+// Paragraphe commun bail + etat des lieux sur la repartition entretien/
+// reparations locataire vs proprietaire - reformulation en langage courant
+// du decret n 87-712 du 26 aout 1987 (pas une citation litterale du texte).
+const REPARATIONS_CLAUSE_INTRO="Qui répare quoi ? Répartition issue du décret n°87-712 du 26 août 1987 relatif aux réparations locatives, présentée ici en langage courant.";
+const REPARATIONS_CLAUSE_PARAS=[
+  "À la charge du locataire : l'entretien courant et les réparations liées à l'usage quotidien — joints, robinetterie, chasses d'eau, ampoules et fusibles, entretien des sols et peintures, débouchage des canalisations, entretien du jardin ou de la terrasse à usage privatif, petites fixations (poignées, charnières...).",
+  "À la charge du propriétaire : les grosses réparations et le gros œuvre (toiture, murs, canalisations encastrées, chaudière), le remplacement d'un équipement usé ou tombé en panne sans faute du locataire, ainsi que l'usure normale du logement au fil du temps.",
+  "Le principe à retenir : ce n'est pas l'objet qui compte, mais la cause. Une usure liée au temps ne peut pas être facturée au locataire ; une dégradation liée à un défaut d'entretien ou une mauvaise utilisation reste à sa charge, quel que soit l'équipement concerné.",
+  "Cette répartition sert notamment de référence pour apprécier l'état du logement lors de l'état des lieux de sortie, en comparant avec l'état des lieux d'entrée.",
+];
 function findLogementEdlEntree(bien,tenantId){
   const norm=normBienSep(bien);
   return (S.logementEdl||[]).filter(e=>e.type==='entree'&&e.tenant_id===tenantId&&normBienSep(e.bien)===norm)
@@ -8755,7 +8765,11 @@ function genBailPDF(bail,tenant){
   para("Le locataire s'engage à payer le loyer et les charges aux termes convenus, à user paisiblement des locaux loués, à répondre des dégradations survenues pendant la durée du contrat, à s'assurer contre les risques locatifs et à en justifier à la demande du bailleur, et à ne céder ni sous-louer le logement sans l'accord écrit du bailleur.");
   para("Le bailleur s'engage à délivrer un logement décent et en bon état d'usage, à assurer au locataire une jouissance paisible du logement, et à entretenir les locaux en état de servir à l'usage prévu.");
 
-  title((isComm?'VIII':'XI')+'. Annexes');
+  title((isComm?'VIII':'XI')+". Répartition des réparations et de l'entretien");
+  para(REPARATIONS_CLAUSE_INTRO);
+  REPARATIONS_CLAUSE_PARAS.forEach(para);
+
+  title((isComm?'IX':'XII')+'. Annexes');
   para('Sont annexés et joints au présent contrat :');
   para('- Un dossier de diagnostic technique'+(diagPresent.length?' comprenant :':' (à joindre).'));
   diagPresent.forEach(k=>para('  • '+DIAG_LABELS[k]+(bail['diag_'+k].date?' (établi le '+dl(bail['diag_'+k].date)+')':'')+' — disponible dans GMAO Pro.'));
@@ -9127,6 +9141,10 @@ function genEdlPDF(edl,tenant,entreeRef){
   });
 
   if(edl.observations){title('Observations ou réserves');line(edl.observations);}
+
+  title("Répartition des réparations et de l'entretien");
+  line(REPARATIONS_CLAUSE_INTRO);
+  REPARATIONS_CLAUSE_PARAS.forEach(t=>line(t));
 
   ensureSpace(20);
   y+=6;
