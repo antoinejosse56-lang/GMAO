@@ -3199,7 +3199,7 @@ function renderFactures(){
     // factures en attente grandit (le cout par ligne etait proportionnel a la
     // taille de ces listes, pas juste au nombre de lignes).
     const bienOptsBase=buildBienOptsBase();
-    const assetOptsBase=[{v:'',l:'— Aucun équipement —'},...S.assets.map(a=>({v:a.id,l:a.name+(a.location?' — '+a.location:'')}))];
+    const assetOptsBase=[{v:'',l:'— Aucun véhicule —'},...S.assets.filter(a=>a.category==='Véhicule'||a.category==='Bateau').map(a=>({v:a.id,l:a.name+(a.location?' — '+a.location:'')}))];
     const personneOptsBase=[{v:'',l:'— Aucune personne —'},...S.famille.map(p=>({v:p.id,l:p.prenom+(p.nom?' '+p.nom:'')}))];
     const woOptsBase=[{v:'',l:'— Aucun BT —'},{v:'__new__',l:'+ Nouveau BT…'},...[...S.workOrders].sort((a,b)=>new Date(b.date)-new Date(a.date)).map(w=>({v:w.id,l:w.title+(w.status==='done'?' (terminé)':'')}))];
     const bienOptsFor=(sel)=>renderOpts(bienOptsBase,sel);
@@ -3241,7 +3241,7 @@ function renderFactures(){
         <span style="font-size:12px;color:var(--text2);margin-left:auto">Affichage de ${pendingVisible.length} sur ${pending.length}</span>
       </div>` :''}
       ${pending.length>0?`<div style="overflow-x:auto"><table>
-        <thead><tr><th><input type="checkbox" id="fav-select-all"></th><th>Date facture</th><th>Fichier</th><th>Entreprise</th><th>Description</th><th>Montant TTC</th><th>Bien / Local</th><th>Équipement</th><th>Personne</th><th>BT lié</th><th>Chantier</th><th>Motif</th><th>Compte</th><th>Date paiement</th><th>Actions</th></tr></thead>
+        <thead><tr><th><input type="checkbox" id="fav-select-all"></th><th>Date facture</th><th>Fichier</th><th>Entreprise</th><th>Description</th><th>Montant TTC</th><th>Bien / Local</th><th>Véhicule</th><th>Personne</th><th>BT lié</th><th>Chantier</th><th>Motif</th><th>Compte</th><th>Date paiement</th><th>Actions</th></tr></thead>
         <tbody>
         ${pendingVisible.map(f=>{
           const fileUrl=(f.apercu_pdf_path||f.storage_path)?`${SUPABASE_URL}/storage/v1/object/public/factures-a-valider/${f.apercu_pdf_path||f.storage_path}`:null;
@@ -3346,7 +3346,7 @@ function renderFactures(){
       top='🏗️ '+chantier.nom;sub='';
     }else if(f.asset_id){
       const asset=S.assets.find(a=>a.id===f.asset_id);
-      top=asset?'🔧 '+asset.name:SANS_BIEN;sub='';
+      top=asset?'🚗 '+asset.name:SANS_BIEN;sub='';
     }else if(f.famille_id){
       const personne=S.famille.find(p=>p.id===f.famille_id);
       top=personne?'👤 '+personne.prenom+(personne.nom?' '+personne.nom:''):SANS_BIEN;sub='';
@@ -5741,10 +5741,10 @@ function renderModal(){
       </div>
     </div>
     <div class="g2c">
-      <div class="form-group"><label>Équipement lié (optionnel)</label>
+      <div class="form-group"><label>Véhicule lié (optionnel)</label>
         <select id="fac-asset" onchange="document.getElementById('fac-wo').innerHTML=computeFilteredWoOpts(document.getElementById('fac-bien')?.value,document.getElementById('fac-chantier')?.value,'',false,this.value)">
-          <option value="">— Aucun équipement —</option>
-          ${S.assets.map(a=>`<option value="${a.id}" ${f.asset_id===a.id?'selected':''}>${a.name}${a.location?' — '+a.location:''}</option>`).join('')}
+          <option value="">— Aucun véhicule —</option>
+          ${S.assets.filter(a=>a.category==='Véhicule'||a.category==='Bateau').map(a=>`<option value="${a.id}" ${f.asset_id===a.id?'selected':''}>${a.name}${a.location?' — '+a.location:''}</option>`).join('')}
         </select>
       </div>
       <div class="form-group"><label>Personne liée (optionnel)</label>
