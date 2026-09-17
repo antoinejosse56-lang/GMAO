@@ -6414,12 +6414,12 @@ function renderModal(){
     </div>
     <button type="button" class="btn btn-sm btn-p" data-add-bien-doc="${(t.logement||'').replace(/"/g,'&quot;')}">+ Ajouter un document</button>
 
-    <div class="sec" style="margin-top:16px;margin-bottom:8px">🪪 Pièces d'identité <span style="font-size:11px;color:var(--text2);text-transform:none;font-weight:400">(locataire(s) et garant, plusieurs photos possibles)</span></div>
+    <div class="sec" style="margin-top:16px;margin-bottom:8px">📎 Pièces justificatives <span style="font-size:11px;color:var(--text2);text-transform:none;font-weight:400">(identité, fiche de salaire, et autres — locataire(s) et garant, plusieurs documents possibles)</span></div>
     <div id="identite-photos-list" style="margin-bottom:6px">
       ${(t.identite_photos||[]).map(p=>identitePhotoRowHtml(t.id,p)).join('')}
     </div>
-    <button type="button" class="btn btn-sm btn-p" onclick="document.getElementById('identite-photofile').click()">📷 Ajouter une photo</button>
-    <input type="file" accept="image/*" capture="environment" id="identite-photofile" data-identite-upload="${t.id}" style="display:none">
+    <button type="button" class="btn btn-sm btn-p" onclick="document.getElementById('identite-photofile').click()">📎 Ajouter un document</button>
+    <input type="file" accept="image/*,application/pdf" capture="environment" id="identite-photofile" data-identite-upload="${t.id}" style="display:none">
 
     <div style="display:flex;justify-content:flex-end;margin-top:16px"><button class="btn" id="mc2">Fermer</button></div>`;
   }
@@ -6506,12 +6506,16 @@ function renderModal(){
     <div class="sec" style="margin-top:12px;margin-bottom:8px">👤 Le locataire</div>
     <div class="g2c">
       <div class="form-group"><label>Nom complet *</label><input id="bail-loc-nom" value="${bail.loc_nom||t.nom||''}" placeholder="Nom Prénom"></div>
-      <div class="form-group"><label>Date de naissance</label><input id="bail-loc-nais" type="date" value="${bail.loc_nais||''}"></div>
+      <div class="form-group"><label>Date de naissance</label><input id="bail-loc-nais" type="date" value="${bail.loc_nais||t.date_naissance||''}"></div>
     </div>
     <div class="g2c">
-      <div class="form-group"><label>Lieu de naissance</label><input id="bail-loc-lieu-nais" value="${bail.loc_lieu_nais||''}" placeholder="Ville, Pays"></div>
-      <div class="form-group"><label>Nationalité</label><input id="bail-loc-natio" value="${bail.loc_natio||'Française'}" placeholder="Française"></div>
+      <div class="form-group"><label>Lieu de naissance</label><input id="bail-loc-lieu-nais" value="${bail.loc_lieu_nais||t.lieu_naissance||''}" placeholder="Ville, Pays"></div>
+      <div class="form-group"><label>Nationalité</label><input id="bail-loc-natio" value="${bail.loc_natio||t.nationalite||'Française'}" placeholder="Française"></div>
     </div>
+    ${(t.colocataires||[]).length?`<div style="background:var(--bg2);border-radius:var(--radius);padding:8px 10px;margin-bottom:10px;font-size:12px">
+      <b>👥 Colocataires sur ce bail</b> <span style="color:var(--text2)">(modifiables sur la fiche du locataire)</span>
+      ${t.colocataires.map(c=>`<div style="margin-top:4px">${c.nom}${c.date_naissance?' — né(e) le '+new Date(c.date_naissance).toLocaleDateString('fr-FR'):''}${c.lieu_naissance?' à '+c.lieu_naissance:''}</div>`).join('')}
+    </div>`:''}
     <div class="g2c">
       <div class="form-group"><label>Email</label><input id="bail-loc-email" type="email" value="${bail.loc_email||t.email||''}" placeholder="locataire@email.fr"></div>
       <div class="form-group"><label>Téléphone</label><input id="bail-loc-tel" value="${bail.loc_tel||t.telephone||''}" placeholder="06..."></div>
@@ -6663,6 +6667,26 @@ function renderModal(){
       </select></div>
       <div class="form-group"><label>Téléphone</label><input id="m-ttel" value="${t.telephone||''}"></div>
     </div>
+    <div class="sec" style="margin-top:8px;margin-bottom:8px">🪪 État civil (pour le bail)</div>
+    <div class="g2c">
+      <div class="form-group"><label>Date de naissance</label><input id="m-tnais" type="date" value="${t.date_naissance||''}"></div>
+      <div class="form-group"><label>Lieu de naissance</label><input id="m-tlieu-nais" value="${t.lieu_naissance||''}" placeholder="Ville, Pays"></div>
+    </div>
+    <div class="form-group"><label>Nationalité</label><input id="m-tnatio" value="${t.nationalite||'Française'}" placeholder="Française"></div>
+    <div class="sec" style="margin-top:8px;margin-bottom:6px">👥 Colocataires <span style="font-size:11px;color:var(--text2);text-transform:none;font-weight:400">(autres personnes sur le même bail)</span></div>
+    <div id="m-tcoloc-list">
+      ${(()=>{if(!m.colocataires)m.colocataires=(t.colocataires||[]).map(c=>({...c}));return m.colocataires.map((c,i)=>`<div style="border:0.5px solid var(--border2);border-radius:var(--radius);padding:8px;margin-bottom:8px">
+        <div class="g2c" style="margin-bottom:6px">
+          <div class="form-group" style="margin-bottom:0"><label>Nom complet</label><input value="${(c.nom||'').replace(/"/g,'&quot;')}" oninput="S.modal.colocataires[${i}].nom=this.value"></div>
+          <div class="form-group" style="margin-bottom:0"><label>Date de naissance</label><input type="date" value="${c.date_naissance||''}" oninput="S.modal.colocataires[${i}].date_naissance=this.value"></div>
+        </div>
+        <div class="g2c" style="margin-bottom:0">
+          <div class="form-group" style="margin-bottom:0"><label>Lieu de naissance</label><input value="${(c.lieu_naissance||'').replace(/"/g,'&quot;')}" oninput="S.modal.colocataires[${i}].lieu_naissance=this.value"></div>
+          <div class="form-group" style="margin-bottom:0;display:flex;align-items:flex-end"><button type="button" class="btn btn-d btn-sm" style="width:100%" onclick="S.modal.colocataires=S.modal.colocataires.filter((_,idx)=>idx!==${i});render()">✕ Retirer</button></div>
+        </div>
+      </div>`).join('');})()}
+    </div>
+    <button type="button" class="btn btn-sm" onclick="S.modal.colocataires=[...(S.modal.colocataires||[]),{nom:'',date_naissance:'',lieu_naissance:''}];render()" style="margin-bottom:8px">+ Ajouter un colocataire</button>
     <div class="g2c">
       <div class="form-group"><label>Loyer mensuel (€)</label><input id="m-tloy" type="number" value="${t.loyer_ref||0}"></div>
       <div class="form-group"><label>Charges mensuelles (€)</label><input id="m-tch" type="number" value="${t.charges||0}"></div>
@@ -6718,7 +6742,7 @@ function renderModal(){
     </div>
     <div style="display:flex;gap:8px;margin-bottom:4px;flex-wrap:wrap">
       <button type="button" class="btn btn-sm" id="btn-open-bail-form" style="flex:1">📝 Générer bail</button>
-      <button type="button" class="btn btn-sm" data-field-docs="${t.id}" style="flex:1">📄 Documents & pièces d'identité</button>
+      <button type="button" class="btn btn-sm" data-field-docs="${t.id}" style="flex:1">📄 Documents & pièces justificatives</button>
     </div>
     ${mf}`;
   }
@@ -8106,6 +8130,9 @@ async function saveModal(){
       tf_surface_totale_m2:parseFloat(q('m-ttf-tot')?.value)||null,
       tf_dernier_regul_annee:parseInt(q('m-ttf-annee')?.value)||null,
       garant_nom:q('m-tgar-nom')?.value||null,garant_lien:q('m-tgar-lien')?.value||null,garant_adr:q('m-tgar-adr')?.value||null,
+      date_naissance:q('m-tnais')?.value||null,lieu_naissance:q('m-tlieu-nais')?.value||null,
+      nationalite:q('m-tnatio')?.value||null,
+      colocataires:(m.colocataires||[]).filter(c=>c.nom&&c.nom.trim()),
       notes:q('m-tnotes')?.value||''};
     if(m.type==='add-tenant'){
       const {data,error}=await sb.from('tenants').insert(rec).select().single();
@@ -8710,6 +8737,10 @@ function genBailPDF(bail,tenant){
   title('I. Désignation des parties');
   para('Le bailleur : '+(bail.bailleur_nom||'—')+(bail.bailleur_rep?', représenté par '+bail.bailleur_rep:'')+', domicilié '+(bail.bailleur_adr||'—')+'.');
   para('Le locataire : '+(bail.loc_nom||'—')+(bail.loc_nais?', né(e) le '+dl(bail.loc_nais)+(bail.loc_lieu_nais?' à '+bail.loc_lieu_nais:''):'')+(bail.loc_natio?', de nationalité '+bail.loc_natio:'')+', demeurant actuellement '+(bail.loc_adr||'—')+'.');
+  (tenant?.colocataires||[]).forEach(c=>{
+    if(!c.nom)return;
+    para('Co-preneur : '+c.nom+(c.date_naissance?', né(e) le '+dl(c.date_naissance)+(c.lieu_naissance?' à '+c.lieu_naissance:''):'')+', également partie prenante au présent contrat.');
+  });
   if(bail.gar_nom){
     para('Le garant : '+bail.gar_nom+(bail.gar_lien?' ('+bail.gar_lien+')':'')+', domicilié '+(bail.gar_adr||'—')+', qui se porte caution solidaire du présent contrat.');
   }
@@ -8944,7 +8975,7 @@ async function uploadIdentitePhoto(tenantId,fileInput){
   const{data:pub}=sb.storage.from('documents-locataires').getPublicUrl(path);
   const freshUrl=pub.publicUrl+'?v='+Date.now();
   const photos=[...(t.identite_photos||[])];
-  const photo={id:uid(),label:'Photo '+(photos.length+1),url:freshUrl,path,date:NOW};
+  const photo={id:uid(),label:'Document '+(photos.length+1),url:freshUrl,path,date:NOW};
   photos.push(photo);
   const{error:updErr}=await sb.from('tenants').update({identite_photos:photos}).eq('id',tenantId);
   if(updErr){alert('Erreur enregistrement : '+updErr.message);return;}
@@ -8970,8 +9001,12 @@ async function uploadIdentitePhoto(tenantId,fileInput){
 // d'une nouvelle photo (uploadIdentitePhoto), pour ne jamais dupliquer le
 // markup.
 function identitePhotoRowHtml(tenantId,p){
+  const isPdf=/\.pdf(\?|$)/i.test(p.url||'');
+  const thumb=isPdf
+    ?`<div style="width:40px;height:40px;border-radius:6px;cursor:pointer;flex-shrink:0;background:var(--red-bg);color:var(--red-text);display:flex;align-items:center;justify-content:center;font-size:16px" onclick="window.open('${p.url}','_blank')">📄</div>`
+    :`<img src="${p.url}" style="width:40px;height:40px;object-fit:cover;border-radius:6px;cursor:pointer;flex-shrink:0" onclick="window.open('${p.url}','_blank')">`;
   return `<div style="display:flex;align-items:center;gap:8px;background:var(--bg2);border-radius:var(--radius);padding:6px 10px;margin-bottom:6px" data-identite-row="${p.id}">
-    <img src="${p.url}" style="width:40px;height:40px;object-fit:cover;border-radius:6px;cursor:pointer;flex-shrink:0" onclick="window.open('${p.url}','_blank')">
+    ${thumb}
     <input value="${(p.label||'').replace(/"/g,'&quot;')}" data-identite-label="${p.id}" data-tenant-id="${tenantId}" style="flex:1;padding:4px 6px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px;min-width:0">
     <button type="button" class="btn btn-d btn-sm" data-del-identite-photo="${p.id}" data-tenant-id="${tenantId}" style="flex-shrink:0">✕</button>
   </div>`;
