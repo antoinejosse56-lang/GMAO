@@ -660,7 +660,7 @@ const EDL_ROOM_PRESETS={
   sejour:{label:'Séjour - Salle à manger',items:['mur','sol','vitrage_volets','plafond','eclairage','prises']},
   cuisine:{label:'Cuisine',items:['mur','sol','vitrage_volets','plafond','eclairage','prises','placards','evier','plaques_four','hotte','electromenager']},
   chambre:{label:'Chambre',items:['mur','sol','vitrage_volets','plafond','eclairage','prises']},
-  sdb:{label:'Salle de bain',items:['mur','sol','vitrage_volets','plafond','eclairage','prises','lavabo','baignoire_douche','wc']},
+  sdb:{label:'Salle de bain',items:['mur','sol','vitrage_volets','plafond','eclairage','prises','lavabo','baignoire_douche']},
   wc:{label:'WC',items:['mur','sol','plafond','eclairage','prises','wc']},
   autre:{label:'Autre pièce',items:['mur','sol','vitrage_volets','plafond','eclairage','prises']},
 };
@@ -685,7 +685,7 @@ function openEdlEntreeFor(t){
   if(lf?.edl_structure?.length){
     S.modal={type:'edl-form',tenant:t,edlType:'entree',edl:{id:crypto.randomUUID(),structure:lf.edl_structure,photos:{}}};
   }else{
-    S.modal={type:'edl-config-pieces',tenant:t,edlConfig:{nb_chambres:1,nb_sdb:1,nb_wc:0,inc_entree:true,inc_sejour:true,inc_cuisine:true,autres:[]}};
+    S.modal={type:'edl-config-pieces',tenant:t,edlConfig:{nb_chambres:1,nb_sdb:1,nb_wc:1,sdb_avec_wc:false,inc_entree:true,inc_sejour:true,inc_cuisine:true,autres:[]}};
   }
   render();
 }
@@ -6215,7 +6215,7 @@ function renderModal(){
 
   if(m.type==='edl-config-pieces'){
     const t=m.tenant||{};
-    const cfg=m.edlConfig||{nb_chambres:1,nb_sdb:1,nb_wc:0,inc_entree:true,inc_sejour:true,inc_cuisine:true,autres:[]};
+    const cfg=m.edlConfig||{nb_chambres:1,nb_sdb:1,nb_wc:1,sdb_avec_wc:false,inc_entree:true,inc_sejour:true,inc_cuisine:true,autres:[]};
     html=`${mhd('🧩 Configuration des pièces — '+(t.logement||''))}
     <p style="font-size:12px;color:var(--text2);margin-bottom:10px">Cette structure sera mémorisée sur la fiche du logement et réutilisée automatiquement pour tous les états des lieux suivants de ce logement (sortie de ce locataire, entrée des locataires futurs).</p>
     <div class="form-group"><label style="display:flex;align-items:center;gap:8px;font-weight:400"><input type="checkbox" ${cfg.inc_entree?'checked':''} onchange="S.modal.edlConfig={...S.modal.edlConfig,inc_entree:this.checked}"> Entrée / Couloir</label></div>
@@ -6226,6 +6226,7 @@ function renderModal(){
       <div class="form-group"><label>Salles de bain</label><input type="number" min="0" max="5" value="${cfg.nb_sdb}" onchange="S.modal.edlConfig={...S.modal.edlConfig,nb_sdb:parseInt(this.value)||0}"></div>
       <div class="form-group"><label>WC séparés</label><input type="number" min="0" max="5" value="${cfg.nb_wc}" onchange="S.modal.edlConfig={...S.modal.edlConfig,nb_wc:parseInt(this.value)||0}"></div>
     </div>
+    ${cfg.nb_sdb>0?`<div class="form-group"><label style="display:flex;align-items:center;gap:8px;font-weight:400"><input type="checkbox" ${cfg.sdb_avec_wc?'checked':''} onchange="S.modal.edlConfig={...S.modal.edlConfig,sdb_avec_wc:this.checked}"> WC intégré à la/aux salle(s) de bain <span style="font-size:11px;color:var(--text2)">(décochez si le WC est toujours séparé — le cas pour tous les logements actuellement)</span></label></div>`:''}
     <div class="sec" style="margin-top:10px;margin-bottom:6px">Pièces libres <span style="font-size:11px;color:var(--text2);text-transform:none;font-weight:400">(local, réserve, bureau...)</span></div>
     ${cfg.autres.map((a,i)=>`<div style="display:flex;gap:6px;margin-bottom:6px">
       <input value="${(a||'').replace(/"/g,'&quot;')}" placeholder="Ex: Local, Réserve" oninput="S.modal.edlConfig.autres[${i}]=this.value" style="flex:1">
@@ -6550,7 +6551,7 @@ function renderModal(){
     <p style="font-size:12px;color:var(--text2);margin-bottom:8px">Le paraphe sera reproduit automatiquement sur toutes les pages du bail (et de ses annexes). La signature sera apposée à la fin du document. Touchez un nom pour signer en plein écran.</p>
     <div style="display:flex;flex-direction:column;gap:8px">
       ${sigCardHtml('bail-paraphe-bailleur','bail-sig-bailleur','Bailleur')}
-      ${bail.gar_nom?sigCardHtml('bail-paraphe-garant','bail-sig-garant','Garant',bail.gar_nom):''}
+      ${sigCardHtml('bail-paraphe-garant','bail-sig-garant','Garant (si applicable)',bail.gar_nom||'')}
       ${sigCardHtml('bail-paraphe-locataire','bail-sig-locataire','Locataire',t.nom||'')}
     </div>
     <div style="display:none">
@@ -9774,7 +9775,7 @@ function bindAll(){
     if(cfg.inc_sejour)structure.push({key:'sejour',label:EDL_ROOM_PRESETS.sejour.label,items:[...EDL_ROOM_PRESETS.sejour.items]});
     if(cfg.inc_cuisine)structure.push({key:'cuisine',label:EDL_ROOM_PRESETS.cuisine.label,items:[...EDL_ROOM_PRESETS.cuisine.items]});
     for(let i=1;i<=cfg.nb_chambres;i++)structure.push({key:'chambre_'+i,label:'Chambre'+(cfg.nb_chambres>1?' '+i:''),items:[...EDL_ROOM_PRESETS.chambre.items]});
-    for(let i=1;i<=cfg.nb_sdb;i++)structure.push({key:'sdb_'+i,label:'Salle de bain'+(cfg.nb_sdb>1?' '+i:''),items:[...EDL_ROOM_PRESETS.sdb.items]});
+    for(let i=1;i<=cfg.nb_sdb;i++)structure.push({key:'sdb_'+i,label:'Salle de bain'+(cfg.nb_sdb>1?' '+i:''),items:cfg.sdb_avec_wc?[...EDL_ROOM_PRESETS.sdb.items,'wc']:[...EDL_ROOM_PRESETS.sdb.items]});
     for(let i=1;i<=cfg.nb_wc;i++)structure.push({key:'wc_'+i,label:'WC'+(cfg.nb_wc>1?' '+i:'')+' séparé',items:[...EDL_ROOM_PRESETS.wc.items]});
     (cfg.autres||[]).filter(a=>a&&a.trim()).forEach((a,i)=>{
       const slug=a.trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'')||('autre_'+i);
