@@ -8491,6 +8491,7 @@ function genFactureEauPDF(tenant, releves, mois, annee){
     +".total{font-weight:700;background:#f0f5ff;font-size:13px}"
     +".footer{margin-top:30px;font-size:11px;color:#888;border-top:1px solid #ddd;padding-top:12px}"
     +"@media print{body{padding:15px}}</style></head><body>"
+    +(isDubail?"<div style=\"margin-bottom:10px\"><img src=\""+LOGO_SAVADUR_B64+"\" style=\"width:100%;height:auto;display:block\"></div>":"")
     +"<div class=\"header\">"
       +"<div><strong>"+bailleurNom+"</strong><br>"+bailleurAdr+"</div>"
       +"<div style=\"text-align:right\"><strong>"+tenant.nom+"</strong><br>"+(tenant.logement||"")+"<br>Emise le : "+today+"</div>"
@@ -8545,6 +8546,7 @@ function genRegulTFPDF(tenant, due, montants){
     +"th{background:#cfe8ff;font-weight:600;text-align:left}"
     +".total{font-weight:700;background:#cfe8ff}"
     +"@media print{body{padding:20px}}</style></head><body>"
+    +"<div style=\"margin-bottom:10px\"><img src=\""+LOGO_SAVADUR_B64+"\" style=\"width:100%;height:auto;display:block\"></div>"
     +"<div class=\"title\">Régularisation taxe foncière "+due.annee+"</div>"
     +"<p>J&amp;A SAVADUR<br>29 RUE AMIRAL BOUVET<br>56100 LORIENT<br>savadur56@gmail.com<br>0630370688</p>"
     +"<p><strong>"+tenant.nom+"</strong><br>"+(tenant.logement||"").replace(/^.*—\s*/,"")+"<br>56100 Lorient</p>"
@@ -12254,6 +12256,7 @@ async function sendAccuseEau(releve,cpt,tenant,montant){
     +'.box{border:2px solid #1D9E75;padding:20px;text-align:center;margin:24px 0;border-radius:6px}'
     +'.somme{font-size:26px;font-weight:bold;color:#1D9E75;margin:8px 0}'
     +'</style></head><body>'
+    +'<div style="margin-bottom:10px"><img src="'+LOGO_SAVADUR_B64+'" style="width:100%;height:auto;display:block"></div>'
     +'<div style="display:flex;justify-content:space-between;margin-bottom:24px">'
     +'<div><strong>J&A SAVADUR</strong><br>26 RUE GÉNÉRAL DUBAIL<br>56100 LORIENT</div>'
     +'<div style="text-align:right"><strong>'+tenant.nom+'</strong><br>'+tenant.logement+'<br>26 Rue Général Dubail<br>56100 LORIENT</div>'
