@@ -13042,6 +13042,11 @@ if(quickNav){
     if(quickNav==="creche")S.familleTab="creche";
     if(quickNav==="ecole")S.familleTab="ecole";
   }
+  // Raccourcis PWA "Facture (photo)" et "Plein carburant" (voir manifest.json) :
+  // ouvrent directement le modal correspondant par-dessus l'accueil mobile,
+  // meme mecanique que S.view ci-dessus mais pour une action plutot qu'un onglet.
+  if(quickNav==="facture")S.modal={type:"add-facture"};
+  if(quickNav==="plein")S.modal={type:"add-vehicule-releve",quickPlein:true};
 }
 
 // Raccourci PWA "Baux & États des lieux" (voir manifest.json) - ouvre
