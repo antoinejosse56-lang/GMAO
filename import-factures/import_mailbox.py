@@ -39,6 +39,7 @@ import imaplib
 import json
 import os
 import re
+import subprocess
 import sys
 import unicodedata
 from email.header import decode_header
@@ -55,10 +56,29 @@ GMAIL_LABEL = os.environ.get("GMAIL_LABEL", "A importer")
 ALLOWED_EXTENSIONS = {".pdf", ".jpg", ".jpeg", ".png", ".doc", ".docx", ".odt"}
 SEEN_PATH = Path(__file__).with_name("mailbox_seen.json")
 IMAP_HOST = "imap.gmail.com"
+# WATCH_DIR/DEVIS_WATCH_DIR pointent desormais vers des sous-dossiers du NAS
+# (voir import_factures.py/backup_to_nas.py) - meme mecanisme d'authentification
+# reseau duplique ici (scripts independants).
+NAS_SAVADUR_PATH = os.environ.get("NAS_SAVADUR_PATH", "")
+NAS_PERSO_PATH = os.environ.get("NAS_PERSO_PATH", "")
+NAS_USER = os.environ.get("NAS_USER", "")
+NAS_PASSWORD = os.environ.get("NAS_PASSWORD", "")
 
 
 def log(msg):
     print(f"[import-mailbox] {msg}")
+
+
+def connect_nas_share(unc_path):
+    if not unc_path:
+        return
+    result = subprocess.run(
+        ["net", "use", unc_path, NAS_PASSWORD, f"/user:{NAS_USER}"],
+        capture_output=True, text=True,
+    )
+    combined = (result.stdout + result.stderr).lower()
+    if result.returncode != 0 and "déjà" not in combined and "already" not in combined and "multiple" not in combined:
+        log(f"  ATTENTION connexion NAS ({unc_path}) : {result.stdout.strip()} {result.stderr.strip()}")
 
 
 def load_accounts():
@@ -252,6 +272,9 @@ def main():
         sys.exit("Aucun compte configure - remplir GMAIL_ACCOUNT_1 / GMAIL_APP_PASSWORD_1 dans .env")
     if not WATCH_DIR and not DEVIS_WATCH_DIR:
         sys.exit("WATCH_DIR et DEVIS_WATCH_DIR manquants dans .env")
+
+    connect_nas_share(NAS_SAVADUR_PATH)
+    connect_nas_share(NAS_PERSO_PATH)
 
     seen = load_seen()
     total = 0

@@ -15,7 +15,7 @@ n'est jamais retraite, quel que soit son statut (en_attente / valide / rejete).
 
 Usage :
     pip install -r requirements.txt
-    copier .env.example en .env et remplir DEVIS_WATCH_DIR / DEVIS_ARCHIVE_DIR
+    copier .env.example en .env et remplir DEVIS_WATCH_DIR / NAS_SAVADUR_PATH / NAS_PERSO_PATH
     python import_devis.py
 
 A lancer periodiquement via le Planificateur de taches Windows, en parallele
@@ -25,6 +25,7 @@ import hashlib
 import mimetypes
 import os
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -54,9 +55,14 @@ load_dotenv()
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
 WATCH_DIR = os.environ.get("DEVIS_WATCH_DIR", "")
-# Optionnel : si renseigne, les fichiers dont le devis a ete valide dans le GMAO
-# sont deplaces vers ARCHIVE_DIR/<savadur|perso>/<bien>/<zone>/<motif>/.
-ARCHIVE_DIR = os.environ.get("DEVIS_ARCHIVE_DIR", "")
+# Racines NAS (2 partages reseau distincts, partagees avec import_factures.py
+# et backup_to_nas.py) : une fois un devis valide dans le GMAO, le fichier est
+# deplace vers <NAS_SAVADUR_PATH ou NAS_PERSO_PATH>/Devis/<bien>/<zone>/<motif>/
+# selon le bien concerne. Laisser les 2 vides pour desactiver l'archivage.
+NAS_SAVADUR_PATH = os.environ.get("NAS_SAVADUR_PATH", "")
+NAS_PERSO_PATH = os.environ.get("NAS_PERSO_PATH", "")
+NAS_USER = os.environ.get("NAS_USER", "")
+NAS_PASSWORD = os.environ.get("NAS_PASSWORD", "")
 
 BUCKET = "devis-a-valider"
 TABLE = "devis_a_valider"
@@ -70,6 +76,21 @@ HEADERS = {
 
 def log(msg):
     print(f"[import-devis] {msg}")
+
+
+def connect_nas_share(unc_path):
+    """Meme mecanisme que dans import_factures.py/backup_to_nas.py (duplique,
+    scripts independants) : authentifie la session Windows sur le partage NAS
+    avant tout acces fichier."""
+    if not unc_path:
+        return
+    result = subprocess.run(
+        ["net", "use", unc_path, NAS_PASSWORD, f"/user:{NAS_USER}"],
+        capture_output=True, text=True,
+    )
+    combined = (result.stdout + result.stderr).lower()
+    if result.returncode != 0 and "déjà" not in combined and "already" not in combined and "multiple" not in combined:
+        log(f"  ATTENTION connexion NAS ({unc_path}) : {result.stdout.strip()} {result.stderr.strip()}")
 
 
 def fetch_known_rows() -> dict:
@@ -120,12 +141,13 @@ def fetch_known_hashes() -> set:
 
 def archive_path_for(bien: str, motif: str) -> Path:
     """Meme logique que archive_path_for dans import_factures.py, dupliquee ici
-    pour utiliser DEVIS_ARCHIVE_DIR au lieu de ARCHIVE_DIR (constante differente,
-    pas reutilisable telle quelle par import). Racine commune avec les factures
-    (meme arborescence <compte>/<type>/... sous D:/Antoine/GMAO)."""
+    (constantes NAS_SAVADUR_PATH/NAS_PERSO_PATH separees, scripts independants).
+    Racine = l'un des 2 partages NAS selon le bien (meme repartition que les
+    factures et le script de sauvegarde backup_to_nas.py)."""
     parts = [p.strip() for p in (bien or "").split(" - ") if p.strip()]
-    compte = "PERSO" if parts and "dubail" not in parts[0].lower() else "SAVADUR"
-    folder = Path(ARCHIVE_DIR) / compte / "Devis"
+    is_savadur = bool(parts) and "dubail" in parts[0].lower()
+    root = NAS_SAVADUR_PATH if is_savadur else NAS_PERSO_PATH
+    folder = Path(root) / "Devis"
     if parts:
         for p in parts:
             folder = folder / sanitize_folder_name(p)
@@ -273,7 +295,7 @@ def archive_validated_files(watch_path: Path, known_rows: dict):
     """Deplace vers ARCHIVE_DIR les fichiers dont le devis correspondant a ete
     valide dans le GMAO (statut == 'valide' sur devis_a_valider). Renomme au
     format 'NOM_ENTREPRISE.DATE.motif.ext'."""
-    if not ARCHIVE_DIR:
+    if not NAS_SAVADUR_PATH or not NAS_PERSO_PATH:
         return
     moved = 0
     for p in sorted(watch_path.iterdir()):
@@ -304,6 +326,9 @@ def main():
         sys.exit("SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY manquants dans .env")
     if not WATCH_DIR:
         sys.exit("DEVIS_WATCH_DIR manquant dans .env")
+
+    connect_nas_share(NAS_SAVADUR_PATH)
+    connect_nas_share(NAS_PERSO_PATH)
 
     watch_path = Path(WATCH_DIR)
     if not watch_path.is_dir():
@@ -336,7 +361,7 @@ def main():
 
     log(f"Termine. {nouveaux} nouveau(x) fichier(s) traite(s).")
 
-    if ARCHIVE_DIR:
+    if NAS_SAVADUR_PATH and NAS_PERSO_PATH:
         archive_validated_files(watch_path, known_rows)
 
 

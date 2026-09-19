@@ -30,6 +30,7 @@ import mimetypes
 import os
 import re
 import shutil
+import subprocess
 import sys
 import unicodedata
 from datetime import date
@@ -60,16 +61,39 @@ load_dotenv()
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
 WATCH_DIR = os.environ.get("WATCH_DIR", "")
-# Optionnel : si renseigne, les fichiers dont la facture a ete validee dans le GMAO
-# sont copies du dossier de transit vers ARCHIVE_DIR/<savadur|perso>/<bien>/<zone>/.
-# Laisser vide pour desactiver l'archivage automatique.
-ARCHIVE_DIR = os.environ.get("ARCHIVE_DIR", "")
+# Racines NAS (2 partages reseau distincts, voir backup_to_nas.py) : une fois
+# une facture validee dans le GMAO, le fichier est copie du dossier de transit
+# vers <NAS_SAVADUR_PATH ou NAS_PERSO_PATH>/Factures/<bien>/<zone>/<motif>/
+# selon le bien concerne. Laisser les 2 vides pour desactiver l'archivage
+# automatique (ancien ARCHIVE_DIR, a un seul dossier racine, abandonne : le
+# NAS a 2 partages separes, pas un dossier commun avec 2 sous-dossiers).
+NAS_SAVADUR_PATH = os.environ.get("NAS_SAVADUR_PATH", "")
+NAS_PERSO_PATH = os.environ.get("NAS_PERSO_PATH", "")
+NAS_USER = os.environ.get("NAS_USER", "")
+NAS_PASSWORD = os.environ.get("NAS_PASSWORD", "")
 # Prefixe ajoute (sur place, sans deplacer) au nom du fichier original une fois
 # archive - le dossier de transit sert aussi de file d'attente manuelle vers
 # Dext, donc on ne doit jamais en retirer un fichier tout seul : l'utilisateur
 # doit pouvoir le mettre dans Dext puis le supprimer lui-meme en toute
 # confiance, en sachant grace a ce prefixe qu'il est deja bien enregistre.
 PROCESSED_MARKER = "[GMAO OK] "
+
+
+def connect_nas_share(unc_path):
+    """Authentifie la session Windows sur un partage NAS protege par mot de
+    passe (net use) - sans ca, un chemin \\\\serveur\\partage n'est pas
+    accessible en lecture/ecriture depuis Python. Tolere le cas "deja
+    connecte" (relance du script, tache planifiee toutes les 15 min). Meme
+    mecanisme que backup_to_nas.py, duplique ici (scripts independants)."""
+    if not unc_path:
+        return
+    result = subprocess.run(
+        ["net", "use", unc_path, NAS_PASSWORD, f"/user:{NAS_USER}"],
+        capture_output=True, text=True,
+    )
+    combined = (result.stdout + result.stderr).lower()
+    if result.returncode != 0 and "déjà" not in combined and "already" not in combined and "multiple" not in combined:
+        log(f"  ATTENTION connexion NAS ({unc_path}) : {result.stdout.strip()} {result.stderr.strip()}")
 
 BUCKET = "factures-a-valider"
 TABLE = "factures_a_valider"
@@ -251,20 +275,23 @@ def sanitize_folder_name(name: str) -> str:
 
 
 def archive_path_for(bien: str, motif: str) -> Path:
-    """Calcule le sous-dossier d'archive ARCHIVE_DIR/<SAVADUR|PERSO>/Factures/...
-    a partir de la valeur `bien` stockee et du motif. `bien` est un chemin
-    "A - B - C" dont chaque segment devient un niveau de dossier (nombre
-    variable) :
+    """Calcule le sous-dossier d'archive <NAS_SAVADUR_PATH ou NAS_PERSO_PATH>/
+    Factures/... a partir de la valeur `bien` stockee et du motif - la racine
+    est desormais l'un des 2 partages NAS separes (plus un dossier commun
+    avec sous-dossier <compte>, abandonne : le NAS physique a bien 2 partages
+    distincts). `bien` est un chemin "A - B - C" dont chaque segment devient
+    un niveau de dossier (nombre variable) :
     - cas normal : "Prop - Zone - SousZone" (jusqu'a 3 niveaux) + motif en
       dernier niveau si renseigne (Entretien, Renovation, Travaux, Etudes,
       Medicale, Diagnostiques ou texte libre) ;
     - facture/devis lie a un chantier : "Prop - Chantier - TitreDuBT" (motif
       alors vide - le chantier et le BT categorisent deja suffisamment).
-    Racine commune ARCHIVE_DIR partagee avec import_devis.py (meme
-    arborescence <compte>/<type>/...)."""
+    Meme logique de repartition SAVADUR/PERSO que import_devis.py et
+    backup_to_nas.py (nom du bien contenant "dubail")."""
     parts = [p.strip() for p in (bien or "").split(" - ") if p.strip()]
-    compte = "PERSO" if parts and "dubail" not in parts[0].lower() else "SAVADUR"
-    folder = Path(ARCHIVE_DIR) / compte / "Factures"
+    is_savadur = bool(parts) and "dubail" in parts[0].lower()
+    root = NAS_SAVADUR_PATH if is_savadur else NAS_PERSO_PATH
+    folder = Path(root) / "Factures"
     if parts:
         for p in parts:
             folder = folder / sanitize_folder_name(p)
@@ -299,7 +326,7 @@ def archive_validated_files(watch_path: Path, known_rows: dict):
     renomme sur place avec PROCESSED_MARKER en prefixe, pour indiquer sans
     ambiguite qu'il a deja ete enregistre dans le GMAO et peut etre supprime
     en toute confiance une fois envoye a Dext."""
-    if not ARCHIVE_DIR:
+    if not NAS_SAVADUR_PATH or not NAS_PERSO_PATH:
         return
     copied = 0
     for p in sorted(watch_path.iterdir()):
@@ -727,6 +754,9 @@ def main():
     if not source_dir:
         sys.exit("WATCH_DIR manquant dans .env (ou fournir --source-dir <dossier>)")
 
+    connect_nas_share(NAS_SAVADUR_PATH)
+    connect_nas_share(NAS_PERSO_PATH)
+
     watch_path = Path(source_dir)
     if not watch_path.is_dir():
         sys.exit(f"Dossier introuvable ou inaccessible : {source_dir}")
@@ -758,7 +788,7 @@ def main():
 
     log(f"Termine. {nouveaux} nouveau(x) fichier(s) traite(s).")
 
-    if ARCHIVE_DIR:
+    if NAS_SAVADUR_PATH and NAS_PERSO_PATH:
         archive_validated_files(watch_path, known_rows)
 
 
