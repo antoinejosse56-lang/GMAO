@@ -23,7 +23,7 @@
   ],
   "shortcuts": [
     {"name": "Saisie Crèche/École", "url": "/GMAO/saisie.html", "icons": [{"src": "icon.png", "sizes": "96x96"}]},
-    {"name": "Facture (photo)", "url": "/GMAO/index.html?quick=facture", "icons": [{"src": "icon-facture.png", "sizes": "96x96"}]},
-    {"name": "Plein carburant", "url": "/GMAO/index.html?quick=plein", "icons": [{"src": "icon-plein.png", "sizes": "96x96"}]}
+    {"name": "Loyer & Meublé", "url": "/GMAO/gestion.html", "icons": [{"src": "icon.png", "sizes": "96x96"}]},
+    {"name": "Baux & États des lieux", "url": "/GMAO/index.html?field=1", "icons": [{"src": "icon.png", "sizes": "96x96"}]}
   ]
 }

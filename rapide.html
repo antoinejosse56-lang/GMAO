@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#185FA5">
+<title>Saisie rapide</title>
+<link rel="manifest" href="manifest-rapide.json">
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f0f4f8;min-height:100vh;color:#1a1a2e}
+.screen{display:none;min-height:100vh;padding:16px;max-width:480px;margin:0 auto}
+.screen.active{display:block}
+/* PIN screen */
+.pin-header{text-align:center;padding:40px 0 30px}
+.pin-logo{width:80px;height:80px;border-radius:20px;object-fit:contain;background:#fff;padding:8px;box-shadow:0 4px 16px rgba(0,0,0,0.1);margin-bottom:16px}
+.pin-title{font-size:22px;font-weight:700;color:#185FA5}
+.pin-subtitle{font-size:14px;color:#666;margin-top:6px}
+.pin-dots{display:flex;gap:12px;justify-content:center;margin:24px 0}
+.pin-dot{width:16px;height:16px;border-radius:50%;background:#ddd;transition:background 0.2s}
+.pin-dot.filled{background:#185FA5}
+.pin-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;max-width:280px;margin:0 auto}
+.pin-btn{background:#fff;border:none;border-radius:16px;padding:18px;font-size:22px;font-weight:600;color:#1a1a2e;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,0.08);transition:transform 0.1s,background 0.1s}
+.pin-btn:active{transform:scale(0.93);background:#e8f0fe}
+.pin-btn.del{color:#E74C3C}
+.pin-error{text-align:center;color:#E74C3C;font-size:13px;margin-top:12px;height:20px}
+/* Main screen */
+.top-header{background:linear-gradient(135deg,#185FA5,#1D9E75);border-radius:16px;padding:16px 20px;margin-bottom:16px;color:#fff;display:flex;align-items:center;gap:12px}
+.top-logo{width:40px;height:40px;border-radius:10px;background:#fff;padding:4px;object-fit:contain}
+.top-title{font-size:16px;font-weight:700}
+.top-sub{font-size:12px;opacity:0.85}
+.tabs{display:flex;gap:8px;margin-bottom:16px}
+.tab-btn{flex:1;padding:12px;border:none;border-radius:12px;font-size:14px;font-weight:600;cursor:pointer;transition:all 0.2s}
+.tab-btn.active{background:#185FA5;color:#fff;box-shadow:0 4px 12px rgba(24,95,165,0.3)}
+.tab-btn:not(.active){background:#fff;color:#666}
+.card{background:#fff;border-radius:16px;padding:16px;margin-bottom:12px;box-shadow:0 2px 8px rgba(0,0,0,0.06)}
+.field{margin-bottom:14px}
+.field label{display:block;font-size:13px;color:#444;margin-bottom:6px;font-weight:500}
+.field input,.field select{width:100%;padding:12px 14px;border:1.5px solid #e0e0e0;border-radius:10px;font-size:16px;outline:none;background:#fff;transition:border-color 0.2s}
+.field input:focus,.field select:focus{border-color:#185FA5}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.photo-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.photo-btn{background:#eef4fb;border:1.5px dashed #185FA5;border-radius:12px;padding:12px 16px;font-size:14px;font-weight:600;color:#185FA5;cursor:pointer;flex:1;text-align:center}
+.photo-btn:active{background:#dceaf9}
+.photo-status{font-size:12px;margin-top:8px;color:#1D9E75}
+.save-btn{width:100%;padding:18px;background:linear-gradient(135deg,#1D9E75,#185FA5);color:#fff;border:none;border-radius:16px;font-size:18px;font-weight:700;cursor:pointer;margin-top:8px;box-shadow:0 4px 16px rgba(29,158,117,0.3);transition:transform 0.1s,opacity 0.1s}
+.save-btn:active{transform:scale(0.97);opacity:0.9}
+.save-btn:disabled{opacity:0.6}
+.success-msg{text-align:center;padding:12px;background:#e8f8f2;border-radius:12px;color:#1D9E75;font-weight:600;font-size:14px;margin-top:8px;display:none}
+</style>
+</head>
+<body>
+
+<!-- PIN Screen -->
+<div id="pin-screen" class="screen active">
+  <div class="pin-header">
+    <img src="icon.png" class="pin-logo" alt="GMAO">
+    <div class="pin-title">GMAO Rapide</div>
+    <div class="pin-subtitle">Facture &amp; Plein carburant</div>
+  </div>
+  <div class="pin-dots">
+    <div class="pin-dot" id="d0"></div>
+    <div class="pin-dot" id="d1"></div>
+    <div class="pin-dot" id="d2"></div>
+    <div class="pin-dot" id="d3"></div>
+  </div>
+  <div class="pin-grid">
+    <button class="pin-btn" onclick="pinPress('1')">1</button>
+    <button class="pin-btn" onclick="pinPress('2')">2</button>
+    <button class="pin-btn" onclick="pinPress('3')">3</button>
+    <button class="pin-btn" onclick="pinPress('4')">4</button>
+    <button class="pin-btn" onclick="pinPress('5')">5</button>
+    <button class="pin-btn" onclick="pinPress('6')">6</button>
+    <button class="pin-btn" onclick="pinPress('7')">7</button>
+    <button class="pin-btn" onclick="pinPress('8')">8</button>
+    <button class="pin-btn" onclick="pinPress('9')">9</button>
+    <button class="pin-btn" onclick="pinPress('')"></button>
+    <button class="pin-btn" onclick="pinPress('0')">0</button>
+    <button class="pin-btn del" onclick="pinDel()">⌫</button>
+  </div>
+  <div class="pin-error" id="pin-error"></div>
+</div>
+
+<!-- Main Screen -->
+<div id="main-screen" class="screen">
+  <div class="top-header">
+    <img src="icon.png" class="top-logo" alt="">
+    <div>
+      <div class="top-title">Saisie rapide</div>
+      <div class="top-sub">Facture &amp; Plein carburant</div>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab-btn active" id="tab-facture" onclick="switchTab('facture')">📸 Facture</button>
+    <button class="tab-btn" id="tab-plein" onclick="switchTab('plein')">⛽ Plein</button>
+  </div>
+
+  <!-- Facture -->
+  <div id="panel-facture">
+    <div class="card">
+      <div class="field"><label>Fournisseur *</label><input id="f-fournisseur" placeholder="Ex: Plomberie Martin, EDF..."></div>
+      <div class="row2">
+        <div class="field"><label>Date</label><input id="f-date" type="date"></div>
+        <div class="field"><label>Compte</label>
+          <select id="f-compte">
+            <option value="savadur">🏢 SAVADUR</option>
+            <option value="perso">🏠 Personnel</option>
+          </select>
+        </div>
+      </div>
+      <div class="field"><label>Catégorie</label>
+        <select id="f-categorie">
+          <option>Travaux/Artisan</option>
+          <option>Matériaux</option>
+          <option>Énergie</option>
+          <option>Téléphone/Internet</option>
+          <option>Assurance</option>
+          <option>Abonnement</option>
+          <option>Achat</option>
+          <option selected>Autre</option>
+        </select>
+      </div>
+      <div class="field"><label>Montant TTC (€) *</label><input id="f-montant" type="number" step="0.01" inputmode="decimal" placeholder="0.00"></div>
+      <div class="field"><label>📷 Photo du ticket / facture</label>
+        <div class="photo-row">
+          <button type="button" class="photo-btn" onclick="document.getElementById('f-photo-file').click()">📷 Prendre une photo</button>
+          <input type="file" accept="image/*" capture="environment" id="f-photo-file" style="display:none">
+        </div>
+        <div class="photo-status" id="f-photo-status"></div>
+      </div>
+    </div>
+    <button class="save-btn" id="f-save-btn" onclick="saveFacture()">✅ Enregistrer</button>
+    <div class="success-msg" id="f-success">✓ Enregistré !</div>
+  </div>
+
+  <!-- Plein carburant -->
+  <div id="panel-plein" style="display:none">
+    <div class="card">
+      <div class="field"><label>Véhicule *</label>
+        <select id="p-vehicule"></select>
+      </div>
+      <div class="row2">
+        <div class="field"><label>Date</label><input id="p-date" type="date"></div>
+        <div class="field"><label>Unité</label>
+          <select id="p-unite">
+            <option value="km">Kilomètres</option>
+            <option value="heures">Heures</option>
+          </select>
+        </div>
+      </div>
+      <div class="field"><label>Valeur du compteur *</label><input id="p-valeur" type="number" step="0.01" inputmode="decimal" placeholder="Ex: 185200"></div>
+      <div class="row2">
+        <div class="field"><label>Litres</label><input id="p-litres" type="number" step="0.01" inputmode="decimal" oninput="pCalcMontant()"></div>
+        <div class="field"><label>Prix / litre (€)</label><input id="p-prix" type="number" step="0.001" inputmode="decimal" oninput="pCalcMontant()"></div>
+      </div>
+      <div class="field"><label>Montant (€)</label><input id="p-montant" type="number" step="0.01" placeholder="0.00"></div>
+      <div class="field"><label>📷 Photo (compteur, ticket...)</label>
+        <div class="photo-row">
+          <button type="button" class="photo-btn" onclick="document.getElementById('p-photo-file').click()">📷 Prendre une photo</button>
+          <input type="file" accept="image/*" capture="environment" id="p-photo-file" style="display:none">
+        </div>
+        <div class="photo-status" id="p-photo-status"></div>
+      </div>
+      <div class="field"><label>Notes</label><input id="p-notes" placeholder="Ex: Plein autoroute..."></div>
+    </div>
+    <button class="save-btn" id="p-save-btn" onclick="savePlein()">✅ Enregistrer</button>
+    <div class="success-msg" id="p-success">✓ Enregistré !</div>
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL = 'https://jbiphusmneoccarwkucq.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpiaXBodXNtbmVvY2NhcndrdWNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3MTI3ODIsImV4cCI6MjA4OTI4ODc4Mn0.meNA4EocaV5J8_9RL929w3fUOwFI5exFHnXr2nKRHjM';
+const PIN = '2110';
+const HEADERS = { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY };
+
+let pinValue = '';
+let facturePhotoId = null;
+let facturePhotoUrl = null;
+let pleinPhotoUrl = null;
+let vehicules = [];
+
+// ── PIN ──────────────────────────────────────────────────
+function pinPress(d) {
+  if (!d || pinValue.length >= 4) return;
+  pinValue += d;
+  updateDots();
+  if (pinValue.length === 4) {
+    setTimeout(() => {
+      if (pinValue === PIN) {
+        document.getElementById('pin-screen').classList.remove('active');
+        document.getElementById('main-screen').classList.add('active');
+        init();
+      } else {
+        document.getElementById('pin-error').textContent = 'Code incorrect';
+        pinValue = '';
+        updateDots();
+        setTimeout(() => document.getElementById('pin-error').textContent = '', 1500);
+      }
+    }, 200);
+  }
+}
+function pinDel() {
+  pinValue = pinValue.slice(0, -1);
+  updateDots();
+}
+function updateDots() {
+  for (let i = 0; i < 4; i++) {
+    document.getElementById('d' + i).classList.toggle('filled', i < pinValue.length);
+  }
+}
+
+// ── Init ─────────────────────────────────────────────────
+function uid() {
+  return (crypto.randomUUID ? crypto.randomUUID() : (Date.now() + '-' + Math.random().toString(16).slice(2)));
+}
+
+async function init() {
+  const today = new Date().toISOString().slice(0, 10);
+  document.getElementById('f-date').value = today;
+  document.getElementById('p-date').value = today;
+  facturePhotoId = uid();
+
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/assets?select=id,name,category`, { headers: HEADERS });
+  const assets = await res.json();
+  vehicules = (assets || []).filter(a => a.category === 'Véhicule' || a.category === 'Bateau');
+  const sel = document.getElementById('p-vehicule');
+  sel.innerHTML = vehicules.length
+    ? vehicules.map(v => `<option value="${v.id}">${v.name}</option>`).join('')
+    : '<option value="">— Aucun véhicule —</option>';
+}
+
+// ── Tabs ─────────────────────────────────────────────────
+function switchTab(tab) {
+  document.getElementById('panel-facture').style.display = tab === 'facture' ? 'block' : 'none';
+  document.getElementById('panel-plein').style.display = tab === 'plein' ? 'block' : 'none';
+  document.getElementById('tab-facture').classList.toggle('active', tab === 'facture');
+  document.getElementById('tab-plein').classList.toggle('active', tab === 'plein');
+}
+
+function pCalcMontant() {
+  const l = parseFloat(document.getElementById('p-litres').value) || 0;
+  const pr = parseFloat(document.getElementById('p-prix').value) || 0;
+  if (l && pr) document.getElementById('p-montant').value = Math.round(l * pr * 100) / 100;
+}
+
+// ── Upload photo ─────────────────────────────────────────
+async function uploadPhoto(file, path, statusEl) {
+  statusEl.textContent = '⏳ Envoi...';
+  const resp = await fetch(`${SUPABASE_URL}/storage/v1/object/documents-locataires/${path}`, {
+    method: 'POST',
+    headers: { ...HEADERS, 'Content-Type': file.type || 'image/jpeg', 'x-upsert': 'true' },
+    body: file
+  });
+  if (!resp.ok) { statusEl.textContent = '❌ Erreur upload'; return null; }
+  const url = `${SUPABASE_URL}/storage/v1/object/public/documents-locataires/${path}?v=${Date.now()}`;
+  statusEl.innerHTML = `✓ <a href="${url}" target="_blank">Voir la photo</a>`;
+  return url;
+}
+
+document.getElementById('f-photo-file').addEventListener('change', async (e) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
+  const url = await uploadPhoto(file, `factures/${facturePhotoId}/${Date.now()}.${ext}`, document.getElementById('f-photo-status'));
+  if (url) facturePhotoUrl = url;
+});
+
+document.getElementById('p-photo-file').addEventListener('change', async (e) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  const assetId = document.getElementById('p-vehicule').value || 'divers';
+  const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
+  const url = await uploadPhoto(file, `vehicules/${assetId}/${Date.now()}.${ext}`, document.getElementById('p-photo-status'));
+  if (url) pleinPhotoUrl = url;
+});
+
+// ── Save Facture ──────────────────────────────────────────
+async function saveFacture() {
+  const fournisseur = document.getElementById('f-fournisseur').value.trim();
+  if (!fournisseur) { alert('Fournisseur requis'); return; }
+  const montant = parseFloat(document.getElementById('f-montant').value);
+  if (!montant) { alert('Montant TTC requis'); return; }
+
+  const btn = document.getElementById('f-save-btn');
+  btn.textContent = '⏳ Enregistrement...';
+  btn.disabled = true;
+
+  const rec = {
+    fournisseur,
+    date: document.getElementById('f-date').value || null,
+    categorie: document.getElementById('f-categorie').value || null,
+    compte: document.getElementById('f-compte').value || 'savadur',
+    montant_ttc: montant,
+    montant_ht: 0,
+    tva_pct: 0,
+    drive_url: facturePhotoUrl,
+  };
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/factures`, {
+    method: 'POST',
+    headers: { ...HEADERS, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
+    body: JSON.stringify(rec)
+  });
+
+  btn.textContent = '✅ Enregistrer';
+  btn.disabled = false;
+  const msg = document.getElementById('f-success');
+  msg.style.display = 'block';
+  msg.textContent = r.ok ? '✓ Enregistré !' : '❌ Erreur, réessayez';
+  msg.style.background = r.ok ? '#e8f8f2' : '#fde8e8';
+  msg.style.color = r.ok ? '#1D9E75' : '#E74C3C';
+  setTimeout(() => msg.style.display = 'none', 3000);
+
+  if (r.ok) {
+    document.getElementById('f-fournisseur').value = '';
+    document.getElementById('f-montant').value = '';
+    document.getElementById('f-photo-status').textContent = '';
+    facturePhotoUrl = null;
+    facturePhotoId = uid();
+  }
+}
+
+// ── Save Plein ────────────────────────────────────────────
+async function savePlein() {
+  const assetId = document.getElementById('p-vehicule').value;
+  if (!assetId) { alert('Véhicule requis'); return; }
+  const valeur = parseFloat(document.getElementById('p-valeur').value);
+  if (!valeur && valeur !== 0) { alert('Valeur du compteur requise'); return; }
+
+  const btn = document.getElementById('p-save-btn');
+  btn.textContent = '⏳ Enregistrement...';
+  btn.disabled = true;
+
+  const rec = {
+    asset_id: assetId,
+    date: document.getElementById('p-date').value || null,
+    type: 'plein',
+    unite: document.getElementById('p-unite').value || 'km',
+    valeur,
+    litres: parseFloat(document.getElementById('p-litres').value) || null,
+    prix_litre: parseFloat(document.getElementById('p-prix').value) || null,
+    montant: parseFloat(document.getElementById('p-montant').value) || null,
+    photo_url: pleinPhotoUrl,
+    notes: document.getElementById('p-notes').value || null,
+  };
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/vehicule_releves`, {
+    method: 'POST',
+    headers: { ...HEADERS, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
+    body: JSON.stringify(rec)
+  });
+
+  btn.textContent = '✅ Enregistrer';
+  btn.disabled = false;
+  const msg = document.getElementById('p-success');
+  msg.style.display = 'block';
+  msg.textContent = r.ok ? '✓ Enregistré !' : '❌ Erreur, réessayez';
+  msg.style.background = r.ok ? '#e8f8f2' : '#fde8e8';
+  msg.style.color = r.ok ? '#1D9E75' : '#E74C3C';
+  setTimeout(() => msg.style.display = 'none', 3000);
+
+  if (r.ok) {
+    document.getElementById('p-valeur').value = '';
+    document.getElementById('p-litres').value = '';
+    document.getElementById('p-prix').value = '';
+    document.getElementById('p-montant').value = '';
+    document.getElementById('p-notes').value = '';
+    document.getElementById('p-photo-status').textContent = '';
+    pleinPhotoUrl = null;
+  }
+}
+</script>
+</body>
+</html>

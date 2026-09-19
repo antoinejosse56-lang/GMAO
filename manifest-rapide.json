@@ -1,0 +1,24 @@
+{
+  "name": "GMAO Rapide",
+  "short_name": "Rapide",
+  "description": "Facture et plein carburant",
+  "start_url": "/GMAO/rapide.html",
+  "display": "standalone",
+  "background_color": "#f0f4f8",
+  "theme_color": "#185FA5",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "icon.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
