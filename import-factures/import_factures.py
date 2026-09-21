@@ -39,6 +39,8 @@ from pathlib import Path
 import requests
 from dotenv import load_dotenv
 
+from nas_naming import dest_folder, dest_filename, equipment_name_for, is_savadur_for
+
 try:
     import pdfplumber
 except ImportError:
@@ -228,7 +230,7 @@ def fetch_known_rows() -> dict:
     while True:
         resp = requests.get(
             f"{SUPABASE_URL}/rest/v1/{TABLE}",
-            params={"select": "chemin_relatif,statut,bien,motif,entreprise,description,date_facture"},
+            params={"select": "chemin_relatif,statut,bien,motif,entreprise,description,date_facture,asset_id"},
             headers={**HEADERS, "Range-Unit": "items", "Range": f"{offset}-{offset+page_size-1}"},
             timeout=30,
         )
@@ -267,58 +269,24 @@ def fetch_known_hashes() -> set:
     return hashes
 
 
-def sanitize_folder_name(name: str) -> str:
-    """Nettoie un nom pour en faire un dossier Windows valide, en gardant la
-    lisibilite (accents/espaces conserves, seuls les caracteres interdits sautent)."""
-    cleaned = re.sub(r'[<>:"/\\|?*]', "_", name).strip().rstrip(". ")
-    return cleaned or "Non classe"
+def fetch_equipment_maps():
+    """Charge assets/work_orders (pour resoudre un equipement en repli quand
+    une facture n'a pas de `bien`) - memes tables que backup_to_nas.py, tables
+    assez petites pour ne pas avoir besoin de pagination."""
+    a = requests.get(f"{SUPABASE_URL}/rest/v1/assets", params={"select": "id,name,compte", "limit": 1000}, headers=HEADERS, timeout=30)
+    a.raise_for_status()
+    w = requests.get(f"{SUPABASE_URL}/rest/v1/work_orders", params={"select": "id,asset_id", "limit": 1000}, headers=HEADERS, timeout=30)
+    w.raise_for_status()
+    return {x["id"]: x for x in a.json()}, {x["id"]: x for x in w.json()}
 
 
-def archive_path_for(bien: str, motif: str) -> Path:
-    """Calcule le sous-dossier d'archive <NAS_SAVADUR_PATH ou NAS_PERSO_PATH>/
-    Factures/... a partir de la valeur `bien` stockee et du motif - la racine
-    est desormais l'un des 2 partages NAS separes (plus un dossier commun
-    avec sous-dossier <compte>, abandonne : le NAS physique a bien 2 partages
-    distincts). `bien` est un chemin "A - B - C" dont chaque segment devient
-    un niveau de dossier (nombre variable) :
-    - cas normal : "Prop - Zone - SousZone" (jusqu'a 3 niveaux) + motif en
-      dernier niveau si renseigne (Entretien, Renovation, Travaux, Etudes,
-      Medicale, Diagnostiques ou texte libre) ;
-    - facture/devis lie a un chantier : "Prop - Chantier - TitreDuBT" (motif
-      alors vide - le chantier et le BT categorisent deja suffisamment).
-    Meme logique de repartition SAVADUR/PERSO que import_devis.py et
-    backup_to_nas.py (nom du bien contenant "dubail")."""
-    parts = [p.strip() for p in (bien or "").split(" - ") if p.strip()]
-    is_savadur = bool(parts) and "dubail" in parts[0].lower()
-    root = NAS_SAVADUR_PATH if is_savadur else NAS_PERSO_PATH
-    folder = Path(root) / "Factures"
-    if parts:
-        for p in parts:
-            folder = folder / sanitize_folder_name(p)
-    else:
-        folder = folder / "Non classe"
-    if motif:
-        folder = folder / sanitize_folder_name(motif)
-    return folder
-
-
-def archive_filename_for(original_ext: str, entreprise: str, date_facture: str, description: str) -> str:
-    """Nom lisible 'NOM ENTREPRISE.DATE.Description.ext' pour le fichier archive
-    (au lieu du nom brut issu de l'extraction mail) - facilite la recherche
-    manuelle dans l'explorateur de fichiers."""
-    parts = [
-        sanitize_folder_name(entreprise) if entreprise else "Facture",
-        date_facture or "date-inconnue",
-        sanitize_folder_name(description) if description else "Facture",
-    ]
-    return ".".join(parts) + original_ext
-
-
-def archive_validated_files(watch_path: Path, known_rows: dict):
-    """Copie vers ARCHIVE_DIR les fichiers encore presents dans le dossier de
+def archive_validated_files(watch_path: Path, known_rows: dict, assets: dict, work_orders: dict):
+    """Copie vers le NAS les fichiers encore presents dans le dossier de
     transit dont la facture correspondante a ete validee dans le GMAO. Ne touche
     pas aux fichiers en_attente ou rejetes - uniquement statut == 'valide'.
-    Renomme la copie au format 'NOM ENTREPRISE.DATE.Description.ext'.
+    Meme convention de rangement/nommage que backup_to_nas.py (nas_naming.py) :
+    <NAS_SAVADUR_PATH ou NAS_PERSO_PATH>/<bien (ou Equipements/<nom> a defaut)>/
+    Factures/<BIEN>.<annee>.<mois>.<Entreprise>.<Description>.ext.
 
     L'original N'EST JAMAIS SUPPRIME NI DEPLACE : ce dossier sert aussi de
     file d'attente manuelle vers Dext, donc le fichier doit rester disponible
@@ -337,9 +305,14 @@ def archive_validated_files(watch_path: Path, known_rows: dict):
         info = known_rows.get(p.name)
         if not info or info.get("statut") != "valide":
             continue
-        dest_dir = archive_path_for(info.get("bien"), info.get("motif"))
+        bien = info.get("bien")
+        asset_id = info.get("asset_id")
+        equipment = None if bien else equipment_name_for(asset_id, None, assets)
+        root = NAS_SAVADUR_PATH if is_savadur_for(bien, asset_id, assets) else NAS_PERSO_PATH
+        label = bien or equipment
+        new_name = dest_filename(p.suffix, label, info.get("date_facture"), info.get("entreprise"), info.get("description"))
+        dest_dir = dest_folder(root, "Factures", bien=bien, equipment=equipment)
         dest_dir.mkdir(parents=True, exist_ok=True)
-        new_name = archive_filename_for(p.suffix, info.get("entreprise"), info.get("date_facture"), info.get("description"))
         dest = dest_dir / new_name
         if dest.exists():
             log(f"  ARCHIVAGE ignore (deja present a destination) : {p.name} -> {new_name}")
@@ -789,7 +762,8 @@ def main():
     log(f"Termine. {nouveaux} nouveau(x) fichier(s) traite(s).")
 
     if NAS_SAVADUR_PATH and NAS_PERSO_PATH:
-        archive_validated_files(watch_path, known_rows)
+        assets, work_orders = fetch_equipment_maps()
+        archive_validated_files(watch_path, known_rows, assets, work_orders)
 
 
 if __name__ == "__main__":

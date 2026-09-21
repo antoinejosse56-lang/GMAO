@@ -41,9 +41,9 @@ from import_factures import (
     guess_entreprise,
     guess_montant_ttc,
     parse_filename_date,
-    sanitize_folder_name,
     slugify_path,
 )
+from nas_naming import dest_folder, dest_filename, equipment_name_for, is_savadur_for
 
 try:
     import pdfplumber
@@ -101,7 +101,7 @@ def fetch_known_rows() -> dict:
     while True:
         resp = requests.get(
             f"{SUPABASE_URL}/rest/v1/{TABLE}",
-            params={"select": "chemin_relatif,statut,bien,motif,entreprise,montant_ttc,date_devis"},
+            params={"select": "chemin_relatif,statut,bien,motif,entreprise,montant_ttc,date_devis,wo_id"},
             headers={**HEADERS, "Range-Unit": "items", "Range": f"{offset}-{offset+page_size-1}"},
             timeout=30,
         )
@@ -139,32 +139,15 @@ def fetch_known_hashes() -> set:
     return hashes
 
 
-def archive_path_for(bien: str, motif: str) -> Path:
-    """Meme logique que archive_path_for dans import_factures.py, dupliquee ici
-    (constantes NAS_SAVADUR_PATH/NAS_PERSO_PATH separees, scripts independants).
-    Racine = l'un des 2 partages NAS selon le bien (meme repartition que les
-    factures et le script de sauvegarde backup_to_nas.py)."""
-    parts = [p.strip() for p in (bien or "").split(" - ") if p.strip()]
-    is_savadur = bool(parts) and "dubail" in parts[0].lower()
-    root = NAS_SAVADUR_PATH if is_savadur else NAS_PERSO_PATH
-    folder = Path(root) / "Devis"
-    if parts:
-        for p in parts:
-            folder = folder / sanitize_folder_name(p)
-    else:
-        folder = folder / "Non classe"
-    if motif:
-        folder = folder / sanitize_folder_name(motif)
-    return folder
-
-
-def archive_filename_for(original_ext: str, entreprise: str, date_devis: str, description: str) -> str:
-    parts = [
-        sanitize_folder_name(entreprise) if entreprise else "Devis",
-        date_devis or "date-inconnue",
-        sanitize_folder_name(description) if description else "Devis",
-    ]
-    return ".".join(parts) + original_ext
+def fetch_equipment_maps():
+    """Charge assets/work_orders (pour resoudre un equipement en repli quand un
+    devis n'a pas de `bien` mais est rattache a un bon de travaux sur un
+    vehicule/bateau) - memes tables que backup_to_nas.py/import_factures.py."""
+    a = requests.get(f"{SUPABASE_URL}/rest/v1/assets", params={"select": "id,name,compte", "limit": 1000}, headers=HEADERS, timeout=30)
+    a.raise_for_status()
+    w = requests.get(f"{SUPABASE_URL}/rest/v1/work_orders", params={"select": "id,asset_id", "limit": 1000}, headers=HEADERS, timeout=30)
+    w.raise_for_status()
+    return {x["id"]: x for x in a.json()}, {x["id"]: x for x in w.json()}
 
 
 def generate_pdf_preview(path: Path, storage_path: str, word_converter: LazyWordConverter):
@@ -291,10 +274,13 @@ def process_file(path: Path, chemin_relatif: str, word_converter: LazyWordConver
     log(f"  -> importe (entreprise={row['entreprise']!r}, montant_ttc={row['montant_ttc']!r}, date_devis={row['date_devis']!r})")
 
 
-def archive_validated_files(watch_path: Path, known_rows: dict):
-    """Deplace vers ARCHIVE_DIR les fichiers dont le devis correspondant a ete
-    valide dans le GMAO (statut == 'valide' sur devis_a_valider). Renomme au
-    format 'NOM_ENTREPRISE.DATE.motif.ext'."""
+def archive_validated_files(watch_path: Path, known_rows: dict, assets: dict, work_orders: dict):
+    """Deplace vers le NAS les fichiers dont le devis correspondant a ete
+    valide dans le GMAO (statut == 'valide' sur devis_a_valider). Meme
+    convention de rangement/nommage que backup_to_nas.py (nas_naming.py) :
+    <NAS_SAVADUR_PATH ou NAS_PERSO_PATH>/<bien (ou Equipements/<nom> a defaut,
+    via le bon de travaux lie)>/Devis/<BIEN>.<annee>.<mois>.<Entreprise>.
+    <motif>.ext."""
     if not NAS_SAVADUR_PATH or not NAS_PERSO_PATH:
         return
     moved = 0
@@ -304,9 +290,15 @@ def archive_validated_files(watch_path: Path, known_rows: dict):
         info = known_rows.get(p.name)
         if not info or info.get("statut") != "valide":
             continue
-        dest_dir = archive_path_for(info.get("bien"), info.get("motif"))
+        bien = info.get("bien")
+        wo_id = info.get("wo_id")
+        equipment = None if bien else equipment_name_for(None, wo_id, assets, work_orders)
+        asset_id_for_savadur = (work_orders.get(wo_id) or {}).get("asset_id") if wo_id else None
+        root = NAS_SAVADUR_PATH if is_savadur_for(bien, asset_id_for_savadur, assets) else NAS_PERSO_PATH
+        label = bien or equipment
+        new_name = dest_filename(p.suffix, label, info.get("date_devis"), info.get("entreprise"), info.get("motif"))
+        dest_dir = dest_folder(root, "Devis", bien=bien, equipment=equipment)
         dest_dir.mkdir(parents=True, exist_ok=True)
-        new_name = archive_filename_for(p.suffix, info.get("entreprise"), info.get("date_devis"), info.get("motif"))
         dest = dest_dir / new_name
         if dest.exists():
             log(f"  ARCHIVAGE ignore (deja present a destination) : {p.name} -> {new_name}")
@@ -362,7 +354,8 @@ def main():
     log(f"Termine. {nouveaux} nouveau(x) fichier(s) traite(s).")
 
     if NAS_SAVADUR_PATH and NAS_PERSO_PATH:
-        archive_validated_files(watch_path, known_rows)
+        assets, work_orders = fetch_equipment_maps()
+        archive_validated_files(watch_path, known_rows, assets, work_orders)
 
 
 if __name__ == "__main__":
