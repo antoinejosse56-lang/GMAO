@@ -285,7 +285,7 @@ def archive_validated_files(watch_path: Path, known_rows: dict, assets: dict, wo
     transit dont la facture correspondante a ete validee dans le GMAO. Ne touche
     pas aux fichiers en_attente ou rejetes - uniquement statut == 'valide'.
     Meme convention de rangement/nommage que backup_to_nas.py (nas_naming.py) :
-    <NAS_SAVADUR_PATH ou NAS_PERSO_PATH>/<bien (ou Equipements/<nom> a defaut)>/
+    <NAS_SAVADUR_PATH ou NAS_PERSO_PATH>/<bien (ou Vehicules/<nom> a defaut)>/
     Factures/<BIEN>.<annee>.<mois>.<Entreprise>.<Description>.ext.
 
     L'original N'EST JAMAIS SUPPRIME NI DEPLACE : ce dossier sert aussi de

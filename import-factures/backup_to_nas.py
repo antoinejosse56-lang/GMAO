@@ -13,18 +13,21 @@ les tailles/dates pour detecter un changement.
 
 La repartition SAVADUR/Dubail vs Perso est deduite des memes regles que
 l'application (champ `compte` quand il existe, sinon nom du bien/logement
-contenant "dubail") :
-  - documents-locataires/identite/<tenant_id>/...   -> locataire (logement)
-  - documents-locataires/assurance/<tenant_id>/...  -> locataire (logement)
-  - documents-locataires/edl/<edl_id>/...           -> etat des lieux (bien)
-  - documents-locataires/bt/<wo_id>/...             -> bon de travaux (asset/topo)
-  - documents-locataires/vehicules/<asset_id>/...   -> vehicule (compte/nom)
-  - documents-locataires/factures/<owner_id>/...    -> facture liee (drive_url matche)
-  - documents-locataires/biens/<slug>/...           -> nom du bien (slug)
-  - factures-a-valider/<...>                        -> ligne factures_a_valider.bien
-  - devis-a-valider/<...>                           -> ligne devis_a_valider.bien
-Un fichier dont l'origine ne peut pas etre determinee part par defaut cote
-Perso (categorie residuelle - seul SAVADUR/Dubail est un cas identifie).
+contenant "dubail"). Chaque fichier rattachable a un bien/locataire/equipement
+est range et renomme lisiblement (voir nas_naming.py) plutot que mirrore tel
+quel :
+  - documents-locataires/identite/<tenant_id>/...   -> <bien>/Locataires/ (tenant.logement)
+  - documents-locataires/assurance/<tenant_id>/...  -> <bien>/Locataires/
+  - documents-locataires/edl/<edl_id>/...           -> <bien>/Documents/
+  - documents-locataires/bt/<wo_id>/...             -> <bien ou Vehicules>/Travaux/
+  - documents-locataires/vehicules/<asset_id>/...   -> Vehicules/<nom>/Documents/
+  - documents-locataires/factures/<owner_id>/...    -> <bien ou Vehicules>/Factures/ (drive_url matche)
+  - documents-locataires/biens/<slug>/...           -> <bien>/Documents/
+  - factures-a-valider/<...> (statut='valide')      -> <bien ou Vehicules>/Factures/
+  - devis-a-valider/<...> (statut='valide')         -> <bien ou Vehicules>/Devis/
+Une ligne source introuvable (fichier orphelin, jamais rattache a rien cote
+appli) part en mirroir brut sous <root>/<bucket>/<chemin d'origine>, cote
+Perso par defaut si le bien/l'equipement n'est pas determinable non plus.
 
 Usage :
     pip install -r requirements.txt
@@ -42,7 +45,7 @@ from dotenv import load_dotenv
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-from nas_naming import sanitize_filename, year_month, dest_folder, dest_filename, equipment_name_for
+from nas_naming import sanitize_filename, year_month, dest_folder, dest_filename, equipment_name_for, is_savadur_for
 
 load_dotenv()
 
@@ -103,6 +106,80 @@ def edl_dest(root, edl, tenants):
     return dest_folder(root, "Documents", bien=bien) / name
 
 
+def documents_locataires_dest(path, cls):
+    """Tente de ranger un fichier de documents-locataires (identite,
+    assurance, bt, vehicules, factures - voir prefixes en tete de fichier)
+    dans l'arborescence <bien>/<categorie>/... comme les factures/devis/
+    documents deja traites. Renvoie (root, dest) si resolu, sinon
+    (None, None) : l'appelant retombe alors sur le mirroir brut du bucket."""
+    parts = path.split("/")
+    if len(parts) < 2:
+        return None, None
+    kind, ident = parts[0], parts[1]
+    ext = Path(path).suffix
+
+    if kind in ("identite", "assurance"):
+        tenant = cls["tenants"].get(ident)
+        if not tenant:
+            return None, None
+        bien = tenant.get("logement")
+        root = NAS_SAVADUR_PATH if is_savadur_for(bien) else NAS_PERSO_PATH
+        nom = sanitize_filename(tenant.get("nom")) if tenant.get("nom") else "Locataire"
+        if kind == "identite":
+            photo = next((p for p in (tenant.get("identite_photos") or []) if p.get("path") == path), None)
+            date_str = photo.get("date") if photo else None
+            label = sanitize_filename(photo.get("label")) if photo and photo.get("label") else "Pièce identité"
+        else:
+            date_str = None
+            label = "Assurance habitation"
+        name = ".".join([year_month(date_str), label, nom]) + ext
+        return root, dest_folder(root, "Locataires", bien=bien) / name
+
+    if kind == "vehicules":
+        asset = cls["assets"].get(ident)
+        if not asset:
+            return None, None
+        root = NAS_SAVADUR_PATH if is_savadur_for(None, ident, cls["assets"]) else NAS_PERSO_PATH
+        name = ".".join([year_month(None), "Photo véhicule"]) + ext
+        return root, dest_folder(root, "Documents", equipment=asset.get("name")) / name
+
+    if kind == "bt":
+        wo = cls["work_orders"].get(ident)
+        if not wo:
+            return None, None
+        bien = None
+        equipment = None
+        asset = cls["assets"].get(wo.get("asset_id")) if wo.get("asset_id") else None
+        if asset:
+            if asset.get("category") == "Véhicule":
+                equipment = asset.get("name")
+            else:
+                bien = asset.get("name")
+        if not bien and not equipment:
+            topo = wo.get("topo_ref") or {}
+            if topo.get("propName"):
+                bien = " - ".join(x for x in [topo.get("propName"), topo.get("zoneName"), topo.get("subName")] if x)
+        root = NAS_SAVADUR_PATH if is_savadur_for(bien, wo.get("asset_id"), cls["assets"]) else NAS_PERSO_PATH
+        label = sanitize_filename(wo.get("title")) if wo.get("title") else "Bon de travaux"
+        name = ".".join([year_month(wo.get("date")), label]) + ext
+        return root, dest_folder(root, "Travaux", bien=bien, equipment=equipment) / name
+
+    if kind == "factures":
+        f = cls["factures_by_owner"].get(ident)
+        if not f:
+            return None, None
+        bien = f.get("bien")
+        equipment = None if bien else equipment_name_for(f.get("asset_id"), None, cls["assets"])
+        is_savadur = (f["compte"] == "savadur") if f.get("compte") else is_savadur_for(bien, f.get("asset_id"), cls["assets"])
+        root = NAS_SAVADUR_PATH if is_savadur else NAS_PERSO_PATH
+        dest = dest_folder(root, "Factures", bien=bien, equipment=equipment) / dest_filename(
+            ext, f.get("date"), f.get("fournisseur"), f.get("description")
+        )
+        return root, dest
+
+    return None, None
+
+
 def connect_nas_share(unc_path):
     """Authentifie la session Windows sur le partage reseau (net use) - sans
     ca, un chemin \\\\serveur\\partage protege par mot de passe n'est pas
@@ -158,13 +235,25 @@ def build_classification():
     Perso (False/inconnu) a partir d'un id ou d'un fragment de chemin, et pour
     renommer lisiblement les documents/EDL deja rattaches a un bien (au lieu
     du nom brut horodate issu de l'upload)."""
-    tenants = {t["id"]: t for t in fetch_all("tenants", "id,logement,nom")}
-    assets = {a["id"]: a for a in fetch_all("assets", "id,name,compte")}
-    work_orders = {w["id"]: w for w in fetch_all("work_orders", "id,asset_id,topo_ref")}
+    tenants = {t["id"]: t for t in fetch_all("tenants", "id,logement,nom,identite_photos")}
+    assets = {a["id"]: a for a in fetch_all("assets", "id,name,compte,category")}
+    work_orders = {w["id"]: w for w in fetch_all("work_orders", "id,asset_id,topo_ref,title,date")}
     edls = {e["id"]: e for e in fetch_all("logement_edl", "id,bien,tenant_id,type,date,pdf_url")}
     factures = [f for f in fetch_all("factures", "drive_url,compte") if f.get("drive_url")]
     factures_av = {f["storage_path"]: f for f in fetch_all("factures_a_valider", "storage_path,bien,statut,entreprise,description,date_facture,asset_id") if f.get("storage_path")}
     devis_av = {d["storage_path"]: d for d in fetch_all("devis_a_valider", "storage_path,bien,statut,entreprise,motif,date_devis,wo_id") if d.get("storage_path")}
+
+    # Cle "<owner_id>" -> ligne factures, pour ranger une photo prise depuis
+    # l'appli (documents-locataires/factures/<owner_id>/...) comme une facture
+    # normale (bien/asset_id/date/fournisseur/description) plutot que le
+    # mirroir brut.
+    factures_by_owner = {}
+    for f in fetch_all("factures", "bien,asset_id,fournisseur,date,description,compte,drive_url"):
+        parsed = parse_storage_url(f.get("drive_url") or "")
+        if parsed and parsed[0] == "documents-locataires":
+            segs = parsed[1].split("/")
+            if len(segs) >= 2 and segs[0] == "factures":
+                factures_by_owner[segs[1]] = f
 
     # Cle "<bucket>/<path>" -> ligne, pour renommer un document/EDL quel que
     # soit le bucket physique ou il a fini par atterrir (certains anciens
@@ -226,6 +315,7 @@ def build_classification():
         "tenants": tenants,
         "assets": assets,
         "work_orders": work_orders,
+        "factures_by_owner": factures_by_owner,
     }
 
 
@@ -339,7 +429,7 @@ def backup_bucket(bucket, cls):
         elif row and row.get("statut") == "valide" and bucket in ("factures-a-valider", "devis-a-valider"):
             # Facture/devis deja validee dans le GMAO : rangee et renommee
             # lisiblement (<bien>/<Factures|Devis>/<annee.mois.Entreprise.
-            # Description>.ext, ou <Equipements>/<nom> a defaut de bien pour
+            # Description>.ext, ou <Vehicules>/<nom> a defaut de bien pour
             # une depense liee a un vehicule/bateau) au lieu du mirroir brut
             # du bucket - une fois validee, le nom d'origine issu du mail n'a
             # plus d'interet et la noyer avec les centaines d'autres fichiers
@@ -359,8 +449,19 @@ def backup_bucket(bucket, cls):
                 Path(path).suffix, date_str, row.get("entreprise"), description
             )
         else:
-            root = NAS_SAVADUR_PATH if is_savadur else NAS_PERSO_PATH
-            dest = Path(root) / bucket / Path(path)
+            # Autres documents-locataires deja rattaches a un bien/locataire/
+            # equipement dans le GMAO (identite, assurance, bt, vehicules,
+            # factures-photo) : mem principe que ci-dessus. Repli sur le
+            # mirroir brut si la ligne source est introuvable (fichier
+            # orphelin - jamais rattache a rien cote appli).
+            root_resolved, resolved_dest = (
+                documents_locataires_dest(path, cls) if bucket == "documents-locataires" else (None, None)
+            )
+            if resolved_dest:
+                root, dest = root_resolved, resolved_dest
+            else:
+                root = NAS_SAVADUR_PATH if is_savadur else NAS_PERSO_PATH
+                dest = Path(root) / bucket / Path(path)
         if dest.exists():
             skipped += 1
             continue
