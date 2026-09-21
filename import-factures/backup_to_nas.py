@@ -74,6 +74,78 @@ def dubail_filter(s):
     return "dubail" in (s or "").lower()
 
 
+def sanitize_filename(name):
+    """Nettoie un nom pour un fichier/dossier Windows valide, en gardant la
+    lisibilite (accents/espaces conserves, seuls les caracteres interdits sautent) -
+    meme convention que sanitize_folder_name() dans import_factures.py."""
+    import re as _re
+    cleaned = _re.sub(r'[<>:"/\\|?*]', "_", name or "").strip().rstrip(". ")
+    return cleaned or "Non classe"
+
+
+def validated_dest_folder(root, kind, bien):
+    """<root>/<Factures|Devis>/<bien decompose en sous-dossiers> - meme arbo que
+    l'archive de import_factures.py/import_devis.py (Prop - Zone - SousZone
+    devient 3 niveaux de dossiers), pour qu'une facture validee atterrisse au
+    meme endroit qu'elle soit passee par le circuit mail ou uploadee direct."""
+    folder = Path(root) / kind
+    parts = [p.strip() for p in (bien or "").split(" - ") if p.strip()]
+    if parts:
+        for p in parts:
+            folder = folder / sanitize_filename(p)
+    else:
+        folder = folder / "Non classe"
+    return folder
+
+
+def year_month(date_str):
+    return date_str[:4] + "." + date_str[5:7] if date_str and len(date_str) >= 7 else "date-inconnue"
+
+
+def validated_dest_filename(ext, bien, date_str, entreprise, description):
+    """'<BIEN>.<annee>.<mois>.<Entreprise>.<Description><ext>' - le bien complet
+    est repete dans le nom (en plus du dossier) pour rester identifiable si le
+    fichier est deplace/partage hors de son dossier."""
+    parts = [
+        sanitize_filename(bien) if bien else "Non classe",
+        year_month(date_str),
+        sanitize_filename(entreprise) if entreprise else "Facture",
+        sanitize_filename(description) if description else "Facture",
+    ]
+    return ".".join(parts) + ext
+
+
+def bien_document_dest(root, doc):
+    """'<root>/Documents/<bien>/<BIEN>.<annee>.<mois>.<notes ou type><ext>' pour
+    une ligne bien_documents (DPE, amiante, etc.) - `notes` est en general plus
+    precis que `type` (ex: "DPE" / "Etat Parasitaire") quand il est renseigne."""
+    bien = doc.get("bien")
+    label = doc.get("notes") or doc.get("type") or "Document"
+    ext = Path(parse_storage_url(doc.get("document_url") or "")[1]).suffix if parse_storage_url(doc.get("document_url") or "") else ".pdf"
+    name = ".".join([
+        sanitize_filename(bien) if bien else "Non classe",
+        year_month(doc.get("date")),
+        sanitize_filename(label),
+    ]) + ext
+    return validated_dest_folder(root, "Documents", bien) / name
+
+
+def edl_dest(root, edl, tenants):
+    """'<root>/Documents/<bien>/<BIEN>.<annee>.<mois>.EDL <Entree|Sortie>.<Locataire><ext>'."""
+    bien = edl.get("bien")
+    parsed = parse_storage_url(edl.get("pdf_url") or "")
+    ext = Path(parsed[1]).suffix if parsed else ".pdf"
+    type_label = "Entree" if edl.get("type") == "entree" else "Sortie"
+    tenant = tenants.get(edl.get("tenant_id")) or {}
+    name = ".".join([
+        sanitize_filename(bien) if bien else "Non classe",
+        year_month(edl.get("date")),
+        f"EDL {type_label}",
+        sanitize_filename(tenant.get("nom")) if tenant.get("nom") else "Locataire",
+    ]) + ext
+    return validated_dest_folder(root, "Documents", bien) / name
+
+
 def connect_nas_share(unc_path):
     """Authentifie la session Windows sur le partage reseau (net use) - sans
     ca, un chemin \\\\serveur\\partage protege par mot de passe n'est pas
@@ -112,16 +184,45 @@ def fetch_all(table, select):
     return rows
 
 
+def parse_storage_url(url):
+    """Extrait (bucket, path) d'une URL publique Supabase Storage, ou None si
+    l'URL ne correspond pas au format attendu (.../object/public/<bucket>/<path>?...)."""
+    marker = "/object/public/"
+    idx = (url or "").find(marker)
+    if idx == -1:
+        return None
+    rest = url[idx + len(marker):].split("?", 1)[0]
+    bucket, _, path = rest.partition("/")
+    return (bucket, path) if bucket and path else None
+
+
 def build_classification():
     """Precharge les tables necessaires pour deduire SAVADUR/Dubail (True) ou
-    Perso (False/inconnu) a partir d'un id ou d'un fragment de chemin."""
-    tenants = {t["id"]: t for t in fetch_all("tenants", "id,logement")}
+    Perso (False/inconnu) a partir d'un id ou d'un fragment de chemin, et pour
+    renommer lisiblement les documents/EDL deja rattaches a un bien (au lieu
+    du nom brut horodate issu de l'upload)."""
+    tenants = {t["id"]: t for t in fetch_all("tenants", "id,logement,nom")}
     assets = {a["id"]: a for a in fetch_all("assets", "id,name,compte")}
     work_orders = {w["id"]: w for w in fetch_all("work_orders", "id,asset_id,topo_ref")}
-    edls = {e["id"]: e for e in fetch_all("logement_edl", "id,bien")}
+    edls = {e["id"]: e for e in fetch_all("logement_edl", "id,bien,tenant_id,type,date,pdf_url")}
     factures = [f for f in fetch_all("factures", "drive_url,compte") if f.get("drive_url")]
-    factures_av = {f["storage_path"]: f for f in fetch_all("factures_a_valider", "storage_path,bien") if f.get("storage_path")}
-    devis_av = {d["storage_path"]: d for d in fetch_all("devis_a_valider", "storage_path,bien") if d.get("storage_path")}
+    factures_av = {f["storage_path"]: f for f in fetch_all("factures_a_valider", "storage_path,bien,statut,entreprise,description,date_facture") if f.get("storage_path")}
+    devis_av = {d["storage_path"]: d for d in fetch_all("devis_a_valider", "storage_path,bien,statut,entreprise,motif,date_devis") if d.get("storage_path")}
+
+    # Cle "<bucket>/<path>" -> ligne, pour renommer un document/EDL quel que
+    # soit le bucket physique ou il a fini par atterrir (certains anciens
+    # bien_documents pointent encore vers factures-a-valider, herites du
+    # pipeline mail avant leur reclassement manuel en diagnostic).
+    bien_docs_by_key = {}
+    for d in fetch_all("bien_documents", "bien,type,date,notes,document_url"):
+        parsed = parse_storage_url(d.get("document_url") or "")
+        if parsed:
+            bien_docs_by_key["/".join(parsed)] = d
+    edl_by_key = {}
+    for e in edls.values():
+        parsed = parse_storage_url(e.get("pdf_url") or "")
+        if parsed:
+            edl_by_key["/".join(parsed)] = e
 
     def tenant_is_savadur(tenant_id):
         t = tenants.get(tenant_id)
@@ -163,6 +264,9 @@ def build_classification():
         "facture_photo": facture_photo_is_savadur,
         "factures_av": factures_av,
         "devis_av": devis_av,
+        "bien_docs_by_key": bien_docs_by_key,
+        "edl_by_key": edl_by_key,
+        "tenants": tenants,
     }
 
 
@@ -248,6 +352,7 @@ def backup_bucket(bucket, cls):
     log(f"  {len(paths)} fichier(s) trouve(s) dans {bucket}.")
     copied = skipped = errors = 0
     for path in paths:
+        row = None
         if bucket == "documents-locataires":
             is_savadur = classify_documents_locataires(path, cls)
         elif bucket == "factures-a-valider":
@@ -257,8 +362,38 @@ def backup_bucket(bucket, cls):
             row = cls["devis_av"].get(path)
             is_savadur = dubail_filter(row.get("bien")) if row else False
 
-        root = NAS_SAVADUR_PATH if is_savadur else NAS_PERSO_PATH
-        dest = Path(root) / bucket / Path(path)
+        # Document (diagnostic, EDL...) deja rattache a un bien dans le GMAO :
+        # verifie en priorite, quel que soit le bucket physique - certains
+        # bien_documents anciens pointent encore vers factures-a-valider
+        # (heritage du pipeline mail avant leur reclassement manuel).
+        key = f"{bucket}/{path}"
+        bien_doc = cls["bien_docs_by_key"].get(key)
+        edl_row = cls["edl_by_key"].get(key)
+        if edl_row:
+            is_savadur = dubail_filter(edl_row.get("bien"))
+            root = NAS_SAVADUR_PATH if is_savadur else NAS_PERSO_PATH
+            dest = edl_dest(root, edl_row, cls["tenants"])
+        elif bien_doc:
+            is_savadur = dubail_filter(bien_doc.get("bien"))
+            root = NAS_SAVADUR_PATH if is_savadur else NAS_PERSO_PATH
+            dest = bien_document_dest(root, bien_doc)
+        else:
+            root = NAS_SAVADUR_PATH if is_savadur else NAS_PERSO_PATH
+            # Facture/devis deja validee dans le GMAO : rangee et renommee
+            # lisiblement (Factures ou Devis /<bien>/<BIEN.annee.mois.Entreprise.
+            # Description>.ext) au lieu du mirroir brut du bucket - une fois
+            # validee, le nom d'origine issu du mail n'a plus d'interet et la
+            # noyer avec les centaines d'autres fichiers "a valider" la rendait
+            # introuvable.
+            if row and row.get("statut") == "valide" and bucket in ("factures-a-valider", "devis-a-valider"):
+                kind = "Factures" if bucket == "factures-a-valider" else "Devis"
+                date_str = row.get("date_facture") if bucket == "factures-a-valider" else row.get("date_devis")
+                description = row.get("description") if bucket == "factures-a-valider" else row.get("motif")
+                dest = validated_dest_folder(root, kind, row.get("bien")) / validated_dest_filename(
+                    Path(path).suffix, row.get("bien"), date_str, row.get("entreprise"), description
+                )
+            else:
+                dest = Path(root) / bucket / Path(path)
         if dest.exists():
             skipped += 1
             continue
