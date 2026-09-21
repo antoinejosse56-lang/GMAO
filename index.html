@@ -4565,13 +4565,16 @@ function buildCrechePdf(){
       rows.push('<tr><td colspan="3" style="border:none;height:10px;border-top:2px solid #1D9E75;padding:0"></td></tr>');
     }
     const s=saisies.find(x=>x.jour===d);
+    const absent=s?.absence_autorisee||false;
     const depC=s?.heure_contrat_dep||depDef;
     const recC=s?.heure_contrat_rec||recDef;
     const modified=s&&(s.heure_contrat_dep||s.heure_contrat_rec);
-    rows.push('<tr'+(modified?' style="background:#FFF9E6;font-weight:600"':'')+'>'
+    rows.push('<tr'+(absent?' style="background:#FDECEA;color:#C0392B"':(modified?' style="background:#FFF9E6;font-weight:600"':''))+'>'
       +'<td style="padding:5px 10px">'+JOURS[dow]+' '+(''+d).padStart(2,'0')+'/'+('+'+(mo+1)).padStart(2,'0')+'/'+y+'</td>'
-      +'<td style="text-align:center;padding:5px 10px">'+depC+'</td>'
-      +'<td style="text-align:center;padding:5px 10px">'+recC+'</td>'
+      +(absent
+        ?'<td colspan="2" style="text-align:center;padding:5px 10px;font-weight:600">Absent(e)</td>'
+        :'<td style="text-align:center;padding:5px 10px">'+depC+'</td>'
+        +'<td style="text-align:center;padding:5px 10px">'+recC+'</td>')
       +'</tr>');
     prevWasFriday=(dow===5);
   }
