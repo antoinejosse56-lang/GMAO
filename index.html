@@ -176,8 +176,12 @@ function isDubailProfile(){
   return false;
 }
 function dubailFilter(str){
+  // SAVADUR/Dubail : certains biens/entites portent "Dubail" (l'adresse de
+  // l'immeuble), d'autres juste "SAVADUR" (ex: "SAVADUR Administratif" pour
+  // les frais comptables de la SCI, sans lien avec une adresse) - les deux
+  // sont a reconnaitre.
   const s=(str||'').toLowerCase();
-  return s.includes('dubail');
+  return s.includes('dubail')||s.includes('savadur');
 }
 // "Rapprochee" derivee de la presence d'une date de paiement plutot que d'un
 // champ coche a la main - evite la double saisie (date de paiement ET case a
