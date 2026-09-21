@@ -84,18 +84,18 @@ def sanitize_filename(name):
 
 
 def validated_dest_folder(root, kind, bien):
-    """<root>/<Factures|Devis>/<bien decompose en sous-dossiers> - meme arbo que
-    l'archive de import_factures.py/import_devis.py (Prop - Zone - SousZone
-    devient 3 niveaux de dossiers), pour qu'une facture validee atterrisse au
-    meme endroit qu'elle soit passee par le circuit mail ou uploadee direct."""
-    folder = Path(root) / kind
+    """<root>/<bien decompose en sous-dossiers>/<Factures|Devis|Documents> - le
+    bien/la zone d'abord puis la categorie en dernier niveau, pour retrouver
+    facilement tout ce qui concerne un logement (factures, devis, documents
+    confondus) sans avoir a fouiller 3 arborescences separees."""
+    folder = Path(root)
     parts = [p.strip() for p in (bien or "").split(" - ") if p.strip()]
     if parts:
         for p in parts:
             folder = folder / sanitize_filename(p)
     else:
         folder = folder / "Non classe"
-    return folder
+    return folder / kind
 
 
 def year_month(date_str):
