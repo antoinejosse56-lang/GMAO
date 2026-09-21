@@ -309,8 +309,7 @@ def archive_validated_files(watch_path: Path, known_rows: dict, assets: dict, wo
         asset_id = info.get("asset_id")
         equipment = None if bien else equipment_name_for(asset_id, None, assets)
         root = NAS_SAVADUR_PATH if is_savadur_for(bien, asset_id, assets) else NAS_PERSO_PATH
-        label = bien or equipment
-        new_name = dest_filename(p.suffix, label, info.get("date_facture"), info.get("entreprise"), info.get("description"))
+        new_name = dest_filename(p.suffix, info.get("date_facture"), info.get("entreprise"), info.get("description"))
         dest_dir = dest_folder(root, "Factures", bien=bien, equipment=equipment)
         dest_dir.mkdir(parents=True, exist_ok=True)
         dest = dest_dir / new_name

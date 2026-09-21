@@ -4,7 +4,9 @@ import_factures.py et import_devis.py - un seul endroit a faire evoluer pour
 que les 3 circuits d'archivage (upload direct dans l'appli, ou mail -> dossier
 de transit -> validation) rangent leurs fichiers de facon identique :
 <root>/<bien (ou Equipements/<nom equipement> si pas de bien)>/<Factures|
-Devis|Documents>/<label>.<annee>.<mois>.<Entreprise>.<Description>.ext
+Devis|Documents>/<annee>.<mois>.<Entreprise>.<Description>.ext
+Pas de type de travaux/motif en sous-dossier, et pas de bien repete dans le nom
+du fichier (deja porte par le dossier) - un seul niveau de tri par logement.
 """
 import re
 from pathlib import Path
@@ -38,12 +40,10 @@ def dest_folder(root, kind, bien=None, equipment=None):
     return folder / kind
 
 
-def dest_filename(ext, label, date_str, entreprise, description):
-    """'<label>.<annee>.<mois>.<Entreprise>.<Description><ext>' - `label` est le
-    bien ou, a defaut, le nom de l'equipement, repete dans le nom du fichier
-    (en plus du dossier) pour rester identifiable hors contexte."""
+def dest_filename(ext, date_str, entreprise, description):
+    """'<annee>.<mois>.<Entreprise>.<Description><ext>' - le bien/l'equipement
+    n'est pas repete ici, il est deja porte par le dossier (dest_folder)."""
     parts = [
-        sanitize_filename(label) if label else "Non classe",
         year_month(date_str),
         sanitize_filename(entreprise) if entreprise else "Facture",
         sanitize_filename(description) if description else "Facture",

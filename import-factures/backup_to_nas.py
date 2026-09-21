@@ -77,30 +77,25 @@ def dubail_filter(s):
 
 
 def bien_document_dest(root, doc):
-    """'<root>/<bien>/Documents/<BIEN>.<annee>.<mois>.<notes ou type><ext>' pour
-    une ligne bien_documents (DPE, amiante, etc.) - `notes` est en general plus
+    """'<root>/<bien>/Documents/<annee>.<mois>.<notes ou type><ext>' pour une
+    ligne bien_documents (DPE, amiante, etc.) - `notes` est en general plus
     precis que `type` (ex: "DPE" / "Etat Parasitaire") quand il est renseigne."""
     bien = doc.get("bien")
     label = doc.get("notes") or doc.get("type") or "Document"
     parsed = parse_storage_url(doc.get("document_url") or "")
     ext = Path(parsed[1]).suffix if parsed else ".pdf"
-    name = ".".join([
-        sanitize_filename(bien) if bien else "Non classe",
-        year_month(doc.get("date")),
-        sanitize_filename(label),
-    ]) + ext
+    name = ".".join([year_month(doc.get("date")), sanitize_filename(label)]) + ext
     return dest_folder(root, "Documents", bien=bien) / name
 
 
 def edl_dest(root, edl, tenants):
-    """'<root>/<bien>/Documents/<BIEN>.<annee>.<mois>.EDL <Entree|Sortie>.<Locataire><ext>'."""
+    """'<root>/<bien>/Documents/<annee>.<mois>.EDL <Entree|Sortie>.<Locataire><ext>'."""
     bien = edl.get("bien")
     parsed = parse_storage_url(edl.get("pdf_url") or "")
     ext = Path(parsed[1]).suffix if parsed else ".pdf"
     type_label = "Entree" if edl.get("type") == "entree" else "Sortie"
     tenant = tenants.get(edl.get("tenant_id")) or {}
     name = ".".join([
-        sanitize_filename(bien) if bien else "Non classe",
         year_month(edl.get("date")),
         f"EDL {type_label}",
         sanitize_filename(tenant.get("nom")) if tenant.get("nom") else "Locataire",
@@ -343,7 +338,7 @@ def backup_bucket(bucket, cls):
             dest = bien_document_dest(root, bien_doc)
         elif row and row.get("statut") == "valide" and bucket in ("factures-a-valider", "devis-a-valider"):
             # Facture/devis deja validee dans le GMAO : rangee et renommee
-            # lisiblement (<bien>/<Factures|Devis>/<BIEN.annee.mois.Entreprise.
+            # lisiblement (<bien>/<Factures|Devis>/<annee.mois.Entreprise.
             # Description>.ext, ou <Equipements>/<nom> a defaut de bien pour
             # une depense liee a un vehicule/bateau) au lieu du mirroir brut
             # du bucket - une fois validee, le nom d'origine issu du mail n'a
@@ -360,9 +355,8 @@ def backup_bucket(bucket, cls):
                 asset_id_for_savadur = row.get("asset_id") or (cls["work_orders"].get(row.get("wo_id")) or {}).get("asset_id")
                 is_savadur = bool(cls["asset"](asset_id_for_savadur)) if asset_id_for_savadur else False
             root = NAS_SAVADUR_PATH if is_savadur else NAS_PERSO_PATH
-            label = bien or equipment
             dest = dest_folder(root, kind, bien=bien, equipment=equipment) / dest_filename(
-                Path(path).suffix, label, date_str, row.get("entreprise"), description
+                Path(path).suffix, date_str, row.get("entreprise"), description
             )
         else:
             root = NAS_SAVADUR_PATH if is_savadur else NAS_PERSO_PATH
