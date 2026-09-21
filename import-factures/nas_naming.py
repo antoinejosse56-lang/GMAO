@@ -62,7 +62,12 @@ def dest_filename(ext, date_str, entreprise, description):
 
 
 def dubail_filter(s):
-    return "dubail" in (s or "").lower()
+    """SAVADUR/Dubail : certains biens/entites portent "Dubail" (l'adresse de
+    l'immeuble), d'autres juste "SAVADUR" (ex: "SAVADUR Administratif" pour
+    les frais comptables de la SCI, sans lien avec une adresse) - les deux
+    sont a reconnaitre, sinon ces derniers retombent a tort cote Perso."""
+    s = (s or "").lower()
+    return "dubail" in s or "savadur" in s
 
 
 def is_savadur_for(bien, asset_id=None, assets=None):

@@ -45,7 +45,7 @@ from dotenv import load_dotenv
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-from nas_naming import sanitize_filename, year_month, dest_folder, dest_filename, equipment_name_for, is_savadur_for
+from nas_naming import sanitize_filename, year_month, dest_folder, dest_filename, equipment_name_for, is_savadur_for, dubail_filter
 
 load_dotenv()
 
@@ -73,10 +73,6 @@ requests = SESSION  # tous les appels requests.get/post ci-dessous passent par l
 
 def log(msg):
     print(f"[backup-nas] {msg}")
-
-
-def dubail_filter(s):
-    return "dubail" in (s or "").lower()
 
 
 def bien_document_dest(root, doc):
