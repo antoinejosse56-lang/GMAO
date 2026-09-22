@@ -9286,6 +9286,20 @@ async function renameIdentitePhoto(tenantId,photoId,newLabel){
   const{error}=await sb.from('tenants').update({identite_photos:photos}).eq('id',tenantId);
   if(error){alert('Erreur : '+error.message);return;}
   t.identite_photos=photos;
+  // Garde-fou : un document ajoute ici (pieces d'identite/justificatifs)
+  // n'est JAMAIS reconnu par la verification d'assurance qui bloque l'etat
+  // des lieux (basee uniquement sur tenants.assurance_url) - si l'utilisateur
+  // le renomme en y mettant "assurance", on lui propose de le reconnaitre
+  // aussi comme l'attestation officielle, pour eviter le blocage silencieux
+  // deja rencontre (le document existait bien, mais au mauvais endroit).
+  if(/assurance/i.test(newLabel)&&!t.assurance_url){
+    const photo=photos.find(p=>p.id===photoId);
+    if(photo&&confirm("Ce document ressemble à une attestation d'assurance habitation.\n\nVoulez-vous aussi l'enregistrer comme l'assurance officielle de ce locataire ? (recommandé — sinon elle ne sera jamais reconnue par l'état des lieux, qui restera bloqué)")){
+      const{error:e2}=await sb.from('tenants').update({assurance_url:photo.url}).eq('id',tenantId);
+      if(e2){alert('Erreur : '+e2.message);return;}
+      t.assurance_url=photo.url;
+    }
+  }
 }
 async function deleteIdentitePhoto(tenantId,photoId){
   if(!confirm('Supprimer cette photo ?'))return;
