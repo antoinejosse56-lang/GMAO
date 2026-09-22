@@ -965,6 +965,25 @@ function getPropertyAssetIds(propName){
   });
   return ids;
 }
+// Complete une liste d'assetId "racines" (choisis dans l'arbre du formulaire
+// utilisateur) avec les assetId de tous leurs descendants topologiques -
+// pour que les consommateurs qui font un simple .includes() a plat (ex.
+// getUserAssets) voient bien "tout le bien" quand seul l'assetId du bien a
+// ete coche, sans avoir a re-parcourir la topologie a chaque lecture.
+function expandTopoAssetIds(ids){
+  const out=new Set(ids);
+  S.topology.properties.forEach(p=>{
+    const propSel=p.assetId&&out.has(p.assetId);
+    (p.zones||[]).forEach(z=>{
+      const zoneSel=propSel||(z.assetId&&out.has(z.assetId));
+      if(zoneSel&&z.assetId)out.add(z.assetId);
+      (z.subZones||[]).forEach(s=>{
+        if((zoneSel||(s.assetId&&out.has(s.assetId)))&&s.assetId)out.add(s.assetId);
+      });
+    });
+  });
+  return [...out];
+}
 // Resout les assetId d'un topo_ref (bien/zone/sous-zone d'un BT) en
 // remontant les 3 niveaux - utilise pour comparer a visible_assets, qui
 // contient des assetId et non des ids de noeuds de topologie.
@@ -1065,8 +1084,13 @@ function getFilteredTenants(){
   return S.tenants.filter(t=>dubailFilter(t.logement||''));
 }
 
-function accessAssets(u){if(!u)return[];if(u.role==='admin')return S.assets;const vis=u.visible_assets||u.assets||[];if(vis.length===0)return S.assets;return S.assets.filter(a=>vis.includes(a.id));}
-function canEdit(){return S.currentUser&&S.currentUser.role!=='lecteur';}
+function accessAssets(u){if(!u)return[];if(u.role==='admin')return S.assets;const vis=u.visible_assets||u.assets||[];if(vis.length===0)return S.assets;const expanded=expandTopoAssetIds(vis);return S.assets.filter(a=>expanded.includes(a.id));}
+function canEdit(tabId){
+  const u=S.currentUser;
+  if(!u||u.role==='lecteur')return false;
+  if(u.role==='admin')return true;
+  return !(u.readonly_tabs||[]).includes(tabId||S.view);
+}
 function isAdmin(){return S.currentUser?.role==='admin';}
 
 function render(){
@@ -1167,6 +1191,99 @@ const ALL_TABS_LABELS = {
   compteurs:'Compteurs',finances:'Finances',rangements:'Rangements',
   famille:'Famille',settings:'Paramètres'
 };
+// Liste des onglets proposes dans le formulaire utilisateur (add-user/edit-user)
+// - distincte d'ALL_TABS_LABELS qui est incomplete pour cet usage (ne
+// contient pas chantiers/reservations/factures, utilises ailleurs).
+const USER_FORM_TABS=[
+  ['dashboard','Tableau de bord'],['workorders','Bons de travaux'],['chantiers','Chantiers'],
+  ['tools','Outils'],['consommables','Consommables'],['loans','Prêts outils'],
+  ['vehicles','Véhicules'],['topology','Topologie'],['maintenance','Gammes'],
+  ['locatif','Gestion locative'],['reservations','Réservations'],['compteurs','Compteurs'],
+  ['finances','Finances'],['factures','Factures'],['rangements','Rangements'],['famille','Famille']
+];
+function toggleFormSection(sectionId,btn){
+  const el=document.getElementById(sectionId);
+  const open=el.style.display!=='none';
+  el.style.display=open?'none':'block';
+  const arrow=btn.querySelector('.sec-arrow');
+  if(arrow)arrow.textContent=open?'▸':'▾';
+}
+// Coche/decoche + grise en cascade tous les noeuds descendants (zones/
+// sous-zones) d'un bien ou d'une zone coche dans l'arbre de perimetre du
+// formulaire utilisateur - evite d'avoir a cocher chaque sous-zone une par
+// une pour "tout un bien", et garantit que la liste finale des assetId
+// enregistres contient bien tous les descendants (pas seulement le noeud
+// racine coche), pour les consommateurs qui font un filtre a plat.
+function cascadeScopeCheckbox(cb){
+  const wrap=cb.closest('.uscope-row');
+  if(!wrap)return;
+  const depth=+wrap.dataset.depth;
+  let el=wrap.nextElementSibling;
+  while(el&&+el.dataset.depth>depth){
+    const c=el.querySelector('input.uscope-node');
+    if(c){c.checked=cb.checked;c.disabled=cb.checked;}
+    el=el.nextElementSibling;
+  }
+}
+// Libelle lisible d'un assetId pour l'affichage (liste des utilisateurs) :
+// chemin bien › zone › sous-zone s'il s'agit d'un noeud de Topologie, sinon
+// simple nom d'equipement.
+function assetScopeLabel(assetId){
+  for(const p of S.topology.properties){
+    if(p.assetId===assetId)return '🏠 '+p.name;
+    for(const z of (p.zones||[])){
+      if(z.assetId===assetId)return '📁 '+p.name+' › '+z.name;
+      for(const s of (z.subZones||[])){
+        if(s.assetId===assetId)return '📂 '+p.name+' › '+z.name+' › '+s.name;
+      }
+    }
+  }
+  return S.assets.find(a=>a.id===assetId)?.name||'';
+}
+// Tous les assetId lies a un noeud de Topologie (bien/zone/sous-zone) -
+// sert a distinguer "vehicules et autres equipements" (non lies) des
+// equipements qui representent deja un bien/zone dans l'arbre, pour ne pas
+// les lister deux fois dans le formulaire utilisateur.
+function topologyLinkedAssetIds(){
+  const ids=new Set();
+  S.topology.properties.forEach(p=>{
+    if(p.assetId)ids.add(p.assetId);
+    (p.zones||[]).forEach(z=>{
+      if(z.assetId)ids.add(z.assetId);
+      (z.subZones||[]).forEach(s=>{if(s.assetId)ids.add(s.assetId);});
+    });
+  });
+  return ids;
+}
+function renderUserScopeTree(u){
+  const checked=new Set(u.visible_assets||u.assets||[]);
+  function nodeRow(name,assetId,depth,icon){
+    const has=!!assetId;
+    return `<div class="uscope-row" data-depth="${depth}" style="padding:2px 0 2px ${depth*18}px">
+      <label style="display:flex;align-items:center;gap:6px;flex:1;${has?'':'opacity:.45'}" title="${has?'':'Aucun équipement lié à ce nœud (voir Topologie)'}">
+        <input type="checkbox" class="uscope-node" style="width:auto" data-scope-asset="${assetId||''}" onchange="cascadeScopeCheckbox(this)" ${has&&checked.has(assetId)?'checked':''} ${has?'':'disabled'}>
+        <span>${icon}</span><span style="font-size:12px">${name}</span>
+      </label>
+    </div>`;
+  }
+  const rows=S.topology.properties.map(p=>{
+    const zoneRows=(p.zones||[]).map(z=>{
+      const subRows=(z.subZones||[]).map(s=>nodeRow(s.name,s.assetId,2,'📂')).join('');
+      return nodeRow(z.name,z.assetId,1,'📁')+subRows;
+    }).join('');
+    return nodeRow(p.name,p.assetId,0,'🏠')+zoneRows;
+  }).join('');
+  const linked=topologyLinkedAssetIds();
+  const otherAssets=S.assets.filter(a=>!linked.has(a.id));
+  return `<div class="form-group" style="margin-bottom:8px"><label>Biens / zones autorisés</label>
+    <div style="background:var(--bg2);padding:8px;border-radius:var(--radius);max-height:220px;overflow-y:auto" id="uscope-tree">${rows||'<div style="font-size:12px;color:var(--text2)">Aucun bien dans la Topologie</div>'}</div>
+  </div>
+  <div class="form-group"><label>Véhicules et autres équipements <small style="color:var(--text2)">(non rattachés à un bien)</small></label>
+    <div style="display:flex;flex-wrap:wrap;gap:4px 8px;background:var(--bg2);padding:8px;border-radius:var(--radius);max-height:100px;overflow-y:auto">
+      ${otherAssets.map(a=>`<label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" value="${a.id}" class="ac"${checked.has(a.id)?' checked':''}> ${a.name}</label>`).join('')||'<span style="font-size:12px;color:var(--text2)">Aucun</span>'}
+    </div>
+  </div>`;
+}
 function getUserTabs(user){
   if(!user||user.role==='admin')return null; // null = tout visible
   // Priorité : visible_tabs personnalisés > profil prédéfini
@@ -1182,14 +1299,30 @@ function getUserAssets(user){
   if(!user||user.role==='admin')return S.assets;
   const vis=user.visible_assets||user.assets||[];
   if(vis.length===0)return S.assets; // vide = tous
-  return S.assets.filter(a=>vis.includes(a.id));
+  const expanded=expandTopoAssetIds(vis);
+  return S.assets.filter(a=>expanded.includes(a.id));
 }
 
 function applyProfile(prof){
   const profileTabs=USER_PROFILES[prof]?.tabs||[];
   document.querySelectorAll('.utab').forEach(cb=>{
     cb.checked = (prof==='admin')||profileTabs.includes(cb.value);
+    const ro=cb.closest('label')?.querySelector('.utabro');
+    if(ro){ro.checked=false;ro.disabled=!cb.checked;}
   });
+  // Le profil "26 rue Dubail" pointe desormais sur le bien reel dans l'arbre
+  // (mecanisme generique bien/zone) plutot que sur le filtre par nom code en
+  // dur isDubailProfile()/dubailFilter() - celui-ci reste utilise ailleurs
+  // pour les donnees historiques en texte libre (factures.bien, etc.).
+  if(prof==='dubail'){
+    const dubailProp=S.topology.properties.find(p=>dubailFilter(p.name));
+    if(dubailProp?.assetId){
+      const cb=document.querySelector(`#uscope-tree input.uscope-node[data-scope-asset="${dubailProp.assetId}"]`);
+      if(cb){cb.checked=true;cascadeScopeCheckbox(cb);}
+      const sec=document.getElementById('uscope-section');
+      if(sec)sec.style.display='block';
+    }
+  }
 }
 // "Dupliquer les droits de..." : reprend role/profil/onglets/equipements
 // d'un utilisateur existant tel quel, pour eviter de recocher a la main
@@ -1203,9 +1336,23 @@ function applyUserDuplicate(sourceUserId){
   const profSel=document.getElementById('m-uprof');
   if(profSel)profSel.value=src.profile||'custom';
   const tabs=getUserTabs(src); // null = tout visible (admin, ou role sans restriction)
-  document.querySelectorAll('.utab').forEach(cb=>{cb.checked=!tabs||tabs.includes(cb.value);});
+  const srcRO=src.readonly_tabs||[];
+  document.querySelectorAll('.utab').forEach(cb=>{
+    cb.checked=!tabs||tabs.includes(cb.value);
+    const ro=cb.closest('label')?.querySelector('.utabro');
+    if(ro){ro.checked=cb.checked&&srcRO.includes(cb.value);ro.disabled=!cb.checked;}
+  });
   const srcAssets=src.visible_assets||src.assets||[];
   document.querySelectorAll('.ac').forEach(cb=>{cb.checked=srcAssets.includes(cb.value);});
+  document.querySelectorAll('#uscope-tree input.uscope-node').forEach(cb=>{
+    cb.checked=!!cb.dataset.scopeAsset&&srcAssets.includes(cb.dataset.scopeAsset);
+    cb.disabled=!cb.dataset.scopeAsset;
+  });
+  document.querySelectorAll('#uscope-tree input.uscope-node:checked').forEach(cb=>cascadeScopeCheckbox(cb));
+  if(srcAssets.length>0){
+    const sec=document.getElementById('uscope-section');
+    if(sec)sec.style.display='block';
+  }
 }
 
 function navItems(){
@@ -5119,8 +5266,8 @@ function renderUsers(){
     ${S.users.map(u=>`<tr>
       <td><div style="display:flex;align-items:center;gap:8px"><div class="avatar">${u.initials||'?'}</div><span style="font-weight:500">${u.name}</span></div></td>
       <td style="font-size:12px">${u.email}</td>
-      <td><span class="badge ${u.role==='admin'?'bgreen':u.role==='technicien'?'bamber':'bblue'}">${u.role}</span></td>
-      <td style="font-size:12px">${u.role==='admin'?'Tous':(u.assets||[]).map(id=>S.assets.find(a=>a.id===id)?.name||'').filter(Boolean).join(', ')||'Aucun'}</td>
+      <td><span class="badge ${u.role==='admin'?'bgreen':u.role==='technicien'?'bamber':'bblue'}">${u.role}</span>${(u.readonly_tabs||[]).length>0?`<span class="badge bblue" style="margin-left:4px">👁 lecture seule (${u.readonly_tabs.length})</span>`:''}</td>
+      <td style="font-size:12px">${u.role==='admin'?'Tous':(u.visible_assets||u.assets||[]).map(assetScopeLabel).filter(Boolean).join(', ')||'Aucun'}</td>
       <td style="white-space:nowrap">
         <button class="btn btn-sm" data-edit-user="${u.id}">✎</button>
         ${u.id!==S.currentUser.id?` <button class="btn btn-d btn-sm" data-del-user="${u.id}">✕</button>`:''}
@@ -6216,6 +6363,10 @@ function renderModal(){
 
   if(m.type==='add-user'||m.type==='edit-user'){
     const u = m.user||{};
+    const uTabs=u.visible_tabs||[], uRO=u.readonly_tabs||[];
+    const uScope=u.visible_assets||u.assets||[];
+    const tabsOpen=uTabs.length>0||uRO.length>0;
+    const scopeOpen=uScope.length>0;
     html=`${mhd(m.type==='add-user'?'Nouvel utilisateur':'Modifier — '+u.name)}
     <div class="g2c">
       <div class="form-group"><label>Nom *</label><input id="m-un" value="${u.name||''}"></div>
@@ -6245,15 +6396,29 @@ function renderModal(){
         ${S.users.filter(usr=>usr.id!==u.id).map(usr=>`<option value="${usr.id}">${usr.name}</option>`).join('')}
       </select>
     </div>
-    <div class="form-group"><label>Onglets visibles</label>
-      <div style="display:flex;flex-wrap:wrap;gap:4px 8px;background:var(--bg2);padding:8px;border-radius:var(--radius);max-height:130px;overflow-y:auto" id="utab-wrap">
-        <label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="dashboard" ${(u.visible_tabs||[]).includes("dashboard")?"checked":""}> Tableau de bord</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="workorders" ${(u.visible_tabs||[]).includes("workorders")?"checked":""}> Bons de travaux</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="chantiers" ${(u.visible_tabs||[]).includes("chantiers")?"checked":""}> Chantiers</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="tools" ${(u.visible_tabs||[]).includes("tools")?"checked":""}> Outils</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="consommables" ${(u.visible_tabs||[]).includes("consommables")?"checked":""}> Consommables</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="loans" ${(u.visible_tabs||[]).includes("loans")?"checked":""}> Prêts outils</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="vehicles" ${(u.visible_tabs||[]).includes("vehicles")?"checked":""}> Véhicules</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="topology" ${(u.visible_tabs||[]).includes("topology")?"checked":""}> Topologie</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="maintenance" ${(u.visible_tabs||[]).includes("maintenance")?"checked":""}> Gammes</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="locatif" ${(u.visible_tabs||[]).includes("locatif")?"checked":""}> Gestion locative</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="reservations" ${(u.visible_tabs||[]).includes("reservations")?"checked":""}> Réservations</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="compteurs" ${(u.visible_tabs||[]).includes("compteurs")?"checked":""}> Compteurs</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="finances" ${(u.visible_tabs||[]).includes("finances")?"checked":""}> Finances</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="factures" ${(u.visible_tabs||[]).includes("factures")?"checked":""}> Factures</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="rangements" ${(u.visible_tabs||[]).includes("rangements")?"checked":""}> Rangements</label><label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" class="utab" value="famille" ${(u.visible_tabs||[]).includes("famille")?"checked":""}> Famille</label>
+    <div class="form-group" style="margin-bottom:4px">
+      <a href="#" onclick="event.preventDefault();toggleFormSection('utab-section',this)" style="font-size:12px;color:var(--blue);text-decoration:none;cursor:pointer"><span class="sec-arrow">${tabsOpen?'▾':'▸'}</span> Personnaliser les onglets visibles et la lecture seule</a>
+    </div>
+    <div id="utab-section" style="display:${tabsOpen?'block':'none'}">
+      <div class="form-group"><label>Onglets visibles <small style="color:var(--text2)">(vide = tous, selon le profil)</small></label>
+        <div style="display:flex;flex-direction:column;gap:2px;background:var(--bg2);padding:8px;border-radius:var(--radius);max-height:220px;overflow-y:auto" id="utab-wrap">
+          <div style="display:flex;gap:8px;font-size:10px;color:var(--text2);padding:0 0 4px 140px"><span style="width:60px">Visible</span><span>Lecture seule</span></div>
+          ${USER_FORM_TABS.map(([id,label])=>{
+            const vis=uTabs.includes(id), ro=uRO.includes(id);
+            return `<label style="display:flex;align-items:center;gap:8px;font-size:11px">
+              <span style="width:132px">${label}</span>
+              <span style="width:60px"><input type="checkbox" class="utab" value="${id}" ${vis?'checked':''} onchange="const r=this.closest('label').querySelector('.utabro');r.disabled=!this.checked;if(!this.checked)r.checked=false;" style="width:auto;margin:0"></span>
+              <span><input type="checkbox" class="utabro" value="${id}" ${ro?'checked':''} ${vis?'':'disabled'} style="width:auto;margin:0"></span>
+            </label>`;
+          }).join('')}
+        </div>
       </div>
     </div>
-    <div class="form-group"><label>Équipements accessibles <small style="color:var(--text2)">(vide = tous)</small></label>
-      <div style="display:flex;flex-wrap:wrap;gap:4px 8px;background:var(--bg2);padding:8px;border-radius:var(--radius);max-height:100px;overflow-y:auto">
-        ${S.assets.map(a=>`<label style="display:flex;align-items:center;gap:5px;font-size:11px;min-width:140px"><input type="checkbox" value="${a.id}" class="ac" ${(u.visible_assets||u.assets||[]).includes(a.id)?'checked':''}> ${a.name}</label>`).join('')}
-      </div>
+    <div class="form-group" style="margin-bottom:4px">
+      <a href="#" onclick="event.preventDefault();toggleFormSection('uscope-section',this)" style="font-size:12px;color:var(--blue);text-decoration:none;cursor:pointer"><span class="sec-arrow">${scopeOpen?'▾':'▸'}</span> Restreindre l'accès à certains biens/équipements</a>
+    </div>
+    <div id="uscope-section" style="display:${scopeOpen?'block':'none'}">
+      ${renderUserScopeTree(u)}
     </div>
     ${mf}`;
   }
@@ -7837,8 +8002,14 @@ async function saveModal(){
     // "Personnalise" avec visible_tabs vide equivaut a AUCUN onglet visible
     // (cf getUserTabs) - bug reel, pas juste une friction UI.
     const visible_tabs=[...document.querySelectorAll('.utab')].filter(cb=>cb.checked).map(cb=>cb.value);
-    const visible_assets=[...document.querySelectorAll('.ac')].filter(cb=>cb.checked).map(cb=>cb.value);
-    const rec={name,email,role,profile,initials,visible_tabs,visible_assets};
+    const readonly_tabs=[...document.querySelectorAll('.utabro')].filter(cb=>cb.checked).map(cb=>cb.value);
+    // visible_assets = biens/zones/sous-zones coches dans l'arbre (avec leurs
+    // descendants deja coches en cascade par cascadeScopeCheckbox) + les
+    // vehicules/equipements coches dans la liste plate a part.
+    const scopeAssetIds=[...document.querySelectorAll('#uscope-tree input.uscope-node:checked')].map(cb=>cb.dataset.scopeAsset).filter(Boolean);
+    const otherAssetIds=[...document.querySelectorAll('.ac')].filter(cb=>cb.checked).map(cb=>cb.value);
+    const visible_assets=[...new Set([...scopeAssetIds,...otherAssetIds])];
+    const rec={name,email,role,profile,initials,visible_tabs,readonly_tabs,visible_assets};
     if(m.type==='add-user'){
       if(!pwd)return alert('Mot de passe requis');
       const{data,error}=await sb.from('users').insert({...rec,password:pwd}).select().single();
