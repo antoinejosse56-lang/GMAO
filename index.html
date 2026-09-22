@@ -165,16 +165,29 @@ const NOW = new Date().toISOString().split('T')[0];
 // PROFIL DUBAIL — filtre sur 26 rue Général Dubail
 // ============================================================
 function isDubailProfile(){
+  // Onglets "SAVADUR"/"PERSO" du menu (Bien/Gestion locative/Compteurs/
+  // Couts&Revenus/Factures, ids en _savadur/_perso) : prioritaire sur le
+  // profil utilisateur, y compris pour un admin - cliquer sous SAVADUR doit
+  // filtrer meme pour Antoine, pas seulement pour un compte restreint.
+  if(S.view&&S.view.endsWith('_savadur'))return true;
+  if(S.view&&S.view.endsWith('_perso'))return false;
   const u=S.currentUser;
   if(!u||u.role==='admin')return false;
-  // Check profile field OR if visible_tabs contains locatif but not tools (= dubail pattern)
+  // Check profile field OR if visible_tabs contains locatif_savadur but pas tools (= dubail pattern)
   if(u.profile==='dubail')return true;
-  // Fallback: if user has visible_tabs set with locatif but no tools/etiquettes
+  // Fallback: si l'utilisateur a un visible_tabs avec locatif_savadur mais pas tools/etiquettes
   if(u.visible_tabs&&u.visible_tabs.length>0){
     const vt=u.visible_tabs;
-    if(vt.includes('locatif')&&!vt.includes('tools'))return true;
+    if(vt.includes('locatif_savadur')&&!vt.includes('tools'))return true;
   }
   return false;
+}
+// Vrai uniquement dans la vue "PERSO" du menu (ids en _perso) - sert a
+// EXCLURE le Dubail/Savadur des vues Bien/Gestion locative/Compteurs/
+// Finances/Factures cote perso, en complement de isDubailProfile() qui ne
+// gere que l'inclusion (cote SAVADUR ou profil restreint 'dubail').
+function isPersoScopeView(){
+  return !!(S.view&&S.view.endsWith('_perso'));
 }
 function dubailFilter(str){
   // SAVADUR/Dubail : certains biens/entites portent "Dubail" (l'adresse de
@@ -1143,60 +1156,84 @@ function isFactureInVisibleScope(f,va){
 }
 
 // Retourne les BT filtrés selon le profil
+// Un BT est "Dubail/Savadur" si son topo_ref ou son asset lie porte ce nom -
+// factorise car utilise a la fois pour l'inclusion (profil/vue SAVADUR) et
+// l'exclusion (vue PERSO) dans getFilteredWOs().
+function woIsDubail(w,dubailAssetIds){
+  const tr=w.topo_ref;
+  if(tr&&dubailFilter(tr.propName||''))return true;
+  if(w.asset_id){
+    if(dubailAssetIds.has(w.asset_id))return true;
+    const a=S.assets.find(x=>x.id===w.asset_id);
+    if(a&&(dubailFilter(a.name)||dubailFilter(a.location||'')))return true;
+  }
+  return false;
+}
 function getFilteredWOs(){
   const u=S.currentUser;
-  if(!u||u.role==='admin')return S.workOrders;
-  // If user has explicit visible_assets, filter WOs by those assets
-  const va=u.visible_assets||u.assets||[];
-  if(va.length>0){
-    return S.workOrders.filter(w=>{
-      if(!w.asset_id&&!w.topo_ref)return false; // no link = hide
-      if(w.asset_id&&va.includes(w.asset_id))return true;
-      if(w.topo_ref){
-        // Check si le bien, la zone OU la sous-zone du topo_ref a un asset
-        // dans visible_assets (topo_ref n'a jamais de champ .assetId propre -
-        // il faut le resoudre via la topologie, cf topoRefNodeAssetIds).
-        if(topoRefNodeAssetIds(w.topo_ref).some(id=>va.includes(id)))return true;
-        // Fallback: dubail name check
-        if(isDubailProfile()&&dubailFilter(w.topo_ref.propName||''))return true;
-      }
-      return false;
-    });
-  }
-  if(!isDubailProfile())return S.workOrders;
-  // Dubail without explicit assets: filter by topo_ref or asset name
-  const dubailAssetIds=getDubailAssetIds();
-  return S.workOrders.filter(w=>{
-    const tr=w.topo_ref;
-    if(tr&&dubailFilter(tr.propName||''))return true;
-    if(w.asset_id){
-      if(dubailAssetIds.has(w.asset_id))return true;
-      const a=S.assets.find(x=>x.id===w.asset_id);
-      if(a&&(dubailFilter(a.name)||dubailFilter(a.location||'')))return true;
+  let list;
+  if(!u||u.role==='admin'){
+    list=S.workOrders;
+  }else{
+    // If user has explicit visible_assets, filter WOs by those assets
+    const va=u.visible_assets||u.assets||[];
+    if(va.length>0){
+      list=S.workOrders.filter(w=>{
+        if(!w.asset_id&&!w.topo_ref)return false; // no link = hide
+        if(w.asset_id&&va.includes(w.asset_id))return true;
+        if(w.topo_ref){
+          // Check si le bien, la zone OU la sous-zone du topo_ref a un asset
+          // dans visible_assets (topo_ref n'a jamais de champ .assetId propre -
+          // il faut le resoudre via la topologie, cf topoRefNodeAssetIds).
+          if(topoRefNodeAssetIds(w.topo_ref).some(id=>va.includes(id)))return true;
+          // Fallback: dubail name check
+          if(isDubailProfile()&&dubailFilter(w.topo_ref.propName||''))return true;
+        }
+        return false;
+      });
+    }else{
+      list=S.workOrders;
     }
-    return false;
-  });
+  }
+  // Filtre "Bien — SAVADUR/Perso" du menu, en plus (couvre aussi l'admin,
+  // que les branches ci-dessus ne traitent pas - voir isDubailProfile()/
+  // isPersoScopeView() qui lisent S.view).
+  if(isDubailProfile()||isPersoScopeView()){
+    const dubailAssetIds=getDubailAssetIds();
+    const wantDubail=isDubailProfile();
+    list=list.filter(w=>woIsDubail(w,dubailAssetIds)===wantDubail);
+  }
+  return list;
 }
 
-// Retourne les assets filtrés selon le profil  
+// Retourne les assets filtrés selon le profil
 function getFilteredAssets(){
   const u=S.currentUser;
-  if(!u||u.role==='admin')return S.assets;
-  // If user has explicit visible_assets list, use it
-  const va=u.visible_assets||u.assets||[];
-  if(va.length>0)return S.assets.filter(a=>va.includes(a.id));
-  // Dubail: filter by topology
+  let list;
+  if(!u||u.role==='admin'){
+    list=S.assets;
+  }else{
+    // If user has explicit visible_assets list, use it
+    const va=u.visible_assets||u.assets||[];
+    list=va.length>0?S.assets.filter(a=>va.includes(a.id)):S.assets;
+  }
+  // Filtre "Bien — SAVADUR/Perso" du menu, en plus (couvre aussi l'admin).
   if(isDubailProfile()){
     const ids=getDubailAssetIds();
-    return S.assets.filter(a=>ids.has(a.id)||dubailFilter(a.name)||dubailFilter(a.location||''));
+    return list.filter(a=>ids.has(a.id)||dubailFilter(a.name)||dubailFilter(a.location||''));
   }
-  return S.assets;
+  if(isPersoScopeView()){
+    const ids=getDubailAssetIds();
+    return list.filter(a=>!(ids.has(a.id)||dubailFilter(a.name)||dubailFilter(a.location||'')));
+  }
+  return list;
 }
 
 // Retourne les locataires filtrés
 function getFilteredTenants(){
-  if(!isDubailProfile())return S.tenants;
-  return S.tenants.filter(t=>dubailFilter(t.logement||''));
+  if(isDubailProfile())return S.tenants.filter(t=>dubailFilter(t.logement||''));
+  if(isPersoScopeView())return S.tenants.filter(t=>!dubailFilter(t.logement||''));
+  return S.tenants;
 }
 
 function accessAssets(u){if(!u)return[];if(u.role==='admin')return S.assets;const vis=u.visible_assets||u.assets||[];if(vis.length===0)return S.assets;const expanded=expandTopoAssetIds(vis);return S.assets.filter(a=>expanded.includes(a.id));}
@@ -1269,9 +1306,9 @@ function bindLogin(){
 const USER_PROFILE_TABS = {
   admin:      null,
   technicien: ['dashboard','workorders','tools','consommables','loans','maintenance','rangements'],
-  dubail:     ['workorders','consommables','locatif','compteurs','finances'],
-  perso:      ['dashboard','workorders','vehicles','finances','famille'],
-  famille_jm: ['dashboard','workorders','vehicles','topology','famille','factures'],
+  dubail:     ['workorders','consommables','locatif_savadur','compteurs_savadur','finances_savadur'],
+  perso:      ['dashboard','workorders','vehicles','finances_perso','famille'],
+  famille_jm: ['dashboard','workorders','vehicles','bien_perso','famille','factures_perso'],
   custom:     null
 };
 function getUserVisibleTabs(){
@@ -1292,10 +1329,10 @@ function applyUserProfile(prof){
 const USER_PROFILES = {
   admin:      {label:'Administrateur',  tabs:null}, // null = tous les onglets
   technicien: {label:'Technicien',      tabs:['dashboard','workorders','tools','consommables','loans','maintenance','rangements','vehicles']},
-  dubail:     {label:'26 rue Dubail',   tabs:['dashboard','workorders','consommables','locatif','compteurs','finances']},
-  perso:      {label:'Perso',           tabs:['dashboard','workorders','vehicles','finances','famille']},
+  dubail:     {label:'26 rue Dubail',   tabs:['dashboard','workorders','consommables','locatif_savadur','compteurs_savadur','finances_savadur']},
+  perso:      {label:'Perso',           tabs:['dashboard','workorders','vehicles','finances_perso','famille']},
   lecteur:    {label:'Lecteur',         tabs:['dashboard','workorders','maintenance']},
-  famille_jm: {label:'Famille JOSSE MUSEUX', tabs:['dashboard','workorders','vehicles','topology','famille','factures']},
+  famille_jm: {label:'Famille JOSSE MUSEUX', tabs:['dashboard','workorders','vehicles','bien_perso','famille','factures_perso']},
   custom:     {label:'Personnalisé',    tabs:[]}
 };
 const ALL_TABS_LABELS = {
@@ -1312,9 +1349,12 @@ const ALL_TABS_LABELS = {
 const USER_FORM_TABS=[
   ['dashboard','Tableau de bord'],['workorders','Bons de travaux'],['chantiers','Chantiers'],
   ['tools','Outils'],['consommables','Consommables'],['loans','Prêts outils'],
-  ['vehicles','Véhicules'],['topology','Topologie'],['maintenance','Gammes'],
-  ['locatif','Gestion locative'],['reservations','Réservations'],['compteurs','Compteurs'],
-  ['finances','Finances'],['factures','Factures'],['rangements','Rangements'],['famille','Famille']
+  ['vehicles','Véhicules'],['maintenance','Gammes'],['reservations','Réservations'],
+  ['rangements','Rangements'],['famille','Famille'],
+  ['bien_savadur','Bien — SAVADUR'],['locatif_savadur','Gestion locative — SAVADUR'],['compteurs_savadur','Compteurs — SAVADUR'],
+  ['finances_savadur','Coûts & Revenus — SAVADUR'],['factures_savadur','Factures — SAVADUR'],
+  ['bien_perso','Bien — Perso'],['locatif_perso','Gestion locative — Perso'],['compteurs_perso','Compteurs — Perso'],
+  ['finances_perso','Coûts & Revenus — Perso'],['factures_perso','Factures — Perso'],
 ];
 function toggleFormSection(sectionId,btn){
   const el=document.getElementById(sectionId);
@@ -1473,12 +1513,19 @@ function applyUserDuplicate(sourceUserId){
 function navItems(){
   const loanedN = S.loans.filter(l=>!l.returned).length;
   const openWO = getFilteredWOs().filter(w=>w.status==='open').length;
+  // Urgents "Immobilier" repartis Savadur/Perso pour les badges des 2
+  // groupes ci-dessous (meme mecanique que getDubailAssetIds, deja utilisee
+  // pour filtrer BT/factures/locataires par bien Dubail).
+  const dubailAssetIds=getDubailAssetIds();
+  const urgentImmoSavadur=S.assets.filter(a=>a.category==='Immobilier'&&a.status==='urgent'&&dubailAssetIds.has(a.id)).length;
+  const urgentImmoPerso=S.assets.filter(a=>a.category==='Immobilier'&&a.status==='urgent'&&!dubailAssetIds.has(a.id)).length;
   const allGroups = [
     {group:'Principal', items:[
       {id:'mobile_home', label:'Accueil mobile', icon:'📱'},
       {id:'dashboard', label:'Tableau de bord', icon:'⊞'},
       {id:'workorders', label:'Bons de travaux', icon:'◪', badge: openWO},
       {id:'chantiers', label:'Chantiers', icon:'🏗️'},
+      {id:'maintenance', label:'Gammes entretien', icon:'◌'},
     ]},
     {group:'Outils', items:[
       {id:'tools', label:'Inventaire outils', icon:'◈'},
@@ -1489,20 +1536,28 @@ function navItems(){
     {group:'Véhicules', items:[
       {id:'vehicles', label:'Mes véhicules', icon:'🚗', badge: S.assets.filter(a=>(a.category==='Véhicule'||a.category==='Bateau')&&a.status==='urgent').length||0},
     ]},
-    {group:'Immobilier', items:[
-      {id:'topology', label:'Topologie biens', icon:'◍', badge: S.assets.filter(a=>a.category==='Immobilier'&&a.status==='urgent').length||0},
-      {id:'maintenance', label:'Gammes entretien', icon:'◌'},
-    ]},
     {group:'Location courte durée', items:[
       {id:'reservations', label:'Réservations', icon:'📅'},
     ]},
-    {group:'Locatif', items:[
-      {id:'locatif', label:'Gestion locative', icon:'🏘'},
-      {id:'compteurs', label:'Compteurs', icon:'💧'},
+    // SAVADUR/PERSO : memes 5 items (Bien/Gestion locative/Compteurs/
+    // Couts & Revenus/Factures) dans les 2 groupes, chacun rendu par la
+    // meme fonction que precedemment (renderTopology/renderLocatif/
+    // renderCompteurs/renderFinances/renderFactures) mais filtre au bien
+    // Dubail/Savadur ou a son exclusion selon l'id (_savadur/_perso), via
+    // isDubailProfile()/isPersoScopeView() qui lisent S.view.
+    {group:'SAVADUR', items:[
+      {id:'bien_savadur', label:'Bien', icon:'◍', badge: urgentImmoSavadur},
+      {id:'locatif_savadur', label:'Gestion locative', icon:'🏘'},
+      {id:'compteurs_savadur', label:'Compteurs', icon:'💧'},
+      {id:'finances_savadur', label:'Coûts & Revenus', icon:'€'},
+      {id:'factures_savadur', label:'Factures', icon:'🧾'},
     ]},
-    {group:'Finances', items:[
-      {id:'finances', label:'Coûts & Revenus', icon:'€'},
-      {id:'factures', label:'Factures', icon:'🧾'},
+    {group:'PERSO', items:[
+      {id:'bien_perso', label:'Bien', icon:'◍', badge: urgentImmoPerso},
+      {id:'locatif_perso', label:'Gestion locative', icon:'🏘'},
+      {id:'compteurs_perso', label:'Compteurs', icon:'💧'},
+      {id:'finances_perso', label:'Coûts & Revenus', icon:'€'},
+      {id:'factures_perso', label:'Factures', icon:'🧾'},
     ]},
     {group:'Admin', items: isAdmin()?[
       {id:'users', label:'Utilisateurs', icon:'◎'},
@@ -1539,6 +1594,19 @@ function renderApp(){
     finances: renderFinances(),
     factures: renderFactures(),
     topology: renderTopology(),
+    // Variantes filtrees SAVADUR/PERSO (memes fonctions, qui lisent S.view
+    // en interne via isDubailProfile()/isPersoScopeView() pour se filtrer -
+    // voir navItems() pour le detail des 2 groupes de menu correspondants).
+    bien_savadur: renderTopology(),
+    bien_perso: renderTopology(),
+    locatif_savadur: renderLocatif(),
+    locatif_perso: renderLocatif(),
+    compteurs_savadur: renderCompteurs(),
+    compteurs_perso: renderCompteurs(),
+    finances_savadur: renderFinances(),
+    finances_perso: renderFinances(),
+    factures_savadur: renderFactures(),
+    factures_perso: renderFactures(),
     maintenance: renderMaintenance(),
     users: isAdmin() ? renderUsers() : '<div style="padding:20px;color:var(--text2)">Accès restreint.</div>',
     settings: isAdmin() ? renderSettings() : '',
@@ -1552,11 +1620,21 @@ function renderApp(){
     vehicles: isAdmin()?`<button class="btn btn-p" id="btn-add-vehicle">+ Véhicule</button>`:'',
     locatif: isAdmin()?`<button class="btn btn-p" id="btn-add-tenant">+ Locataire</button>`:'',
     finances: isAdmin()?`<button class="btn btn-p" id="btn-add-revenue">+ Revenu locatif</button>`:'',
+    locatif_savadur: isAdmin()?`<button class="btn btn-p" id="btn-add-tenant">+ Locataire</button>`:'',
+    locatif_perso: isAdmin()?`<button class="btn btn-p" id="btn-add-tenant">+ Locataire</button>`:'',
+    finances_savadur: isAdmin()?`<button class="btn btn-p" id="btn-add-revenue">+ Revenu locatif</button>`:'',
+    finances_perso: isAdmin()?`<button class="btn btn-p" id="btn-add-revenue">+ Revenu locatif</button>`:'',
     maintenance: isAdmin()?`<button class="btn btn-p" id="btn-add-mt">+ Gamme</button>`:'',
     users: isAdmin()?`<button class="btn btn-p" id="btn-add-user">+ Utilisateur</button>`:'',
     asset_detail: `<button class="btn" id="btn-back">← Retour</button>${canEdit()?`<button class="btn btn-p" id="btn-add-wo-asset" style="margin-left:6px">+ Bon de travaux</button>`:''}`
   };
-  const titles = {dashboard:'Tableau de bord',assets:'Équipements',tasks:'Échéances',workorders:'Bons de travaux',chantiers:'Chantiers',tools:'Inventaire outils',consommables:'Inventaire consommables',rangements:'Gestion des rangements',etiquettes:'Étiquettes & QR Code',loans:"Prêts d'outils",vehicles:'Mes véhicules',locatif:'Gestion locative',compteurs:'Compteurs & Relevés',finances:'Coûts & Revenus',factures:'Factures & Rapprochement',factures:'Gestion des factures',topology:'Topologie des biens',maintenance:"Gammes d'entretien",users:'Utilisateurs',famille:'Suivi famille',settings:'Paramètres',asset_detail:S.selectedAsset?.name||'Détail'};
+  const titles = {dashboard:'Tableau de bord',assets:'Équipements',tasks:'Échéances',workorders:'Bons de travaux',chantiers:'Chantiers',tools:'Inventaire outils',consommables:'Inventaire consommables',rangements:'Gestion des rangements',etiquettes:'Étiquettes & QR Code',loans:"Prêts d'outils",vehicles:'Mes véhicules',locatif:'Gestion locative',compteurs:'Compteurs & Relevés',finances:'Coûts & Revenus',factures:'Factures & Rapprochement',factures:'Gestion des factures',topology:'Topologie des biens',maintenance:"Gammes d'entretien",users:'Utilisateurs',famille:'Suivi famille',settings:'Paramètres',
+    bien_savadur:'Bien — SAVADUR',bien_perso:'Bien — Perso',
+    locatif_savadur:'Gestion locative — SAVADUR',locatif_perso:'Gestion locative — Perso',
+    compteurs_savadur:'Compteurs & Relevés — SAVADUR',compteurs_perso:'Compteurs & Relevés — Perso',
+    finances_savadur:'Coûts & Revenus — SAVADUR',finances_perso:'Coûts & Revenus — Perso',
+    factures_savadur:'Factures — SAVADUR',factures_perso:'Factures — Perso',
+    asset_detail:S.selectedAsset?.name||'Détail'};
 
   return `<div class="app">
     <div class="sidebar">
@@ -2197,14 +2275,22 @@ function renderLoans(){
 // equipements (visible_assets) : un bien est visible des qu'au moins un de
 // ses noeuds (bien/zone/sous-zone) a un asset autorise.
 function getFilteredProperties(){
-  const all=S.topology.properties||[];
-  if(isAdmin())return all;
-  const va=S.currentUser?.visible_assets||S.currentUser?.assets||[];
-  if(va.length===0)return all;
-  return all.filter(p=>{
-    const ids=[p.assetId,...(p.zones||[]).flatMap(z=>[z.assetId,...(z.subZones||[]).map(s=>s.assetId)])].filter(Boolean);
-    return ids.some(id=>va.includes(id));
-  });
+  let all=S.topology.properties||[];
+  if(!isAdmin()){
+    const va=S.currentUser?.visible_assets||S.currentUser?.assets||[];
+    if(va.length>0){
+      all=all.filter(p=>{
+        const ids=[p.assetId,...(p.zones||[]).flatMap(z=>[z.assetId,...(z.subZones||[]).map(s=>s.assetId)])].filter(Boolean);
+        return ids.some(id=>va.includes(id));
+      });
+    }
+  }
+  // Filtre "Bien — SAVADUR/Perso" (menu) : s'applique en plus, y compris
+  // pour un admin - voir isDubailProfile()/isPersoScopeView() (lisent
+  // S.view) et le meme principe deja utilise pour BT/factures/locataires.
+  if(isDubailProfile())return all.filter(p=>dubailFilter(p.name));
+  if(isPersoScopeView())return all.filter(p=>!dubailFilter(p.name));
+  return all;
 }
 function renderTopology(){
   const ts = S.topoState;
@@ -2774,6 +2860,7 @@ function renderFieldApp(){
 
 function renderLocatif(){
   const isDubail=isDubailProfile();
+  const isPerso=isPersoScopeView();
   const tab = S.locatifTab||'tenants';
   const MONTHS = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
   const year = S.locatifYear||2026;
@@ -2807,7 +2894,7 @@ function renderLocatif(){
   if(tab==='tenants'){
     const colors=['#185FA5','#1D9E75','#9B59B6','#E67E22','#E74C3C'];
     // Group tenants by property from topology
-    const visProps=isDubail?S.topology.properties.filter(p=>dubailFilter(p.name)):S.topology.properties;
+    const visProps=getFilteredProperties();
     const propBlocks=visProps.map(function(prop,pi){
       const propTenants=tenants.filter(function(t){
         return (t.logement||'').toLowerCase().startsWith(prop.name.toLowerCase());
@@ -3168,7 +3255,9 @@ function renderLocatif(){
   }
 
     if(tab==='emises'){
-    const dubailTenantIds=isDubail?S.tenants.filter(t=>dubailFilter(t.logement||'')).map(t=>t.id):null;
+    const dubailTenantIds=isDubail?S.tenants.filter(t=>dubailFilter(t.logement||'')).map(t=>t.id)
+                        :isPerso?S.tenants.filter(t=>!dubailFilter(t.logement||'')).map(t=>t.id)
+                        :null;
     const allRp=S.rentPayments.filter(p=>p.annee===year&&(p.paye||(p.locataire_part>0||p.caf>0)||p.remise>0||p.loyer>0)&&(!dubailTenantIds||dubailTenantIds.includes(p.tenant_id)));
     // Cache calcDetteLigne (solde cumulé, report des mois précédents inclus) par locataire,
     // pour éviter de recalculer tout l'historique à chaque ligne de quittance affichée.
@@ -3661,13 +3750,16 @@ function renderFactures(){
 function renderCompteurs(){
   const cTab=S.cTab||'liste';
   const fmt=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(n||0);
+  const isDubail=isDubailProfile();
+  const isPerso=isPersoScopeView();
+  const scopedCompteurs=(S.compteurs||[]).filter(c=>isDubail?dubailFilter(c.name||''):isPerso?!dubailFilter(c.name||''):true);
   const tabBar='<div class="tab-bar" style="margin-bottom:14px">'
     +'<div class="tab '+(cTab==='liste'?'active':'')+'" data-ctab="liste">Compteurs</div>'
     +'<div class="tab '+(cTab==='releves'?'active':'')+'" data-ctab="releves">Relev\u00e9s</div>'
     +'</div>';
 
   if(cTab==='liste'){
-    const rows=(S.compteurs||[]).map(function(c){
+    const rows=scopedCompteurs.map(function(c){
       const tenant=c.tenant_id?S.tenants.find(t=>t.id===c.tenant_id):null;
       const lastRel=(S.releves||[]).filter(r=>r.compteur_id===c.id).sort((a,b)=>new Date(b.date)-new Date(a.date))[0];
       return '<div class="card" style="margin-bottom:10px">'
@@ -3697,7 +3789,8 @@ function renderCompteurs(){
   }
 
   if(cTab==='releves'){
-    const allReleves=(S.releves||[]).sort((a,b)=>new Date(b.date)-new Date(a.date));
+    const scopedIds=new Set(scopedCompteurs.map(c=>c.id));
+    const allReleves=(S.releves||[]).filter(r=>scopedIds.has(r.compteur_id)).sort((a,b)=>new Date(b.date)-new Date(a.date));
     const rows=allReleves.map(function(r){
       const cpt=(S.compteurs||[]).find(c=>c.id===r.compteur_id)||{};
       const tenant=cpt.tenant_id?S.tenants.find(t=>t.id===cpt.tenant_id):null;
@@ -3733,10 +3826,7 @@ function renderFinances(){
 
   // === COSTS: from work_orders only ===
   const isDubail=isDubailProfile();
-  function dubailTenantFilter(t){
-    if(!isDubail)return true;
-    return dubailFilter(t.logement||'');
-  }
+  const isPerso=isPersoScopeView();
   function getAllCosts(){
     return getFilteredWOs().filter(w=>{
       if(!(w.cost>0&&w.date&&w.date.startsWith(String(year))))return false;
@@ -3755,8 +3845,10 @@ function renderFinances(){
   const totalCosts = getAllCosts().reduce((s,w)=>s+parseFloat(w.cost||0),0);
 
   // === REVENUES: from rent_payments ===
-  const dubailTenantIds=isDubail?S.tenants.filter(t=>dubailFilter(t.logement||'')).map(t=>t.id):null;
-  const yearPayments = S.rentPayments.filter(p=>p.paye&&p.annee===year&&(!dubailTenantIds||dubailTenantIds.includes(p.tenant_id)));
+  const scopeTenantIds=isDubail?S.tenants.filter(t=>dubailFilter(t.logement||'')).map(t=>t.id)
+                      :isPerso?S.tenants.filter(t=>!dubailFilter(t.logement||'')).map(t=>t.id)
+                      :null;
+  const yearPayments = S.rentPayments.filter(p=>p.paye&&p.annee===year&&(!scopeTenantIds||scopeTenantIds.includes(p.tenant_id)));
   const totalRevenues = yearPayments.reduce((s,p)=>s+(p.loyer||0),0);
 
   const typeColors={'Urgence':'#E24B4A','Réparation':'#BA7517','Amélioration':'#185FA5','Entretien':'#1D9E75','Remplacement':'#534AB7','Autre':'#888'};
@@ -4002,10 +4094,10 @@ function renderFinances(){
   if(fTab==='revenus'){
     const MONTHS=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
     const colors=['#185FA5','#1D9E75','#9B59B6','#E67E22','#E74C3C','#2ECC71','#3498DB','#F39C12'];
-    const allTenants=S.tenants.filter(function(t){return t.actif!==false&&(!isDubail||dubailFilter(t.logement||''));});
-    const allPmts=S.rentPayments.filter(function(p){return p.annee===year;});
+    const allTenants=S.tenants.filter(function(t){return t.actif!==false&&(!scopeTenantIds||scopeTenantIds.includes(t.id));});
+    const allPmts=S.rentPayments.filter(function(p){return p.annee===year&&(!scopeTenantIds||scopeTenantIds.includes(p.tenant_id));});
 
-    const visProps=isDubail?S.topology.properties.filter(p=>dubailFilter(p.name)):S.topology.properties;
+    const visProps=getFilteredProperties();
     const propBlocks=visProps.map(function(prop,pi){
       const propTenants=allTenants.filter(function(t){
         return (t.logement||'').toLowerCase().startsWith(prop.name.toLowerCase());
@@ -10054,7 +10146,7 @@ function bindAll(){
   }));
   const btnExportRng=document.getElementById('btn-export-rng');
   if(btnExportRng)btnExportRng.onclick=exportRangementsExcel;
-  document.querySelectorAll('[data-nav]').forEach(el=>el.onclick=()=>{S.view=el.dataset.nav;S.selectedAsset=null;S.filter={cat:'all',search:''};if(el.dataset.nav!=='topology'){S.topoState.zoneId=null;S.topoState.subZoneId=null;S.topoState.tradeId=null;}render();});
+  document.querySelectorAll('[data-nav]').forEach(el=>el.onclick=()=>{S.view=el.dataset.nav;S.selectedAsset=null;S.filter={cat:'all',search:''};if(!['topology','bien_savadur','bien_perso'].includes(el.dataset.nav)){S.topoState.zoneId=null;S.topoState.subZoneId=null;S.topoState.tradeId=null;}if(el.dataset.nav==='factures_savadur')S.factTab='savadur';if(el.dataset.nav==='factures_perso')S.factTab='perso';if(el.dataset.nav==='finances_savadur')S.finFactCpte='savadur';if(el.dataset.nav==='finances_perso')S.finFactCpte='perso';render();});
   if(q('btn-logout'))q('btn-logout').onclick=()=>{S.currentUser=null;render();};
   if(q('btn-back'))q('btn-back').onclick=()=>{S.view=S.assetDetailFrom||'topology';S.selectedAsset=null;render();};
   if(q('btn-add-tool'))q('btn-add-tool').onclick=()=>{S.modal={type:'add-tool'};render();};
