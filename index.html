@@ -6568,12 +6568,14 @@ function renderModal(){
     <div style="display:flex;flex-direction:column;gap:8px">
       ${sigCardHtml('edl-paraphe-bailleur','edl-sig-bailleur','Bailleur')}
       ${sigCardHtml('edl-paraphe-locataire','edl-sig-locataire','Locataire',t.nom||'')}
+      ${(t.colocataires||[]).map((c,i)=>sigCardHtml('edl-paraphe-coloc-'+i,'edl-sig-coloc-'+i,'Co-preneur',c.nom||'')).join('')}
     </div>
     <div style="display:none">
       <canvas id="edl-paraphe-bailleur" width="500" height="150"></canvas>
       <canvas id="edl-sig-bailleur" width="500" height="150"></canvas>
       <canvas id="edl-paraphe-locataire" width="500" height="150"></canvas>
       <canvas id="edl-sig-locataire" width="500" height="150"></canvas>
+      ${(t.colocataires||[]).map((c,i)=>`<canvas id="edl-paraphe-coloc-${i}" width="500" height="150"></canvas><canvas id="edl-sig-coloc-${i}" width="500" height="150"></canvas>`).join('')}
     </div>
 
     <div style="display:flex;gap:8px;margin-top:12px">
@@ -6773,6 +6775,7 @@ function renderModal(){
       ${sigCardHtml('bail-paraphe-bailleur','bail-sig-bailleur','Bailleur')}
       ${sigCardHtml('bail-paraphe-garant','bail-sig-garant','Garant (si applicable)',bail.gar_nom||'')}
       ${sigCardHtml('bail-paraphe-locataire','bail-sig-locataire','Locataire',t.nom||'')}
+      ${(t.colocataires||[]).map((c,i)=>sigCardHtml('bail-paraphe-coloc-'+i,'bail-sig-coloc-'+i,'Co-preneur',c.nom||'')).join('')}
     </div>
     <div style="display:none">
       <canvas id="bail-paraphe-bailleur" width="500" height="150"></canvas>
@@ -6781,6 +6784,7 @@ function renderModal(){
       <canvas id="bail-sig-garant" width="500" height="150"></canvas>
       <canvas id="bail-paraphe-locataire" width="500" height="150"></canvas>
       <canvas id="bail-sig-locataire" width="500" height="150"></canvas>
+      ${(t.colocataires||[]).map((c,i)=>`<canvas id="bail-paraphe-coloc-${i}" width="500" height="150"></canvas><canvas id="bail-sig-coloc-${i}" width="500" height="150"></canvas>`).join('')}
     </div>
     <div style="font-size:11px;color:var(--text2);background:var(--bg2);padding:8px 10px;border-radius:var(--radius);margin-top:10px">
       ⚠ Signature électronique simple (paraphe/signature dessinés) — usage courant pour un bail entre particuliers, mais ne constitue pas une signature électronique qualifiée au sens juridique strict.
@@ -8931,6 +8935,13 @@ function collectBailFormData(){
   out.sig_locataire=sigDataUrl('bail-sig-locataire');
   out.paraphe_garant=sigDataUrl('bail-paraphe-garant');
   out.sig_garant=sigDataUrl('bail-sig-garant');
+  // Un colocataire (tenants.colocataires) est une partie prenante a part
+  // entiere du bail (deja mentionne comme "Co-preneur" dans le corps du
+  // contrat) : il doit donc parapher/signer comme le locataire principal,
+  // pas seulement etre cite en texte. Capture indexee (pas par nom, qui peut
+  // etre vide/change en cours de saisie) et rattachee au nom au moment de la
+  // signature, pour rester correcte meme si la liste est modifiee ensuite.
+  out.coloc_sigs=(t.colocataires||[]).map((c,i)=>({nom:c.nom||'',paraphe:sigDataUrl('bail-paraphe-coloc-'+i),sig:sigDataUrl('bail-sig-coloc-'+i)}));
   return out;
 }
 
@@ -9073,18 +9084,28 @@ function genBailPDF(bail,tenant){
 
   title('Fait à '+(bail.lieu_sig||'—')+', le '+new Date().toLocaleDateString('fr-FR'));
   para("Chaque partie reconnaît avoir lu et accepté les termes du présent contrat et de ses annexes, en foi de quoi elle appose son paraphe sur chaque page et sa signature ci-dessous.");
-  ensureSpace(45);
-  const sigY=y+8;
+  // Grille generique a N signataires (bailleur + locataire principal + un
+  // co-preneur par colocataire + garant si renseigne) - chaque co-preneur
+  // est une partie prenante du bail au meme titre que le locataire
+  // principal, pas juste cite en texte, donc doit signer/parapher comme lui.
   const hasGarantSig=!!bail.gar_nom;
-  const sigW=hasGarantSig?50:55;
-  const xBailleur=marginX,xLocataire=pageW-marginX-sigW,xGarant=pageW/2-sigW/2;
-  if(bail.sig_bailleur){doc.addImage(bail.sig_bailleur,'PNG',xBailleur,sigY,sigW,25);}
-  if(bail.sig_locataire){doc.addImage(bail.sig_locataire,'PNG',xLocataire,sigY,sigW,25);}
-  if(hasGarantSig&&bail.sig_garant){doc.addImage(bail.sig_garant,'PNG',xGarant,sigY,sigW,25);}
+  const signers=[
+    {label:'Le bailleur',img:bail.sig_bailleur},
+    {label:'Le locataire',img:bail.sig_locataire},
+    ...(bail.coloc_sigs||[]).filter(c=>c.sig).map(c=>({label:c.nom||'Co-preneur',img:c.sig})),
+    ...(hasGarantSig?[{label:'Le garant',img:bail.sig_garant}]:[]),
+  ];
+  const perRow=Math.max(1,Math.min(signers.length,4));
+  const rows=Math.ceil(signers.length/perRow);
+  ensureSpace(20+rows*38);
+  const sigY0=y+8,colW=(pageW-2*marginX)/perRow,sigW=Math.min(50,colW-10);
   doc.setFontSize(9);
-  doc.text('Le bailleur',xBailleur,sigY+30);
-  doc.text('Le locataire',xLocataire,sigY+30);
-  if(hasGarantSig)doc.text('Le garant',xGarant,sigY+30);
+  signers.forEach((s,i)=>{
+    const row=Math.floor(i/perRow),col=i%perRow;
+    const x=marginX+col*colW+(colW-sigW)/2,yy=sigY0+row*38;
+    if(s.img)doc.addImage(s.img,'PNG',x,yy,sigW,25);
+    doc.text(s.label,x,yy+30,{maxWidth:colW-4});
+  });
   // Le paraphe et la numerotation des pages sont apposes apres fusion avec
   // les diagnostics (voir mergeBailWithDiagnostics), pas ici : le nombre de
   // pages final n'est connu qu'une fois les annexes ajoutees, et on evite
@@ -9142,12 +9163,23 @@ async function mergeBailWithDiagnostics(jsDoc,bail,tenant){
   const parB=bail.paraphe_bailleur?await finalDoc.embedPng(dataUrlToUint8(bail.paraphe_bailleur)):null;
   const parL=bail.paraphe_locataire?await finalDoc.embedPng(dataUrlToUint8(bail.paraphe_locataire)):null;
   const parG=bail.gar_nom&&bail.paraphe_garant?await finalDoc.embedPng(dataUrlToUint8(bail.paraphe_garant)):null;
+  // Paraphe des co-preneurs (colocataires) : places sur une rangee dediee,
+  // repartie sur la largeur de page, au-dessus de celle bailleur/locataire -
+  // meme principe que le garant, generalise a un nombre variable de
+  // signataires supplementaires.
+  const parColocs=[];
+  for(const c of (bail.coloc_sigs||[]))if(c.paraphe)parColocs.push(await finalDoc.embedPng(dataUrlToUint8(c.paraphe)));
+  const extraParaphes=[...parColocs,...(parG?[parG]:[])];
   const pages=finalDoc.getPages();
   pages.forEach((page,i)=>{
     const {width}=page.getSize();
     if(parB)page.drawImage(parB,{x:20,y:12,width:56,height:20});
     if(parL)page.drawImage(parL,{x:width-76,y:12,width:56,height:20});
-    if(parG)page.drawImage(parG,{x:width/2-28,y:34,width:56,height:20});
+    const n=extraParaphes.length;
+    if(n){
+      const spacing=width/(n+1);
+      extraParaphes.forEach((img,idx)=>page.drawImage(img,{x:spacing*(idx+1)-28,y:34,width:56,height:20}));
+    }
     page.drawText('Page '+(i+1)+'/'+pages.length,{x:width/2-20,y:14,size:8,font,color:rgb(0.6,0.6,0.6)});
   });
 
@@ -9383,6 +9415,9 @@ function collectEdlFormData(){
     paraphe_locataire:sigDataUrl('edl-paraphe-locataire'),
     sig_bailleur:sigDataUrl('edl-sig-bailleur'),
     sig_locataire:sigDataUrl('edl-sig-locataire'),
+    // Meme principe que le bail (voir collectBailFormData) : un colocataire
+    // doit parapher/signer l'etat des lieux comme le locataire principal.
+    coloc_sigs:(S.modal.tenant?.colocataires||[]).map((c,i)=>({nom:c.nom||'',paraphe:sigDataUrl('edl-paraphe-coloc-'+i),sig:sigDataUrl('edl-sig-coloc-'+i)})),
   };
 }
 
@@ -9428,17 +9463,24 @@ function genEdlPDF(edl,tenant,entreeRef){
   doc.line(marginX,y,pageW-marginX,y);
   y+=5;
 
-  // ---- Bloc identification (2 colonnes) ----
+  // ---- Bloc identification (2 colonnes, hauteur calculee dynamiquement -
+  // "Locataire(s)" peut s'etaler sur plusieurs lignes des qu'il y a des
+  // colocataires, comme "Logement" peut deja le faire) ----
   const colW=(pageW-2*marginX-6)/2,col2X=marginX+colW+6;
   doc.setFont('helvetica','normal');doc.setFontSize(9);setColor(C.text);
-  doc.text('Date : '+dl(edl.date),marginX,y);
-  doc.text('Locataire : '+(tenant.nom||'—'),col2X,y);y+=5;
-  const logLines=doc.splitTextToSize('Logement : '+(tenant.logement||'—'),colW);
-  logLines.forEach((l,i)=>doc.text(l,marginX,y+i*4.3));
-  if(isSortie&&edl.nouvelle_adresse)doc.text('Nouvelle adresse : '+edl.nouvelle_adresse,col2X,y,{maxWidth:colW});
-  y+=Math.max(logLines.length*4.3,5);
-  doc.text('Bailleur : J&A SAVADUR — Antoine JOSSE',marginX,y);
-  y+=7;
+  const col1Lines=[
+    'Date : '+dl(edl.date),
+    ...doc.splitTextToSize('Logement : '+(tenant.logement||'—'),colW),
+    'Bailleur : J&A SAVADUR — Antoine JOSSE',
+  ];
+  const locNames=[tenant.nom||'—',...(tenant.colocataires||[]).map(c=>c.nom).filter(Boolean)].join(', ');
+  const col2Lines=[
+    ...doc.splitTextToSize('Locataire(s) : '+locNames,colW),
+    ...(isSortie&&edl.nouvelle_adresse?doc.splitTextToSize('Nouvelle adresse : '+edl.nouvelle_adresse,colW):[]),
+  ];
+  col1Lines.forEach((l,i)=>doc.text(l,marginX,y+i*4.3));
+  col2Lines.forEach((l,i)=>doc.text(l,col2X,y+i*4.3));
+  y+=Math.max(col1Lines.length,col2Lines.length)*4.3+2;
 
   // ---- Bandeau compteurs + cles (hauteur calculee dynamiquement) ----
   const c=edl.compteurs||{},k=edl.cles||{};
@@ -9546,8 +9588,14 @@ function genEdlPDF(edl,tenant,entreeRef){
   doc.setFontSize(9);setColor(C.text);
   doc.text('Fait à Lorient, le '+dl(edl.date),marginX,y);y+=6;
   doc.setTextColor(0,0,0);
-  doc.text('Signature du bailleur',marginX,y);
-  doc.text('Signature du locataire',pageW-marginX-55,y);
+  // Legendes des signataires - meme repartition (colonnes egales sur la
+  // largeur de page) que dans mergeEdlWithPhotos, qui tamponne les images de
+  // signature reelles par-dessus a cet emplacement (position fixe en points
+  // PDF sur la derniere page du corps) : garder les deux en phase.
+  const signerLabels=['Signature du bailleur','Signature du locataire',...(tenant?.colocataires||[]).map(c=>'Signature — '+(c.nom||'co-preneur'))];
+  const sCols=Math.max(1,signerLabels.length);
+  const sColW=(pageW-2*marginX)/sCols;
+  signerLabels.forEach((lbl,i)=>doc.text(lbl,marginX+i*sColW,y,{maxWidth:sColW-4}));
   return doc;
 }
 
@@ -9587,21 +9635,31 @@ async function mergeEdlWithPhotos(jsDoc,edl){
     }catch(e){console.warn('Photo non incluse dans le PDF final :',e.message);}
   }
 
-  const parB=edl.paraphe_bailleur?await finalDoc.embedPng(dataUrlToUint8(edl.paraphe_bailleur)):null;
-  const parL=edl.paraphe_locataire?await finalDoc.embedPng(dataUrlToUint8(edl.paraphe_locataire)):null;
-  const sigB=edl.sig_bailleur?await finalDoc.embedPng(dataUrlToUint8(edl.sig_bailleur)):null;
-  const sigL=edl.sig_locataire?await finalDoc.embedPng(dataUrlToUint8(edl.sig_locataire)):null;
+  // Signataires : bailleur + locataire principal + un co-preneur par
+  // colocataire (edl.coloc_sigs, voir collectEdlFormData) - repartis en
+  // colonnes egales sur la largeur de page, memes bornes que les legendes
+  // texte deja posees par genEdlPDF (marginX=15mm) pour rester alignes.
+  const signers=[
+    {paraphe:edl.paraphe_bailleur,sig:edl.sig_bailleur},
+    {paraphe:edl.paraphe_locataire,sig:edl.sig_locataire},
+    ...(edl.coloc_sigs||[]),
+  ];
+  const parImgs=[];
+  for(const s of signers)parImgs.push(s.paraphe?await finalDoc.embedPng(dataUrlToUint8(s.paraphe)):null);
+  const sigImgs=[];
+  for(const s of signers)sigImgs.push(s.sig?await finalDoc.embedPng(dataUrlToUint8(s.sig)):null);
+  const marginXpt=42.5;
   const pages=finalDoc.getPages();
   pages.forEach((page,i)=>{
     const {width}=page.getSize();
-    if(parB)page.drawImage(parB,{x:20,y:12,width:56,height:20});
-    if(parL)page.drawImage(parL,{x:width-76,y:12,width:56,height:20});
+    const colW=(width-2*marginXpt)/signers.length;
+    parImgs.forEach((img,idx)=>{if(img)page.drawImage(img,{x:marginXpt+idx*colW,y:12,width:Math.min(56,colW-6),height:20});});
     page.drawText('Page '+(i+1)+'/'+pages.length,{x:width/2-20,y:14,size:8,font,color:rgb(0.6,0.6,0.6)});
   });
   const lastBodyPage=finalDoc.getPage(bodyPageCount-1);
   const{width:lbw}=lastBodyPage.getSize();
-  if(sigB)lastBodyPage.drawImage(sigB,{x:20,y:70,width:110,height:38});
-  if(sigL)lastBodyPage.drawImage(sigL,{x:lbw-130,y:70,width:110,height:38});
+  const colW2=(lbw-2*marginXpt)/signers.length;
+  sigImgs.forEach((img,idx)=>{if(img)lastBodyPage.drawImage(img,{x:marginXpt+idx*colW2,y:70,width:Math.min(110,colW2-10),height:38});});
 
   return finalDoc.save();
 }
@@ -10221,6 +10279,7 @@ function bindAll(){
 
   if(S.modal?.type==='bail-form'){
     ['bail-paraphe-bailleur','bail-paraphe-locataire','bail-sig-bailleur','bail-sig-locataire','bail-paraphe-garant','bail-sig-garant'].forEach(initSigCanvas);
+    (S.modal.tenant?.colocataires||[]).forEach((c,i)=>{initSigCanvas('bail-paraphe-coloc-'+i);initSigCanvas('bail-sig-coloc-'+i);});
     const btnDraftBail=document.getElementById('btn-draft-bail');
     if(btnDraftBail)btnDraftBail.onclick=async()=>{
       const t=S.modal.tenant;
@@ -10266,6 +10325,10 @@ function bindAll(){
       if(hasGarant&&!sigDataUrl('bail-sig-garant')){
         alert('La signature du garant est requise avant enregistrement (un garant est renseigné sur ce bail).');return;
       }
+      const missingColocSig=(t.colocataires||[]).find((c,i)=>!sigDataUrl('bail-paraphe-coloc-'+i)||!sigDataUrl('bail-sig-coloc-'+i));
+      if(missingColocSig){
+        alert('Le paraphe et la signature de '+(missingColocSig.nom||'chaque co-preneur')+' sont requis avant enregistrement (co-preneur renseigné sur ce bail).');return;
+      }
       btnSaveBail.disabled=true;btnSaveBail.textContent='⏳ Génération...';
       try{
         const bail=collectBailFormData();
@@ -10302,6 +10365,7 @@ function bindAll(){
 
   if(S.modal?.type==='edl-form'){
     ['edl-paraphe-bailleur','edl-paraphe-locataire','edl-sig-bailleur','edl-sig-locataire'].forEach(initSigCanvas);
+    (S.modal.tenant?.colocataires||[]).forEach((c,i)=>{initSigCanvas('edl-paraphe-coloc-'+i);initSigCanvas('edl-sig-coloc-'+i);});
     document.querySelectorAll('[data-edl-photo]').forEach(el=>el.onchange=()=>{
       const [roomKey,itemKey]=el.dataset.edlPhoto.split('.');
       uploadEdlPhoto(S.modal.edl.id,roomKey,itemKey,el);
@@ -10333,6 +10397,10 @@ function bindAll(){
       if(!sigDataUrl('edl-sig-bailleur')||!sigDataUrl('edl-sig-locataire')){
         alert('Les 2 signatures (bailleur et locataire) sont requises avant enregistrement.');return;
       }
+      const missingColocSigEdl=(t.colocataires||[]).find((c,i)=>!sigDataUrl('edl-paraphe-coloc-'+i)||!sigDataUrl('edl-sig-coloc-'+i));
+      if(missingColocSigEdl){
+        alert('Le paraphe et la signature de '+(missingColocSigEdl.nom||'chaque co-preneur')+' sont requis avant enregistrement (co-preneur renseigné sur ce bail).');return;
+      }
       btnSaveEdl.disabled=true;btnSaveEdl.textContent='⏳ Génération...';
       try{
         const edl=collectEdlFormData();
@@ -10349,7 +10417,7 @@ function bindAll(){
           id:edl.id,bien:targetBien,tenant_id:t.id,type:edl.type,linked_edl_id:edl.linked_edl_id,
           date:edl.date||null,structure:edl.structure,compteurs:edl.compteurs,cles:edl.cles,data:edl.data,
           observations:edl.observations,paraphe_bailleur:edl.paraphe_bailleur,paraphe_locataire:edl.paraphe_locataire,
-          sig_bailleur:edl.sig_bailleur,sig_locataire:edl.sig_locataire,pdf_url:freshUrl,
+          sig_bailleur:edl.sig_bailleur,sig_locataire:edl.sig_locataire,coloc_sigs:edl.coloc_sigs,pdf_url:freshUrl,
         };
         const{data:inserted,error}=await sb.from('logement_edl').insert(rec).select().single();
         if(error){alert('État des lieux généré mais erreur enregistrement : '+error.message);return;}
