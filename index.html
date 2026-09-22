@@ -9392,81 +9392,160 @@ function collectEdlFormData(){
 // l'etat des lieux comparatif) a partir de entreeRef (l'enregistrement
 // d'entree lie, deja charge en memoire au moment de l'ouverture du
 // formulaire de sortie).
+// Design compact (tableau) tenant sur une feuille recto/verso : la
+// "Repartition des reparations et de l'entretien" (presente sur le bail) est
+// volontairement omise ici, redondante avec le bail deja remis au locataire.
+// La zone des 24mm en bas de derniere page (marginBottom) reste libre pour
+// le tamponnage du paraphe/signature par mergeEdlWithPhotos (position fixe
+// en points PDF, cf ce commentaire dans genBailPDF) - ne pas la reduire.
 function genEdlPDF(edl,tenant,entreeRef){
   const {jsPDF}=window.jspdf;
   const doc=new jsPDF({unit:'mm',format:'a4'});
-  const pageW=210,pageH=297,marginX=15,marginTop=18,marginBottom=24;
+  const pageW=210,pageH=297,marginX=15,marginTop=15,marginBottom=24;
   let y=marginTop;
   const isSortie=edl.type==='sortie';
   const dl=d=>d?new Date(d).toLocaleDateString('fr-FR'):'—';
-  function ensureSpace(h){if(y+h>pageH-marginBottom){doc.addPage();y=marginTop;}}
-  function title(txt){
-    ensureSpace(10);doc.setFont('helvetica','bold');doc.setFontSize(13);
-    doc.text(txt,marginX,y);y+=7;doc.setFont('helvetica','normal');doc.setFontSize(9);
-  }
-  function line(txt,size){
-    doc.setFontSize(size||9);
-    const lines=doc.splitTextToSize(txt,pageW-2*marginX);
-    lines.forEach(l=>{ensureSpace(5);doc.text(l,marginX,y);y+=5;});
-  }
+  const C={text:[26,26,26],text2:[107,107,104],border:[224,224,219],bg2:[245,245,243],blueBg:[230,241,251],
+    green:[29,158,117],blue:[24,95,165],amber:[186,117,23],red:[226,75,74]};
+  const ETAT_COLOR={TB:C.green,B:C.blue,P:C.amber,M:C.red};
+  const setColor=c=>doc.setTextColor(c[0],c[1],c[2]);
 
-  // Logo J&A SAVADUR : le bailleur de l'etat des lieux est actuellement
-  // toujours affiche comme "J&A SAVADUR" ci-dessous (meme hors bien Dubail),
-  // le logo suit donc la meme regle - non conditionne par dubailFilter ici,
-  // contrairement au bail/aux quittances. Pleine largeur de page (cf genBailPDF).
-  const logoW=pageW-2*marginX,logoH=logoW*159/605;
+  let justBroke=false;
+  function ensureSpace(h){if(y+h>pageH-marginBottom){doc.addPage();y=marginTop;justBroke=true;}}
+  // Comme ensureSpace, mais redessine automatiquement l'entete du tableau si
+  // l'appel vient de declencher un saut de page - evite une page 2 sans
+  // rappel des colonnes.
+  function checkBreak(h){justBroke=false;ensureSpace(h);if(justBroke)tableHeader();}
+
+  // ---- En-tete : logo pleine largeur (reduit vs le bail) + titre ----
+  const logoW=pageW-2*marginX,logoH=logoW*159/605*0.75;
   doc.addImage(LOGO_SAVADUR_B64,'PNG',marginX,y,logoW,logoH);
-  y+=logoH+5;
+  y+=logoH+4;
+  doc.setFont('helvetica','bold');doc.setFontSize(15);setColor(C.text);
+  doc.text('ÉTAT DES LIEUX '+(isSortie?'DE SORTIE':"D'ENTRÉE"),pageW/2,y,{align:'center'});
+  y+=5;
+  doc.setDrawColor(...C.border);doc.setLineWidth(0.4);
+  doc.line(marginX,y,pageW-marginX,y);
+  y+=5;
 
-  doc.setFont('helvetica','bold');doc.setFontSize(16);
-  doc.text('ÉTAT DES LIEUX '+(isSortie?'DE SORTIE':"D'ENTRÉE"),pageW/2,y,{align:'center'});y+=10;
-  doc.setFont('helvetica','normal');doc.setFontSize(9);
+  // ---- Bloc identification (2 colonnes) ----
+  const colW=(pageW-2*marginX-6)/2,col2X=marginX+colW+6;
+  doc.setFont('helvetica','normal');doc.setFontSize(9);setColor(C.text);
+  doc.text('Date : '+dl(edl.date),marginX,y);
+  doc.text('Locataire : '+(tenant.nom||'—'),col2X,y);y+=5;
+  const logLines=doc.splitTextToSize('Logement : '+(tenant.logement||'—'),colW);
+  logLines.forEach((l,i)=>doc.text(l,marginX,y+i*4.3));
+  if(isSortie&&edl.nouvelle_adresse)doc.text('Nouvelle adresse : '+edl.nouvelle_adresse,col2X,y,{maxWidth:colW});
+  y+=Math.max(logLines.length*4.3,5);
+  doc.text('Bailleur : J&A SAVADUR — Antoine JOSSE',marginX,y);
+  y+=7;
 
-  line('Date : '+dl(edl.date));
-  line('Logement : '+(tenant.logement||'—'));
-  line('Bailleur : J&A SAVADUR — Antoine JOSSE');
-  line('Locataire : '+(tenant.nom||'—')+(isSortie&&edl.nouvelle_adresse?' — Nouvelle adresse : '+edl.nouvelle_adresse:''));
-  y+=2;
+  // ---- Bandeau compteurs + cles (hauteur calculee dynamiquement) ----
+  const c=edl.compteurs||{},k=edl.cles||{};
+  const compteurLines=[
+    (c.elec_num||c.elec_releve)?('Électricité — n° '+(c.elec_num||'—')+' · relevé '+(c.elec_releve||'—')):null,
+    (c.gaz_num||c.gaz_releve)?('Gaz — n° '+(c.gaz_num||'—')+' · relevé '+(c.gaz_releve||'—')):null,
+    'Eau froide : '+(c.eau_froide||'—')+' m³'+(c.eau_chaude?'  ·  Eau chaude : '+c.eau_chaude+' m³':''),
+  ].filter(Boolean);
+  const clesLines=[
+    'Immeuble : '+(k.cles_immeuble||0)+'  ·  Boîtes aux lettres : '+(k.boites_lettres||0)+'  ·  Badge/portail : '+(k.badge_portail||0),
+    "Porte d'entrée : "+(k.cles_porte||0)+'  ·  Cave : '+(k.cles_cave||0)+'  ·  Parking : '+(k.parking||0),
+  ];
+  if(k.autre_label)clesLines.push(k.autre_label+' : '+(k.autre_nb||0));
+  const boxLines=Math.max(compteurLines.length,clesLines.length);
+  const boxH=8+boxLines*4.2;
+  ensureSpace(boxH+4);
+  doc.setFillColor(...C.bg2);
+  doc.roundedRect(marginX,y,pageW-2*marginX,boxH,1.5,1.5,'F');
+  doc.setFont('helvetica','bold');doc.setFontSize(7.5);setColor(C.text2);
+  doc.text('COMPTEURS ET RELEVÉS',marginX+3,y+4.5);
+  doc.text('CLÉS ET ACCÈS',col2X,y+4.5);
+  doc.setFont('helvetica','normal');doc.setFontSize(8);setColor(C.text);
+  compteurLines.forEach((t,i)=>doc.text(t,marginX+3,y+9+i*4.2,{maxWidth:colW-6}));
+  clesLines.forEach((t,i)=>doc.text(t,col2X,y+9+i*4.2,{maxWidth:colW-3}));
+  y+=boxH+5;
 
-  title('Compteurs et relevés');
-  const c=edl.compteurs||{};
-  line('Électricité — N° compteur : '+(c.elec_num||'—')+' · Relevé : '+(c.elec_releve||'—'));
-  if(c.gaz_num||c.gaz_releve)line('Gaz — N° compteur : '+(c.gaz_num||'—')+' · Relevé : '+(c.gaz_releve||'—'));
-  line('Eau — Relevé froide : '+(c.eau_froide||'—')+' m³ · Relevé chaude : '+(c.eau_chaude||'—')+' m³');
-  y+=2;
+  // ---- Tableau etat des pieces ----
+  const cols=isSortie
+    ?[{w:55},{w:22},{w:22},{w:pageW-2*marginX-55-22-22}]
+    :[{w:65},{w:25},{w:pageW-2*marginX-65-25}];
+  const headLabels=isSortie?['Élément','État entrée','État sortie','Observations']:['Élément','État','Observations'];
+  const rowH=5.2,headH=6;
+  function tableHeader(){
+    doc.setFillColor(...C.text);
+    doc.rect(marginX,y,pageW-2*marginX,headH,'F');
+    doc.setFont('helvetica','bold');doc.setFontSize(7.5);doc.setTextColor(255,255,255);
+    let cx=marginX;
+    headLabels.forEach((lbl,i)=>{doc.text(lbl,cx+2,y+4.2);cx+=cols[i].w;});
+    y+=headH;
+    doc.setFont('helvetica','normal');doc.setFontSize(8);setColor(C.text);
+  }
+  function roomBar(label){
+    checkBreak(rowH+1);
+    doc.setFillColor(...C.blueBg);
+    doc.rect(marginX,y,pageW-2*marginX,rowH,'F');
+    doc.setFont('helvetica','bold');doc.setFontSize(8);setColor(C.blue);
+    doc.text(label.toUpperCase(),marginX+2,y+3.7);
+    y+=rowH;
+    doc.setFont('helvetica','normal');doc.setFontSize(8);setColor(C.text);
+  }
+  function etatCell(x,w,code){
+    setColor(ETAT_COLOR[code]||C.text2);
+    doc.text(EDL_ETAT_LABELS[code]||'—',x+2,y+3.6,{maxWidth:w-3});
+  }
+  function itemRow(itLabel,etat,obsText,zebra){
+    checkBreak(rowH);
+    if(zebra){doc.setFillColor(...C.bg2);doc.rect(marginX,y,pageW-2*marginX,rowH,'F');}
+    let cx=marginX;
+    setColor(C.text);
+    doc.text(itLabel,cx+2,y+3.6,{maxWidth:cols[0].w-3});
+    cx+=cols[0].w;
+    if(isSortie){
+      etatCell(cx,cols[1].w,etat.entree);cx+=cols[1].w;
+      etatCell(cx,cols[2].w,etat.sortie);cx+=cols[2].w;
+    }else{
+      etatCell(cx,cols[1].w,etat);cx+=cols[1].w;
+    }
+    setColor(C.text);
+    doc.text(obsText||'—',cx+2,y+3.6,{maxWidth:cols[cols.length-1].w-3});
+    y+=rowH;
+  }
 
-  title('Clés et accès');
-  const k=edl.cles||{};
-  line("Clés immeuble : "+(k.cles_immeuble||0)+' · Boîtes aux lettres : '+(k.boites_lettres||0)+' · Badge/clé portail : '+(k.badge_portail||0));
-  line("Clés porte d'entrée : "+(k.cles_porte||0)+' · Clés cave : '+(k.cles_cave||0)+' · Parking : '+(k.parking||0));
-  if(k.autre_label)line('Autre ('+k.autre_label+') : '+(k.autre_nb||0));
-  y+=2;
-
+  tableHeader();
+  let rowIdx=0;
   (edl.structure||[]).forEach(room=>{
-    title(room.label);
+    roomBar(room.label);
     room.items.forEach(itemKey=>{
       const key=room.key+'.'+itemKey;
       const it=(edl.data||{})[key]||{};
       const itLabel=EDL_ITEM_CATALOG[itemKey]||itemKey;
-      const ref=isSortie&&entreeRef?(entreeRef.data||{})[key]:null;
-      let txt=itLabel+' — État : '+(it.etat||'—')+(ref?' (entrée : '+(ref.etat||'—')+')':'');
-      if(it.description)txt+=' — '+it.description;
-      line(txt);
-      if(ref?.description)line('Description entrée : '+ref.description,8);
+      const photoTag=(it.photos&&it.photos.length)?' (📷 '+it.photos.length+')':'';
+      const obs=(it.description||'')+photoTag;
+      if(isSortie){
+        const ref=entreeRef?(entreeRef.data||{})[key]:null;
+        itemRow(itLabel,{entree:ref?.etat,sortie:it.etat},obs,rowIdx%2===1);
+      }else{
+        itemRow(itLabel,it.etat,obs,rowIdx%2===1);
+      }
+      rowIdx++;
     });
-    y+=1;
   });
+  y+=4;
 
-  if(edl.observations){title('Observations ou réserves');line(edl.observations);}
-
-  title("Répartition des réparations et de l'entretien");
-  line(REPARATIONS_CLAUSE_INTRO);
-  REPARATIONS_CLAUSE_PARAS.forEach(t=>line(t));
+  if(edl.observations){
+    checkBreak(14);
+    doc.setFont('helvetica','bold');doc.setFontSize(9);setColor(C.text);
+    doc.text('Observations ou réserves',marginX,y);y+=5;
+    doc.setFont('helvetica','normal');doc.setFontSize(8.5);
+    const obsLines=doc.splitTextToSize(edl.observations,pageW-2*marginX);
+    obsLines.forEach(l=>{checkBreak(4.5);doc.text(l,marginX,y);y+=4.5;});
+  }
 
   ensureSpace(20);
   y+=6;
-  doc.setFontSize(9);
+  doc.setFontSize(9);setColor(C.text);
   doc.text('Fait à Lorient, le '+dl(edl.date),marginX,y);y+=6;
+  doc.setTextColor(0,0,0);
   doc.text('Signature du bailleur',marginX,y);
   doc.text('Signature du locataire',pageW-marginX-55,y);
   return doc;
