@@ -2217,10 +2217,28 @@ function renderTopology(){
     const currentDiagEntries=diagStatusAll.filter(d=>d.doc);
     const archivedDiagDocs=diagStatusAll.flatMap(d=>d.older.map(o=>({...o,expired:o.date_expiry?new Date(o.date_expiry)<new Date():false})));
     const recognizedDiagTypes=new Set(Object.keys(DOC_TYPE_TO_DIAG_KEY));
-    const otherDocs=docs.filter(d=>!recognizedDiagTypes.has(d.type)).map(d=>({...d,expired:d.date_expiry?new Date(d.date_expiry)<new Date():false}));
+    const otherDocsAll=docs.filter(d=>!recognizedDiagTypes.has(d.type)).map(d=>({...d,expired:d.date_expiry?new Date(d.date_expiry)<new Date():false}));
+    // bien_documents n'a pas de colonne tenant_id : un document "Autre"/
+    // "Piece identite" date d'avant le depart du locataire PRECEDENT
+    // appartient tres probablement a cet ancien occupant (piece d'identite
+    // notamment, intrinsequement liee a une personne precise). On compare
+    // au depart du precedent (date_sortie), pas a l'entree de l'actuel : les
+    // papiers d'un nouveau locataire (photo CNI, courrier...) sont souvent
+    // pris quelques jours AVANT sa date d'entree officielle, et seraient
+    // sinon a tort renvoyes en archive. Sans date de depart du precedent
+    // connue, on ne prend aucun risque et on garde tout dans "courants".
+    const activeTenant=matchingTenants.find(t=>t.actif!==false);
+    const prevTenant=matchingTenants.find(t=>t!==activeTenant&&t.date_sortie);
+    const otherDocsCutoff=prevTenant?.date_sortie||null;
+    const otherDocs=otherDocsCutoff?otherDocsAll.filter(d=>!d.date||d.date>=otherDocsCutoff):otherDocsAll;
+    const archivedOtherDocs=otherDocsCutoff?otherDocsAll.filter(d=>!otherDocs.includes(d)):[];
     const activeBailDoc=tenantDocs.find(td=>td.actifTenant&&td.type.startsWith('Bail — '));
     const archivedTenantDocs=tenantDocs.filter(td=>td!==activeBailDoc);
-    const archivedTotal=archivedDiagDocs.length+archivedTenantDocs.length;
+    // Archives triees par date decroissante (le plus recent en premier),
+    // toutes origines melangees (diagnostics remplaces, autres documents
+    // d'anciens locataires, bail/diagnostics references par eux).
+    const archivedAll=[...archivedDiagDocs,...archivedOtherDocs,...archivedTenantDocs].sort((a,b)=>new Date(b.date||0)-new Date(a.date||0));
+    const archivedTotal=archivedAll.length;
     // Find WOs linked to this topo node (by assetId OR by topo_ref matching current node)
     const wos = S.workOrders.filter(w=>{
       if(nodeAssetId && w.asset_id===nodeAssetId) return true;
@@ -2310,8 +2328,7 @@ function renderTopology(){
             <span style="font-size:11px;color:var(--text2)" class="archive-toggle-arrow">▸</span>
           </div>
           <div style="display:none;margin-top:8px">
-            ${archivedDiagDocs.map(docRow).join('')}
-            ${archivedTenantDocs.map(docRow).join('')}
+            ${archivedAll.map(docRow).join('')}
             ${archivedTotal===0?'<div style="font-size:11px;color:var(--text2)">Aucune archive.</div>':''}
           </div>
         </div>`;
