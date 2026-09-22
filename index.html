@@ -9042,6 +9042,9 @@ function genBailPDF(bail,tenant){
 
   title((isComm?'VII':'X')+'. Obligations des parties');
   para("Le locataire s'engage à payer le loyer et les charges aux termes convenus, à user paisiblement des locaux loués, à répondre des dégradations survenues pendant la durée du contrat, à s'assurer contre les risques locatifs et à en justifier à la demande du bailleur, et à ne céder ni sous-louer le logement sans l'accord écrit du bailleur.");
+  if(!isComm){
+    para("Le locataire est tenu de maintenir une assurance contre les risques locatifs (assurance habitation) sans interruption pendant toute la durée du présent contrat. Il s'engage à transmettre au bailleur une nouvelle attestation d'assurance à chaque échéance ou renouvellement de son contrat d'assurance, ainsi qu'à l'informer sans délai de tout changement d'assureur ou de toute modification des garanties souscrites.");
+  }
   para("Le bailleur s'engage à délivrer un logement décent et en bon état d'usage, à assurer au locataire une jouissance paisible du logement, et à entretenir les locaux en état de servir à l'usage prévu.");
 
   title((isComm?'VIII':'XI')+". Répartition des réparations et de l'entretien");
@@ -9063,6 +9066,7 @@ function genBailPDF(bail,tenant){
     para('- Copie(s) des pièces d\'identité :');
     tenant.identite_photos.forEach(p=>para('  • '+(p.label||'Pièce d\'identité')+(p.date?' (ajoutée le '+dl(p.date)+')':'')+'.'));
   }
+  if(!isComm&&tenant?.assurance_url)para('- Attestation d\'assurance habitation du locataire.');
   if(!isComm)para('- Une notice d\'information relative aux droits et obligations des locataires et des bailleurs.');
   para('- Un état des lieux d\'entrée, établi lors de la remise des clés.');
   if(bail.gar_nom)para('- Un acte de cautionnement solidaire signé par le garant.');
@@ -9132,6 +9136,8 @@ async function mergeBailWithDiagnostics(jsDoc,bail,tenant){
   for(const k of diagPresent)await embedAnnex(bail['diag_'+k].url,DIAG_LABELS[k],bail['diag_'+k].expired);
 
   for(const p of (tenant?.identite_photos||[]))if(p.url)await embedAnnex(p.url,p.label||'Pièce d\'identité',false);
+
+  if(bail.type_bail!=='commercial'&&tenant?.assurance_url)await embedAnnex(tenant.assurance_url,"Attestation d'assurance habitation",false);
 
   const parB=bail.paraphe_bailleur?await finalDoc.embedPng(dataUrlToUint8(bail.paraphe_bailleur)):null;
   const parL=bail.paraphe_locataire?await finalDoc.embedPng(dataUrlToUint8(bail.paraphe_locataire)):null;
