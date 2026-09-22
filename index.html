@@ -12642,20 +12642,40 @@ function blobToBase64(blob){
     reader.readAsDataURL(blob);
   });
 }
-// Ouvre toujours le PDF pour verification AVANT de demander confirmation
+// Affiche toujours le PDF pour verification AVANT de demander confirmation
 // d'envoi (jamais d'envoi automatique/silencieux) - l'utilisateur peut
-// annuler a ce stade sans que rien ne soit envoye. Piece jointe uniquement,
-// jamais de lien (un lien ne s'imprime pas bien depuis un telephone).
+// annuler sans que rien ne soit envoye. Piece jointe uniquement, jamais de
+// lien (un lien ne s'imprime pas bien depuis un telephone).
+// Rendu dans un iframe en plein ecran DANS LA PAGE (pas window.open/onglet) :
+// sur mobile (Safari iOS notamment), ouvrir une blob: URL via un <a
+// target=_blank>.click() navigue parfois la page ACTUELLE au lieu d'ouvrir
+// un nouvel onglet, ce qui detruit le contexte JS en cours d'execution
+// avant meme d'atteindre la demande de confirmation (bug constate : le
+// document s'ouvrait mais aucune proposition d'envoi n'apparaissait
+// ensuite). Un iframe reste dans le document courant, donc sans ce risque.
 // Retourne true si l'email a bien ete envoye, false si annule/pas d'email.
 async function previewAndConfirmSend(pdfBlob,filename,tenant,{fromEmail,fromName,subject,bodyHtml,bcc}){
   const blobUrl=URL.createObjectURL(pdfBlob);
-  const a=document.createElement('a');a.href=blobUrl;a.target='_blank';a.rel='noopener';
-  document.body.appendChild(a);a.click();document.body.removeChild(a);
-  if(!tenant?.email){setTimeout(()=>URL.revokeObjectURL(blobUrl),30000);return false;}
-  if(!confirm('Document ouvert pour vérification.\n\nEnvoyer ce PDF par email à '+tenant.nom+' ('+tenant.email+') ?')){
-    setTimeout(()=>URL.revokeObjectURL(blobUrl),30000);
-    return false;
-  }
+  const hasEmail=!!tenant?.email;
+  const send=await new Promise(resolve=>{
+    const overlay=document.createElement('div');
+    overlay.style.cssText='position:fixed;inset:0;z-index:600;background:rgba(0,0,0,.75);display:flex;flex-direction:column;padding:10px;gap:10px';
+    overlay.innerHTML=`
+      <div style="background:#fff;border-radius:8px;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+        <div style="font-size:12px;color:#333;flex:1;min-width:200px">📄 Vérifiez le document ci-dessous.${hasEmail?' Envoyer à <strong>'+tenant.nom+'</strong> ('+tenant.email+') ?':' <span style="color:#E24B4A">⚠ Aucun email enregistré pour '+(tenant?.nom||'ce locataire')+' — envoi impossible.</span>'}</div>
+        <div style="display:flex;gap:8px;flex-shrink:0">
+          ${hasEmail?'<button id="pacs-send" style="background:#1D9E75;color:#fff;border:none;padding:9px 16px;border-radius:6px;font-weight:700;cursor:pointer;font-size:13px">✓ Envoyer par email</button>':''}
+          <button id="pacs-cancel" style="background:#eee;color:#333;border:none;padding:9px 16px;border-radius:6px;cursor:pointer;font-size:13px">${hasEmail?'Annuler':'Fermer'}</button>
+        </div>
+      </div>
+      <iframe src="${blobUrl}" style="flex:1;width:100%;border:0;border-radius:8px;background:#fff"></iframe>
+    `;
+    document.body.appendChild(overlay);
+    overlay.querySelector('#pacs-cancel').onclick=()=>{overlay.remove();resolve(false);};
+    const sendBtn=overlay.querySelector('#pacs-send');
+    if(sendBtn)sendBtn.onclick=()=>{overlay.remove();resolve(true);};
+  });
+  if(!send){setTimeout(()=>URL.revokeObjectURL(blobUrl),30000);return false;}
   if(!BREVO_API_KEY)BREVO_API_KEY=ensureBrevoKey();
   if(!BREVO_API_KEY){alert('Clé Brevo manquante — email non envoyé.');setTimeout(()=>URL.revokeObjectURL(blobUrl),30000);return false;}
   const b64=await blobToBase64(pdfBlob);
