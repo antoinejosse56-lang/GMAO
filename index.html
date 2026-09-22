@@ -9059,6 +9059,10 @@ function genBailPDF(bail,tenant){
     para("Diagnostic(s) suivant(s) non fourni(s) à ce jour, le bailleur et le locataire reconnaissant expressément en être informés et poursuivre la signature du présent contrat en connaissance de cause : "+bail.diag_override_list.join(', ')+'.');
     para('Motif : '+bail.diag_override_reason+'.');
   }
+  if((tenant?.identite_photos||[]).length){
+    para('- Copie(s) des pièces d\'identité :');
+    tenant.identite_photos.forEach(p=>para('  • '+(p.label||'Pièce d\'identité')+(p.date?' (ajoutée le '+dl(p.date)+')':'')+'.'));
+  }
   if(!isComm)para('- Une notice d\'information relative aux droits et obligations des locataires et des bailleurs.');
   para('- Un état des lieux d\'entrée, établi lors de la remise des clés.');
   if(bail.gar_nom)para('- Un acte de cautionnement solidaire signé par le garant.');
@@ -9084,31 +9088,32 @@ function genBailPDF(bail,tenant){
   return doc;
 }
 
-// Fusionne le bail (genere par jsPDF) avec les diagnostics deja televerses
-// (PDF ou image) en un seul document continu, une page de garde par annexe
-// pour la retrouver facilement, puis appose le paraphe des 2 parties et la
-// numerotation sur TOUTES les pages du resultat (bail + annexes) - le
-// locataire doit avoir paraphe l'ensemble du dossier, pas seulement le corps
-// du bail. Les diagnostics echus sont desormais inclus quand meme (annotes
-// "ECHU" sur leur page de garde) plutot qu'omis : le bailleur prefere
-// fournir un document perime que rien du tout, et transmet la version a
-// jour par mail au locataire des qu'il la recoit.
-async function mergeBailWithDiagnostics(jsDoc,bail){
+// Fusionne le bail (genere par jsPDF) avec les diagnostics et les pieces
+// d'identite deja televerses (PDF ou image) en un seul document continu,
+// une page de garde par annexe pour la retrouver facilement, puis appose
+// le paraphe des 2 parties et la numerotation sur TOUTES les pages du
+// resultat (bail + annexes) - le locataire doit avoir paraphe l'ensemble du
+// dossier, pas seulement le corps du bail. Les diagnostics echus sont
+// inclus quand meme (annotes "ECHU" sur leur page de garde) plutot qu'omis :
+// le bailleur prefere fournir un document perime que rien du tout, et
+// transmet la version a jour par mail au locataire des qu'il la recoit.
+async function mergeBailWithDiagnostics(jsDoc,bail,tenant){
   const {PDFDocument,StandardFonts,rgb}=PDFLib;
   const finalDoc=await PDFDocument.load(jsDoc.output('arraybuffer'));
   const font=await finalDoc.embedFont(StandardFonts.HelveticaBold);
   const A4=[595.28,841.89];
 
-  const diagPresent=Object.keys(DIAG_LABELS).filter(k=>bail['diag_'+k]?.url);
-  for(const k of diagPresent){
-    const url=bail['diag_'+k].url;
+  // Ajoute une page de garde + le contenu (PDF multi-pages ou image) d'une
+  // annexe au document final - factorise car diagnostics et pieces
+  // d'identite suivent exactement le meme schema d'insertion.
+  async function embedAnnex(url,label,expired){
     try{
       const resp=await fetch(url);
       if(!resp.ok)throw new Error('HTTP '+resp.status);
       const bytes=new Uint8Array(await resp.arrayBuffer());
       const ct=resp.headers.get('content-type')||'';
       const cover=finalDoc.addPage(A4);
-      cover.drawText('ANNEXE — '+DIAG_LABELS[k]+(bail['diag_'+k].expired?' (ÉCHU)':''),{x:50,y:780,size:16,font,color:bail['diag_'+k].expired?rgb(0.75,0.1,0.1):rgb(0.1,0.1,0.1)});
+      cover.drawText('ANNEXE — '+label+(expired?' (ÉCHU)':''),{x:50,y:780,size:16,font,color:expired?rgb(0.75,0.1,0.1):rgb(0.1,0.1,0.1)});
       if(ct.includes('pdf')||url.toLowerCase().includes('.pdf')){
         const srcDoc=await PDFDocument.load(bytes,{ignoreEncryption:true});
         const pages=await finalDoc.copyPages(srcDoc,srcDoc.getPageIndices());
@@ -9120,8 +9125,13 @@ async function mergeBailWithDiagnostics(jsDoc,bail){
         const scale=Math.min((A4[0]-80)/img.width,(A4[1]-160)/img.height,1);
         page.drawImage(img,{x:40,y:60,width:img.width*scale,height:img.height*scale});
       }
-    }catch(e){console.warn('Annexe '+k+' non incluse dans le PDF final :',e.message);}
+    }catch(e){console.warn('Annexe '+label+' non incluse dans le PDF final :',e.message);}
   }
+
+  const diagPresent=Object.keys(DIAG_LABELS).filter(k=>bail['diag_'+k]?.url);
+  for(const k of diagPresent)await embedAnnex(bail['diag_'+k].url,DIAG_LABELS[k],bail['diag_'+k].expired);
+
+  for(const p of (tenant?.identite_photos||[]))if(p.url)await embedAnnex(p.url,p.label||'Pièce d\'identité',false);
 
   const parB=bail.paraphe_bailleur?await finalDoc.embedPng(dataUrlToUint8(bail.paraphe_bailleur)):null;
   const parL=bail.paraphe_locataire?await finalDoc.embedPng(dataUrlToUint8(bail.paraphe_locataire)):null;
@@ -10138,7 +10148,7 @@ function bindAll(){
       btnPreviewBail.disabled=true;btnPreviewBail.textContent='⏳ Génération...';
       try{
         const doc=genBailPDF(bail,S.modal.tenant||{});
-        const mergedBytes=await mergeBailWithDiagnostics(doc,bail);
+        const mergedBytes=await mergeBailWithDiagnostics(doc,bail,S.modal.tenant||{});
         const blob=new Blob([mergedBytes],{type:'application/pdf'});
         window.open(URL.createObjectURL(blob),'_blank');
       }finally{btnPreviewBail.disabled=false;btnPreviewBail.textContent='👁 Prévisualiser';}
@@ -10161,7 +10171,7 @@ function bindAll(){
       try{
         const bail=collectBailFormData();
         const doc=genBailPDF(bail,t);
-        const mergedBytes=await mergeBailWithDiagnostics(doc,bail);
+        const mergedBytes=await mergeBailWithDiagnostics(doc,bail,t);
         const blob=new Blob([mergedBytes],{type:'application/pdf'});
         const path=t.id+'/bail.pdf';
         const{error:upErr}=await sb.storage.from('documents-locataires').upload(path,blob,{upsert:true,contentType:'application/pdf',cacheControl:'0'});
