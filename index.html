@@ -6933,7 +6933,10 @@ function renderModal(){
     </div>
     <div class="form-group"><label>🔗 Lien état des lieux scanné, ancien locataire (Drive/URL)</label>
       <input id="m-tedl-url" value="${t.edl_url||''}" placeholder="https://drive.google.com/...">
-      ${t.edl_url?`<a href="${t.edl_url}" target="_blank" class="btn btn-sm" style="display:block;margin-top:6px;text-align:center;text-decoration:none">🏠 Ouvrir le dernier état des lieux</a>`:''}
+      ${t.edl_url?`<div style="display:flex;gap:8px;margin-top:6px">
+        <a href="${t.edl_url}" target="_blank" class="btn btn-sm" style="flex:1;text-align:center;text-decoration:none">🏠 Ouvrir le dernier état des lieux</a>
+        ${t.email?`<button type="button" class="btn btn-sm btn-p" id="btn-email-edl" style="flex:1">📧 Envoyer au locataire</button>`:''}
+      </div>`:''}
     </div>
     <div class="form-group"><label>🛡 Attestation assurance locataire (URL)</label>
       <input id="m-tassur-url" value="${t.assurance_url||''}" placeholder="https://drive.google.com/...">
@@ -10290,6 +10293,8 @@ function bindAll(){
   });
   const btnEmailBail=document.getElementById('btn-email-bail');
   if(btnEmailBail)btnEmailBail.onclick=()=>sendBailEmail(S.modal.tenant);
+  const btnEmailEdl=document.getElementById('btn-email-edl');
+  if(btnEmailEdl)btnEmailEdl.onclick=()=>sendEdlEmail(S.modal.tenant);
   const btnSendCaution=document.getElementById('btn-send-caution-recu');
   if(btnSendCaution)btnSendCaution.onclick=async()=>{
     const t=S.modal.tenant;
