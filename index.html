@@ -6946,6 +6946,9 @@ function renderModal(){
       <button type="button" class="btn btn-sm" id="btn-open-bail-form" style="flex:1">📝 Générer bail</button>
       <button type="button" class="btn btn-sm" data-field-docs="${t.id}" style="flex:1">📄 Documents & pièces justificatives</button>
     </div>
+    <div style="display:flex;gap:8px;margin-bottom:4px;flex-wrap:wrap">
+      <button type="button" class="btn btn-sm" id="btn-send-caution-recu" style="flex:1" ${t.email?'':'disabled title="Aucun email renseigné pour ce locataire"'}>🧾 Quittance de dépôt de garantie</button>
+    </div>
     ${mf}`;
   }
 
@@ -10287,6 +10290,21 @@ function bindAll(){
   });
   const btnEmailBail=document.getElementById('btn-email-bail');
   if(btnEmailBail)btnEmailBail.onclick=()=>sendBailEmail(S.modal.tenant);
+  const btnSendCaution=document.getElementById('btn-send-caution-recu');
+  if(btnSendCaution)btnSendCaution.onclick=async()=>{
+    const t=S.modal.tenant;
+    if(!t){alert('Locataire introuvable');return;}
+    if(!t.email){alert('Pas d\'email pour ce locataire');return;}
+    const montantStr=document.getElementById('m-tcau')?.value||t.caution||0;
+    const montant=parseFloat(montantStr)||0;
+    if(!montant){alert('Aucun montant de dépôt de garantie renseigné.');return;}
+    const dateReglement=new Date().toLocaleDateString('fr-FR');
+    btnSendCaution.disabled=true;btnSendCaution.textContent='⏳ Génération...';
+    try{
+      await sendCautionRecu(t,montant,dateReglement);
+    }catch(e){alert('Erreur : '+e.message);}
+    finally{btnSendCaution.disabled=false;btnSendCaution.textContent='🧾 Quittance de dépôt de garantie';}
+  };
 
   document.querySelectorAll('.sig-person-card').forEach(el=>el.onclick=()=>openSigPopupFor(el));
 
@@ -13032,6 +13050,69 @@ function buildFactureEauHtml(tenant,cpt,conso,montant,montantHT,montantTVA,prix,
     +'</body></html>';
 }
 
+// Meme format visuel que buildDocumentLoyer (quittance/facture loyer) - CSS
+// et structure (hdr/title/box "REÇU LA SOMME DE"/sig) copiees a l'identique,
+// mais sans le tableau loyer/charges ni le bloc dette (sans objet pour un
+// depot de garantie, verse une seule fois a l'entree dans les lieux).
+function buildCautionRecuHtml(tenant,montant,dateReglement,fmt,showPrintBar=true){
+  const isDubail=dubailFilter(tenant.logement||'');
+  const bailNom=isDubail?'J&A SAVADUR':'Antoine JOSSE';
+  const bailAddr=isDubail?'26 RUE GÉNÉRAL DUBAIL':'5 RUE DE CALVIN';
+  const bailCP='56100 LORIENT';
+  const bailEmail=isDubail?'savadur56@gmail.com':'antoinejosse56@gmail.com';
+  const bailTel=isDubail?'06.30.37.06.88':'';
+  const sigNom=isDubail?'JOSSE Antoine':'Antoine JOSSE';
+  const sigQualite=isDubail?'GÉRANT J&A SAVADUR':'Bailleur';
+  const adresseLogement=isDubail?'26 RUE GÉNÉRAL DUBAIL, 56100 LORIENT':(bailAddr+', '+bailCP);
+  const css='@media print{.pb{display:none!important}body{margin:0;padding:20px}}'
+    +'body{font-family:Arial,sans-serif;max-width:700px;margin:0 auto;padding:0 30px 30px;color:#222;font-size:14px}'
+    +'.hdr{display:flex;justify-content:space-between;margin-bottom:24px;padding:20px 0;border-bottom:2px solid #222}'
+    +'.title{text-align:center;font-size:20px;font-weight:bold;margin:16px 0;text-transform:uppercase;letter-spacing:1px}'
+    +'.sub{text-align:center;font-size:13px;margin-bottom:20px;color:#555}'
+    +'.box{border:2px solid #222;padding:16px 20px;text-align:center;margin:20px 0;border-radius:4px}'
+    +'.somme{font-size:28px;font-weight:bold;margin:8px 0}'
+    +'.sig{margin-top:50px;display:flex;justify-content:space-between;align-items:flex-end}'
+    +'.mention{font-size:10px;color:#aaa;margin-top:20px;padding-top:10px;border-top:1px solid #eee}';
+  const pb='<div class="pb" style="position:sticky;top:0;background:#1D9E75;color:#fff;display:flex;align-items:center;justify-content:space-between;padding:10px 20px;margin-bottom:16px">'
+    +'<div><strong>&#128196; Quittance de dépôt de garantie</strong><div style="font-size:11px;opacity:.8">Ctrl+P pour imprimer / sauvegarder en PDF</div></div>'
+    +'<button onclick="window.print()" style="background:#fff;color:#1D9E75;border:none;padding:8px 18px;border-radius:6px;font-weight:700;cursor:pointer">&#128424; Imprimer</button>'
+    +'</div>';
+  return '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>'+css+'</style></head><body>'+(showPrintBar?pb:'')
+    +(isDubail?'<div style="margin-bottom:10px"><img src="'+LOGO_SAVADUR_B64+'" style="width:100%;height:auto;display:block"></div>':'')
+    +'<div class="hdr">'
+      +'<div><strong>'+bailNom+'</strong><br>'+bailAddr+'<br>'+bailCP+'<br>'+bailEmail+(bailTel?'<br>'+bailTel:'')+'</div>'
+      +'<div style="text-align:right"><strong>'+tenant.nom+'</strong><br>'+tenant.logement+'<br>'+adresseLogement+'</div>'
+    +'</div>'
+    +'<div class="title">Quittance de dépôt de garantie</div>'
+    +'<div class="sub">Logement : '+(tenant.logement||'—')+'</div>'
+    +'<div class="box"><div>REÇU LA SOMME DE</div><div class="somme">'+fmt(montant)+'</div><div>LE '+dateReglement+'</div></div>'
+    +'<div style="font-size:13px;margin:16px 0">Le bailleur soussigné reconnaît avoir reçu de <strong>'+tenant.nom+'</strong>, locataire du logement situé '+adresseLogement+', la somme de <strong>'+fmt(montant)+'</strong> au titre du dépôt de garantie prévu au contrat de location.</div>'
+    +'<div class="sig">'
+      +'<div style="font-size:12px">Fait à Lorient, le '+new Date().toLocaleDateString('fr-FR')+'</div>'
+      +'<div style="text-align:right;font-size:13px"><div>'+sigQualite+'</div><div style="font-size:11px;color:#888;margin:4px 0">Signature électronique automatique</div><div style="font-weight:bold;margin-top:40px;border-top:1px solid #222;padding-top:6px;min-width:200px">'+sigNom+'</div></div>'
+    +'</div>'
+    +'<p class="mention">Ce dépôt de garantie sera restitué au locataire dans les conditions légales (délai légal après remise des clés, selon l\'état des lieux de sortie), déduction faite le cas échéant des sommes restant dues au bailleur.</p>'
+    +'</body></html>';
+}
+// Genere le PDF (jamais en lien), l'ouvre pour verification et demande
+// confirmation avant envoi - meme mecanique que autoSendQuittance.
+async function sendCautionRecu(tenant,montant,dateReglement){
+  const isDubail=dubailFilter(tenant.logement||'');
+  const fromEmail=isDubail?'savadur56@gmail.com':'antoinejosse56@gmail.com';
+  const fromName=isDubail?'J&A SAVADUR':'Antoine JOSSE';
+  const fmt=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR',minimumFractionDigits:2}).format(n||0);
+  const docHtml=buildCautionRecuHtml(tenant,montant,dateReglement,fmt,false);
+  const pdfBlob=await htmlStringToPdfBlob(docHtml);
+  const bodyHtml=`<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
+    <p>Bonjour ${tenant.nom},</p>
+    <p>Veuillez trouver ci-joint la quittance attestant du versement de votre dépôt de garantie.</p>
+    <p>Cordialement,<br>${fromName}</p>
+  </div>`;
+  const copyBcc=isDubail?[{email:'savadur56@gmail.com'}]:[];
+  return await previewAndConfirmSend(pdfBlob,'Quittance-caution_'+(tenant.nom||'locataire').replace(/[^a-zA-Z0-9]/g,'-')+'.pdf',tenant,{
+    fromEmail,fromName,subject:'Quittance de dépôt de garantie — '+tenant.logement,bodyHtml,bcc:copyBcc,
+  });
+}
 
 // ============================================================
 // EXPORTS EXCEL
