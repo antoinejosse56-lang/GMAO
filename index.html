@@ -659,6 +659,26 @@ function logementDiagStatus(bienStr){
     return {key,label:DIAG_LABELS[key],doc,missing:!doc,expired};
   });
 }
+// Version generalisee de logementDiagStatus a TOUS les types de diagnostic
+// connus (pas seulement les 6 legalement obligatoires - inclut aussi
+// termites/Carrez) et qui remonte en plus les versions plus anciennes
+// (memes type, date anterieure) : sert a construire l'encadre "Documents du
+// bail en cours" (uniquement le plus recent par type, "doc") separement des
+// "Archives" (le reste, "older") - un document remplace en cours de bail
+// part donc automatiquement en archive des qu'un plus recent du meme type
+// est ajoute, sans rien avoir a faire de plus au moment de l'ajout.
+function bienDiagStatusAll(bienStr){
+  const norm=normBienSep(bienStr);
+  const docs=(S.bienDocuments||[]).filter(d=>normBienSep(d.bien)===norm);
+  const allKeys=[...new Set(Object.values(DOC_TYPE_TO_DIAG_KEY))];
+  return allKeys.map(key=>{
+    const matching=docs.filter(d=>DOC_TYPE_TO_DIAG_KEY[d.type]===key).sort((a,b)=>new Date(b.date||0)-new Date(a.date||0));
+    const doc=matching[0]||null;
+    const older=matching.slice(1);
+    const expired=doc?(doc.date_expiry?new Date(doc.date_expiry)<new Date():false):false;
+    return {key,label:DIAG_LABELS[key]||key,doc,older,missing:!doc,expired};
+  });
+}
 function dateLabel(d){if(!d)return '—';return new Date(d).toLocaleDateString('fr-FR');}
 // Normalise le separateur d'un chemin "bien" pour comparaison : le champ
 // logement d'un locataire utilise un tiret cadratin (—) alors que le chemin
@@ -2174,16 +2194,33 @@ function renderTopology(){
     }).sort((a,b)=>new Date(b.date_entree||b.created_at||0)-new Date(a.date_entree||a.created_at||0));
     const tenantDocs=[];
     matchingTenants.forEach(t=>{
-      if(t.bail_url)tenantDocs.push({type:'Bail — '+t.nom,date:t.date_entree,document_url:t.bail_url,fromTenant:true});
+      const actifTenant=t.actif!==false;
+      if(t.bail_url)tenantDocs.push({type:'Bail — '+t.nom,date:t.date_entree,document_url:t.bail_url,fromTenant:true,tenantId:t.id,actifTenant});
       Object.entries(DIAG_LABELS).forEach(([k,label])=>{
         const dd=t.bail_data?.['diag_'+k];
         // Rouge des que l'echeance reglementaire est depassee, meme sans
         // changement de locataire en vue - permet d'anticiper la commande
         // du renouvellement plutot que de le decouvrir a la relocation.
-        if(dd?.url)tenantDocs.push({type:label+' — '+t.nom,date:dd.date,document_url:dd.url,fromTenant:true,expired:diagIsExpired(dd.date,k),tenantId:t.id,diagKey:k});
+        if(dd?.url)tenantDocs.push({type:label+' — '+t.nom,date:dd.date,document_url:dd.url,fromTenant:true,expired:diagIsExpired(dd.date,k),tenantId:t.id,diagKey:k,actifTenant});
       });
     });
     const allDocs=[...docs.map(d=>({...d,expired:d.date_expiry?new Date(d.date_expiry)<new Date():false})),...tenantDocs];
+    // Reorganisation "documents du bail en cours" vs "archives" (demande
+    // explicite : trop de pieces melangees rendaient la liste illisible).
+    // Le plus recent bien_documents par type de diagnostic va dans
+    // "en cours" (y compris s'il est echu - on veut le voir pour savoir
+    // qu'il faut le renouveler, seul un diagnostic TOTALEMENT absent
+    // n'apparait pas ici) ; toute version plus ancienne du meme type part
+    // automatiquement en archive des qu'une plus recente existe, sans rien
+    // faire de plus au moment de l'ajout d'un nouveau document.
+    const diagStatusAll=bienStr?bienDiagStatusAll(bienStr):[];
+    const currentDiagEntries=diagStatusAll.filter(d=>d.doc);
+    const archivedDiagDocs=diagStatusAll.flatMap(d=>d.older.map(o=>({...o,expired:o.date_expiry?new Date(o.date_expiry)<new Date():false})));
+    const recognizedDiagTypes=new Set(Object.keys(DOC_TYPE_TO_DIAG_KEY));
+    const otherDocs=docs.filter(d=>!recognizedDiagTypes.has(d.type)).map(d=>({...d,expired:d.date_expiry?new Date(d.date_expiry)<new Date():false}));
+    const activeBailDoc=tenantDocs.find(td=>td.actifTenant&&td.type.startsWith('Bail — '));
+    const archivedTenantDocs=tenantDocs.filter(td=>td!==activeBailDoc);
+    const archivedTotal=archivedDiagDocs.length+archivedTenantDocs.length;
     // Find WOs linked to this topo node (by assetId OR by topo_ref matching current node)
     const wos = S.workOrders.filter(w=>{
       if(nodeAssetId && w.asset_id===nodeAssetId) return true;
@@ -2237,19 +2274,48 @@ function renderTopology(){
           ${logFiche.tic?'TIC : '+logFiche.tic:''}
         </div>`:'<div style="font-size:11px;color:var(--text2)">Non renseignée — nécessaire pour générer un bail sans ressaisir ces informations à chaque locataire.</div>'}
       </div>`:''}
-      ${bienStr?`<div class="card" style="padding:12px;margin-top:10px">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-          <div class="sec" style="margin:0">📄 Documents (${allDocs.length})</div>
-          ${canEdit()?`<button class="btn btn-sm btn-p" data-add-bien-doc="${bienStr.replace(/"/g,'&quot;')}">+ Document</button>`:''}
+      ${bienStr?(()=>{
+        function docRow(d){
+          return `<div class="row">
+            <div class="fg"><div class="fgs" style="font-size:12px${d.expired?';color:var(--red)':''}">${d.type||'Document'}${d.expired?' <span class="badge bred" style="font-size:9px">À revalider</span>':''}</div><div class="fgsub">${d.date?dateLabel(d.date):''}${d.date_expiry?' · expire '+dateLabel(d.date_expiry):''}${d.notes?' · '+d.notes:''}${d.fromTenant?' · fiche locataire':''}</div></div>
+            ${d.document_url?`<a href="${d.document_url}" target="_blank" class="btn btn-sm">👁 Voir</a>`:''}
+            ${canEdit()&&!d.fromTenant?`<button class="btn btn-d btn-sm" data-del-bien-doc="${d.id}">✕</button>`:''}
+            ${canEdit()&&d.diagKey?`<button class="btn btn-d btn-sm" data-del-tenant-diag="${d.tenantId}" data-diag-key="${d.diagKey}" title="Diagnostic issu d'un ancien bail (avant la fiche du logement)">✕</button>`:''}
+          </div>`;
+        }
+        function diagEntryRow(d){
+          return `<div class="row">
+            <div class="fg"><div class="fgs" style="font-size:12px${d.expired?';color:var(--red)':''}">${d.label}${d.expired?' <span class="badge bred" style="font-size:9px">Échu</span>':' <span class="badge bgreen" style="font-size:9px">Valide</span>'}</div><div class="fgsub">${d.doc.date?dateLabel(d.doc.date):''}${d.doc.date_expiry?' · expire '+dateLabel(d.doc.date_expiry):''}${d.doc.notes?' · '+d.doc.notes:''}</div></div>
+            ${d.doc.document_url?`<a href="${d.doc.document_url}" target="_blank" class="btn btn-sm">👁 Voir</a>`:''}
+            ${canEdit()?`<button class="btn btn-d btn-sm" data-del-bien-doc="${d.doc.id}">✕</button>`:''}
+          </div>`;
+        }
+        return `<div class="card" style="padding:12px;margin-top:10px;border:1.5px solid var(--green)">
+          <div class="sec" style="margin:0 0 8px">📋 Documents du bail en cours</div>
+          ${activeBailDoc?docRow(activeBailDoc):''}
+          ${currentDiagEntries.map(diagEntryRow).join('')}
+          ${!activeBailDoc&&currentDiagEntries.length===0?'<div style="font-size:11px;color:var(--text2)">Aucun document actuel (bail, DPE, diagnostic amiante/plomb...).</div>':''}
         </div>
-        ${allDocs.map(d=>`<div class="row">
-          <div class="fg"><div class="fgs" style="font-size:12px${d.expired?';color:var(--red)':''}">${d.type||'Document'}${d.expired?' <span class="badge bred" style="font-size:9px">À revalider</span>':''}</div><div class="fgsub">${d.date?dateLabel(d.date):''}${d.date_expiry?' · expire '+dateLabel(d.date_expiry):''}${d.notes?' · '+d.notes:''}${d.fromTenant?' · fiche locataire':''}</div></div>
-          ${d.document_url?`<a href="${d.document_url}" target="_blank" class="btn btn-sm">👁 Voir</a>`:''}
-          ${canEdit()&&!d.fromTenant?`<button class="btn btn-d btn-sm" data-del-bien-doc="${d.id}">✕</button>`:''}
-          ${canEdit()&&d.diagKey?`<button class="btn btn-d btn-sm" data-del-tenant-diag="${d.tenantId}" data-diag-key="${d.diagKey}" title="Diagnostic issu d'un ancien bail (avant la fiche du logement)">✕</button>`:''}
-        </div>`).join('')}
-        ${allDocs.length===0?'<div style="font-size:11px;color:var(--text2)">Aucun document (DPE, diagnostic amiante/plomb...).</div>':''}
-      </div>`:''}
+        <div class="card" style="padding:12px;margin-top:10px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <div class="sec" style="margin:0">📎 Autres documents (${otherDocs.length})</div>
+            ${canEdit()?`<button class="btn btn-sm btn-p" data-add-bien-doc="${bienStr.replace(/"/g,'&quot;')}">+ Document</button>`:''}
+          </div>
+          ${otherDocs.map(docRow).join('')}
+          ${otherDocs.length===0?'<div style="font-size:11px;color:var(--text2)">Aucun autre document.</div>':''}
+        </div>
+        <div class="card" style="padding:12px;margin-top:10px">
+          <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer" onclick="const b=this.nextElementSibling;const isOpen=b.style.display!=='none';b.style.display=isOpen?'none':'block';this.querySelector('.archive-toggle-arrow').textContent=isOpen?'▸':'▾';">
+            <div class="sec" style="margin:0">🗄 Archives (${archivedTotal}) <span style="font-size:10px;color:var(--text2);text-transform:none;font-weight:400">— anciennes versions remplacées, anciens locataires</span></div>
+            <span style="font-size:11px;color:var(--text2)" class="archive-toggle-arrow">▸</span>
+          </div>
+          <div style="display:none;margin-top:8px">
+            ${archivedDiagDocs.map(docRow).join('')}
+            ${archivedTenantDocs.map(docRow).join('')}
+            ${archivedTotal===0?'<div style="font-size:11px;color:var(--text2)">Aucune archive.</div>':''}
+          </div>
+        </div>`;
+      })():''}
       ${bienStr?`<div class="card" style="padding:12px;margin-top:10px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
           <div class="sec" style="margin:0">🕐 Historique des locataires (${matchingTenants.length})</div>
