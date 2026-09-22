@@ -35,6 +35,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="https://apis.google.com/js/api.js"></script>
 <style>
@@ -9196,8 +9197,9 @@ function dataUrlToUint8(dataUrl){
 }
 
 
-// Envoie par email au locataire le lien vers son bail deja genere/enregistre
-// (le PDF est deja public sur Supabase Storage, pas besoin de le joindre).
+// Envoie par email au locataire son bail deja genere/enregistre, en piece
+// jointe PDF (jamais en lien - un lien ne s'imprime pas correctement depuis
+// un telephone, retour direct des locataires).
 async function sendBailEmail(tenant){
   if(!tenant.email){alert("Pas d'email pour ce locataire");return;}
   if(!tenant.bail_url){alert('Aucun bail enregistré pour ce locataire');return;}
@@ -9205,15 +9207,18 @@ async function sendBailEmail(tenant){
   if(!BREVO_API_KEY)return;
   const html=`<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
     <p>Bonjour ${tenant.nom},</p>
-    <p>Veuillez trouver ci-dessous le lien vers votre contrat de bail signé :</p>
-    <p><a href="${tenant.bail_url}" style="background:#1D9E75;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block">📄 Consulter mon bail</a></p>
+    <p>Veuillez trouver ci-joint votre contrat de bail signé.</p>
     <p>Cordialement,<br>J&A SAVADUR</p>
   </div>`;
   try{
+    const pdfResp=await fetch(tenant.bail_url);
+    if(!pdfResp.ok)throw new Error('Téléchargement du bail impossible (HTTP '+pdfResp.status+')');
+    const pdfBlob=await pdfResp.blob();
+    const b64=await blobToBase64(pdfBlob);
     const resp=await fetch('https://api.brevo.com/v3/smtp/email',{
       method:'POST',
       headers:{'api-key':BREVO_API_KEY,'Content-Type':'application/json'},
-      body:JSON.stringify({sender:{name:'J&A SAVADUR',email:'savadur56@gmail.com'},to:[{email:tenant.email,name:tenant.nom}],subject:'Votre contrat de bail',htmlContent:html})
+      body:JSON.stringify({sender:{name:'J&A SAVADUR',email:'savadur56@gmail.com'},to:[{email:tenant.email,name:tenant.nom}],subject:'Votre contrat de bail',htmlContent:html,attachment:[{content:b64,name:'Bail_'+(tenant.nom||'locataire').replace(/[^a-zA-Z0-9]/g,'-')+'.pdf'}]})
     });
     if(!resp.ok){const t=await resp.text();throw new Error(t);}
     alert('✓ Email envoyé à '+tenant.email);
@@ -9664,9 +9669,10 @@ async function mergeEdlWithPhotos(jsDoc,edl){
   return finalDoc.save();
 }
 
-// Envoie par email au locataire le lien vers son etat des lieux (memes
-// modalites que sendBailEmail, dupliquee plutot que factorisee : le contenu
-// du message differe et les deux fonctions sont deja courtes).
+// Envoie par email au locataire son etat des lieux deja genere/enregistre,
+// en piece jointe PDF (memes modalites que sendBailEmail, dupliquee plutot
+// que factorisee : le contenu du message differe et les deux fonctions
+// sont deja courtes).
 async function sendEdlEmail(tenant){
   if(!tenant.email){alert("Pas d'email pour ce locataire");return;}
   if(!tenant.edl_url){alert("Aucun état des lieux enregistré pour ce locataire");return;}
@@ -9674,15 +9680,18 @@ async function sendEdlEmail(tenant){
   if(!BREVO_API_KEY)return;
   const html=`<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
     <p>Bonjour ${tenant.nom},</p>
-    <p>Veuillez trouver ci-dessous le lien vers votre état des lieux signé :</p>
-    <p><a href="${tenant.edl_url}" style="background:#1D9E75;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block">📋 Consulter mon état des lieux</a></p>
+    <p>Veuillez trouver ci-joint votre état des lieux signé.</p>
     <p>Cordialement,<br>J&A SAVADUR</p>
   </div>`;
   try{
+    const pdfResp=await fetch(tenant.edl_url);
+    if(!pdfResp.ok)throw new Error('Téléchargement de l\'état des lieux impossible (HTTP '+pdfResp.status+')');
+    const pdfBlob=await pdfResp.blob();
+    const b64=await blobToBase64(pdfBlob);
     const resp=await fetch('https://api.brevo.com/v3/smtp/email',{
       method:'POST',
       headers:{'api-key':BREVO_API_KEY,'Content-Type':'application/json'},
-      body:JSON.stringify({sender:{name:'J&A SAVADUR',email:'savadur56@gmail.com'},to:[{email:tenant.email,name:tenant.nom}],subject:'Votre état des lieux',htmlContent:html})
+      body:JSON.stringify({sender:{name:'J&A SAVADUR',email:'savadur56@gmail.com'},to:[{email:tenant.email,name:tenant.nom}],subject:'Votre état des lieux',htmlContent:html,attachment:[{content:b64,name:'Etat-des-lieux_'+(tenant.nom||'locataire').replace(/[^a-zA-Z0-9]/g,'-')+'.pdf'}]})
     });
     if(!resp.ok){const t=await resp.text();throw new Error(t);}
     alert('✓ Email envoyé à '+tenant.email);
@@ -9729,19 +9738,19 @@ async function sendFactureEauRelance(tenant, releve, cpt, isRelance){
     +"</body></html>";
   if(!BREVO_API_KEY)BREVO_API_KEY=ensureBrevoKey();
   if(!BREVO_API_KEY)throw new Error("Cl\u00e9 Brevo manquante");
-  const resp=await fetch("https://api.brevo.com/v3/smtp/email",{
-    method:"POST",
-    headers:{"api-key":BREVO_API_KEY,"Content-Type":"application/json"},
-    body:JSON.stringify({sender:{name:FROM_NAME_L,email:FROM_EMAIL_L},to:[{email:tenant.email,name:tenant.nom}],subject,htmlContent:emailHtml})
+  const pdfBlob=await htmlStringToPdfBlob(emailHtml);
+  const sent=await previewAndConfirmSend(pdfBlob,'Facture-eau-charges_'+dateStr.replace(/\//g,'-')+'.pdf',tenant,{
+    fromEmail:FROM_EMAIL_L,fromName:FROM_NAME_L,subject,bodyHtml:emailHtml,
   });
-  if(!resp.ok){const t=await resp.text();throw new Error(t);}
-  // Archive copy
-  fetch("https://api.brevo.com/v3/smtp/email",{
-    method:"POST",
-    headers:{"api-key":BREVO_API_KEY,"Content-Type":"application/json"},
-    body:JSON.stringify({sender:{name:FROM_NAME_L,email:FROM_EMAIL_L},to:[{email:FROM_EMAIL_L,name:FROM_NAME_L}],subject:"[COPIE] "+subject+" - "+tenant.nom,htmlContent:emailHtml})
-  }).catch(e=>console.warn("Copie failed",e));
-  return true;
+  if(sent){
+    // Archive copy
+    fetch("https://api.brevo.com/v3/smtp/email",{
+      method:"POST",
+      headers:{"api-key":BREVO_API_KEY,"Content-Type":"application/json"},
+      body:JSON.stringify({sender:{name:FROM_NAME_L,email:FROM_EMAIL_L},to:[{email:FROM_EMAIL_L,name:FROM_NAME_L}],subject:"[COPIE] "+subject+" - "+tenant.nom,htmlContent:emailHtml})
+    }).catch(e=>console.warn("Copie failed",e));
+  }
+  return sent;
 }
 
 
@@ -10091,7 +10100,7 @@ function bindAll(){
     if(tenant.email&&payment){
       try{
         const r = await autoSendQuittance(tenant,payment,mois,annee,payment.commentaire||'');
-        alert('✓ Loyer validé !\n\n📄 Document ouvert pour impression/PDF.\n📧 Copie envoyée sur '+ALERT_EMAIL+' (à transférer à '+tenant.email+')');
+        alert('✓ Loyer validé !\n\n📄 Document ouvert pour vérification.'+(r?'\n📧 Email envoyé à '+tenant.email:'\n(Email non envoyé)'));
       }catch(e){
         console.error('Email err:',e);
         alert('✓ Loyer validé\n\n📄 '+e.message);
@@ -10146,7 +10155,7 @@ function bindAll(){
             if(error){erreurs.push(`${t.nom} ${moisNom} ${y}: ${error.message}`);}
             else{S.rentPayments.push(data);nbCrees++;
               if(envoyerEmails&&t.email){
-                try{await autoSendQuittance(t,data,moisNom,y,'Loyer non perçu — dette reportée',true);nbEnvoyes++;}
+                try{if(await autoSendQuittance(t,data,moisNom,y,'Loyer non perçu — dette reportée',true))nbEnvoyes++;}
                 catch(e){erreurs.push(`Email ${t.nom} ${moisNom}: ${e.message}`);}
               }
             }
@@ -10178,10 +10187,12 @@ function bindAll(){
     if(!tenant)return;
     if(!tenant.email){alert('Pas d\'email pour ce locataire.');return;}
     try{
-      await autoSendQuittance(tenant,payment,payment.mois,payment.annee,'Loyer non perçu — dette reportée',true);
-      await sb.from('rent_payments').update({quittance_envoyee:true}).eq('id',payment.id);
-      payment.quittance_envoyee=true;
-      render();
+      const sent=await autoSendQuittance(tenant,payment,payment.mois,payment.annee,'Loyer non perçu — dette reportée',true);
+      if(sent){
+        await sb.from('rent_payments').update({quittance_envoyee:true}).eq('id',payment.id);
+        payment.quittance_envoyee=true;
+        render();
+      }
     }catch(e){alert('Erreur envoi : '+e.message);}
   });
 
@@ -10210,9 +10221,11 @@ function bindAll(){
     }
     if(tenant.email){
       try{
-        await autoSendQuittance(tenant,payment,mois,annee,'Loyer non perçu — dette reportée au mois suivant',true);
-        await sb.from('rent_payments').update({quittance_envoyee:true}).eq('id',payment.id);
-        payment.quittance_envoyee=true;
+        const sentDQ=await autoSendQuittance(tenant,payment,mois,annee,'Loyer non perçu — dette reportée au mois suivant',true);
+        if(sentDQ){
+          await sb.from('rent_payments').update({quittance_envoyee:true}).eq('id',payment.id);
+          payment.quittance_envoyee=true;
+        }
       }catch(e){
         genQuittancePDF(tenant,payment,mois,annee);
         alert('✓ Paiement créé\n⚠ Email non envoyé : '+e.message);
@@ -10515,12 +10528,15 @@ function bindAll(){
       }).select().single();
       if(data){S.rentPayments.push(data);payment=data;}
     }
-    // Auto-send quittance if tenant has email
+    // Propose l'envoi de la quittance si le locataire a un email (demande
+    // confirmation apres previsualisation, voir autoSendQuittance)
     if(tenant?.email && payment){
       try{
-        await autoSendQuittance(tenant, payment, mois, annee, payment.commentaire||'');
-        await sb.from('rent_payments').update({quittance_envoyee:true}).eq('id',payment.id);
-        if(payment) payment.quittance_envoyee=true;
+        const sentQ=await autoSendQuittance(tenant, payment, mois, annee, payment.commentaire||'');
+        if(sentQ){
+          await sb.from('rent_payments').update({quittance_envoyee:true}).eq('id',payment.id);
+          payment.quittance_envoyee=true;
+        }
       }catch(e){console.error('Email quittance error:',e);}
     }
     render();
@@ -10583,11 +10599,13 @@ function bindAll(){
     const conso=Math.round((rel.nouvel_index-rel.ancien_index)*1000)/1000;
     const montant=Math.round(conso*(rel.prix_unitaire||0)*100)/100;
     try{
-      await sendFactureEau(rel,cpt,tenant,conso,montant,rel.prix_unitaire||0);
-      await sb.from('releves').update({facture_envoyee:true}).eq('id',rel.id);
-      rel.facture_envoyee=true;
-      alert('✓ Facture eau envoyée à '+tenant.email);
-      render();
+      const sentFE=await sendFactureEau(rel,cpt,tenant,conso,montant,rel.prix_unitaire||0);
+      if(sentFE){
+        await sb.from('releves').update({facture_envoyee:true}).eq('id',rel.id);
+        rel.facture_envoyee=true;
+        alert('✓ Facture eau envoyée à '+tenant.email);
+        render();
+      }
     }catch(e){alert('Erreur envoi : '+e.message);}
   });
 
@@ -10602,8 +10620,8 @@ function bindAll(){
     rel.paye=true;
     if(tenant?.email){
       try{
-        await sendAccuseEau(rel,cpt,tenant,montant);
-        alert('✓ Paiement validé et accusé de réception envoyé à '+tenant.email);
+        const sentAE=await sendAccuseEau(rel,cpt,tenant,montant);
+        alert('✓ Paiement validé'+(sentAE?' et accusé de réception envoyé à '+tenant.email:''));
       }catch(e){alert('✓ Paiement validé\n⚠ Accusé non envoyé : '+e.message);}
     }else{
       alert('✓ Paiement validé'+(tenant?' (pas d\'email)':''));
@@ -11254,16 +11272,14 @@ function bindAll(){
     if(!tenant){alert('Locataire introuvable');return;}
     if(!tenant.email){alert('Pas d\'email pour '+tenant.nom);return;}
     const isRelance=r.facture_envoyee&&!r.paye;
-    const label=isRelance?'relance':'facture';
-    if(!confirm('Envoyer la '+label+' eau \u00e0 '+tenant.nom+' ('+tenant.email+') ?'))return;
     try{
-      await sendFactureEauRelance(tenant,r,cpt,isRelance);
-      if(!r.facture_envoyee){
+      const sentRel=await sendFactureEauRelance(tenant,r,cpt,isRelance);
+      if(sentRel&&!r.facture_envoyee){
         await sb.from('releves').update({facture_envoyee:true}).eq('id',r.id);
         r.facture_envoyee=true;
       }
       render();
-      alert('\u2713 Email envoy\u00e9 !');
+      if(sentRel)alert('\u2713 Email envoy\u00e9 !');
     }catch(e){alert('Erreur : '+e.message);}
   });
   document.querySelectorAll('[data-del-releve]').forEach(el=>el.onclick=async()=>{
@@ -11292,7 +11308,6 @@ function bindAll(){
     const partialComment=isPartial
       ?('[Règlement partiel — Reçu : '+fmtR(recu)+' — Solde restant : '+fmtR(solde)+']'+(rp.commentaire?' '+rp.commentaire:''))
       :(rp.commentaire||'');
-    if(!confirm('Renvoyer le document par email à '+tenant.email+' ?'))return;
     try{
       await autoSendQuittance(tenant,rp,rp.mois,rp.annee,partialComment,isPartial);
     }catch(e){alert('Erreur envoi : '+e.message);}
@@ -12567,67 +12582,127 @@ function _openPicker(callback){
 // ============================================================
 // QUITTANCES & FACTURES
 // ============================================================
+// Convertit un document HTML (deja utilise pour l'affichage/impression, ex.
+// buildQuittanceHtml) en PDF reel via html2canvas + jsPDF - necessaire car
+// un locataire ne peut pas imprimer proprement un email au format HTML
+// depuis un telephone, contrairement a une piece jointe PDF. Rendu dans un
+// iframe cache (pas un simple div) pour que le <style> du document
+// s'applique correctement, isole du CSS de l'app elle-meme. Pagine
+// automatiquement si le contenu depasse une page A4.
+async function htmlStringToPdfBlob(html){
+  const iframe=document.createElement('iframe');
+  iframe.style.cssText='position:fixed;left:-9999px;top:0;width:800px;height:1131px;border:0';
+  document.body.appendChild(iframe);
+  try{
+    await new Promise(resolve=>{iframe.onload=resolve;iframe.srcdoc=html;});
+    await new Promise(r=>setTimeout(r,200)); // laisse le temps au logo (image) de charger dans l'iframe
+    const canvas=await html2canvas(iframe.contentDocument.body,{scale:2,useCORS:true,backgroundColor:'#ffffff'});
+    const {jsPDF}=window.jspdf;
+    const pdf=new jsPDF({unit:'mm',format:'a4'});
+    const pageW=210,pageH=297;
+    const imgW=pageW,imgH=canvas.height*imgW/canvas.width;
+    const imgData=canvas.toDataURL('image/jpeg',0.92);
+    let heightLeft=imgH,position=0;
+    pdf.addImage(imgData,'JPEG',0,position,imgW,imgH);
+    heightLeft-=pageH;
+    while(heightLeft>0){
+      position=heightLeft-imgH;
+      pdf.addPage();
+      pdf.addImage(imgData,'JPEG',0,position,imgW,imgH);
+      heightLeft-=pageH;
+    }
+    return pdf.output('blob');
+  }finally{
+    document.body.removeChild(iframe);
+  }
+}
+function blobToBase64(blob){
+  return new Promise((resolve,reject)=>{
+    const reader=new FileReader();
+    reader.onloadend=()=>resolve(reader.result.split(',')[1]);
+    reader.onerror=reject;
+    reader.readAsDataURL(blob);
+  });
+}
+// Ouvre toujours le PDF pour verification AVANT de demander confirmation
+// d'envoi (jamais d'envoi automatique/silencieux) - l'utilisateur peut
+// annuler a ce stade sans que rien ne soit envoye. Piece jointe uniquement,
+// jamais de lien (un lien ne s'imprime pas bien depuis un telephone).
+// Retourne true si l'email a bien ete envoye, false si annule/pas d'email.
+async function previewAndConfirmSend(pdfBlob,filename,tenant,{fromEmail,fromName,subject,bodyHtml,bcc}){
+  const blobUrl=URL.createObjectURL(pdfBlob);
+  const a=document.createElement('a');a.href=blobUrl;a.target='_blank';a.rel='noopener';
+  document.body.appendChild(a);a.click();document.body.removeChild(a);
+  if(!tenant?.email){setTimeout(()=>URL.revokeObjectURL(blobUrl),30000);return false;}
+  if(!confirm('Document ouvert pour vérification.\n\nEnvoyer ce PDF par email à '+tenant.nom+' ('+tenant.email+') ?')){
+    setTimeout(()=>URL.revokeObjectURL(blobUrl),30000);
+    return false;
+  }
+  if(!BREVO_API_KEY)BREVO_API_KEY=ensureBrevoKey();
+  if(!BREVO_API_KEY){alert('Clé Brevo manquante — email non envoyé.');setTimeout(()=>URL.revokeObjectURL(blobUrl),30000);return false;}
+  const b64=await blobToBase64(pdfBlob);
+  const resp=await fetch('https://api.brevo.com/v3/smtp/email',{
+    method:'POST',
+    headers:{'api-key':BREVO_API_KEY,'Content-Type':'application/json','Accept':'application/json'},
+    body:JSON.stringify({
+      sender:{name:fromName,email:fromEmail},
+      to:[{email:tenant.email,name:tenant.nom}],
+      ...(bcc&&bcc.length?{bcc}:{}),
+      subject,htmlContent:bodyHtml,
+      attachment:[{content:b64,name:filename}],
+    })
+  });
+  setTimeout(()=>URL.revokeObjectURL(blobUrl),30000);
+  if(!resp.ok){const t=await resp.text();throw new Error(t);}
+  return true;
+}
+// Genere le document (HTML -> PDF), l'ouvre pour verification, puis demande
+// confirmation avant tout envoi (voir previewAndConfirmSend) - ne renvoie
+// true que si l'email a reellement ete envoye, pour que les appelants qui
+// marquent "quittance_envoyee"/comptent les envois restent corrects.
 async function autoSendQuittance(tenant,payment,mois,annee,commentaire='',isPartial=false){
   // Sender depends on property type
   const isDubailQ = dubailFilter(tenant.logement||'');
   const SEND_FROM_EMAIL = isDubailQ ? 'savadur56@gmail.com'   : 'antoinejosse56@gmail.com';
   const SEND_FROM_NAME  = isDubailQ ? 'J&A SAVADUR'           : 'Antoine JOSSE';
-  if(!tenant.email)return;
   const fmt=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR',minimumFractionDigits:2}).format(n||0);
   const isCommercial=tenant.type_bail==='commercial';
-  const charges=parseFloat(tenant.charges||0);
   // Quittance shows: loyer ref + charges (expected base), total RECU = locataire_part + caf
   const loyerRef=parseFloat(tenant.loyer_ref||0);
   const chargesRef=parseFloat(tenant.charges||0);
   const totalRecu=parseFloat((payment.locataire_part||0)+(payment.caf||0));
-  const total=totalRecu||loyerRef; // show what was received, fallback to ref
   const datePaiement=payment.date_loc?new Date(payment.date_loc).toLocaleDateString('fr-FR'):new Date().toLocaleDateString('fr-FR');
   const moisNum=String(['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'].indexOf(mois)+1).padStart(2,'0');
   const invoiceNum=annee+'-'+moisNum+'-'+tenant.logement.replace(/[^A-Z0-9]/gi,'').toUpperCase().slice(0,6);
-  const emailHtml=isCommercial
-    ?buildFactureHtml(tenant,payment,mois,annee,loyerRef,chargesRef,totalRecu,datePaiement,invoiceNum,fmt,commentaire,true)
-    :buildQuittanceHtml(tenant,payment,mois,annee,loyerRef,chargesRef,totalRecu,datePaiement,fmt,commentaire,true);
+  const docHtml=isCommercial
+    ?buildFactureHtml(tenant,payment,mois,annee,loyerRef,chargesRef,totalRecu,datePaiement,invoiceNum,fmt,commentaire,false)
+    :buildQuittanceHtml(tenant,payment,mois,annee,loyerRef,chargesRef,totalRecu,datePaiement,fmt,commentaire,false);
   const docLabel=isPartial?'Règlement partiel':'Quittance de loyer';
   const subject=isCommercial
     ?docLabel+' — '+mois+' '+annee+' — '+tenant.logement+' — N°'+invoiceNum
     :docLabel+' — '+mois+' '+annee+' — '+tenant.logement;
+  const pdfBlob=await htmlStringToPdfBlob(docHtml);
+  const filename=(isCommercial?'Facture':'Quittance')+'_'+mois+'_'+annee+'.pdf';
+  const bodyHtml=`<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
+    <p>Bonjour ${tenant.nom},</p>
+    <p>Veuillez trouver ci-joint votre ${docLabel.toLowerCase()} pour ${mois} ${annee}.</p>
+    <p>Cordialement,<br>${SEND_FROM_NAME}</p>
+  </div>`;
   // Copie savadur56 uniquement pour biens Dubail
-  const isDubailTenant = dubailFilter(tenant.logement||'');
-  const copyBcc = isDubailTenant ? [{email:'savadur56@gmail.com'}] : [];
-  // Envoi Brevo
-  if(!BREVO_API_KEY)BREVO_API_KEY=ensureBrevoKey();
-  if(!BREVO_API_KEY)throw new Error('Clé Brevo manquante');
-  // Envoi au locataire
-  const resp=await fetch('https://api.brevo.com/v3/smtp/email',{
-    method:'POST',
-    headers:{'api-key':BREVO_API_KEY,'Content-Type':'application/json','Accept':'application/json'},
-    body:JSON.stringify({sender:{name:SEND_FROM_NAME,email:SEND_FROM_EMAIL},to:[{email:tenant.email,name:tenant.nom}],subject,htmlContent:emailHtml})
+  const copyBcc = isDubailQ ? [{email:'savadur56@gmail.com'}] : [];
+  const sent=await previewAndConfirmSend(pdfBlob,filename,tenant,{
+    fromEmail:SEND_FROM_EMAIL,fromName:SEND_FROM_NAME,subject,bodyHtml,bcc:copyBcc,
   });
-  if(!resp.ok){const t=await resp.text();const w=window.open('','_blank');if(w){w.document.write(emailHtml);w.document.close();}throw new Error(t);}
-  // Copie séparée à savadur56 et admin
-  const copySubject='[COPIE] '+subject+' — '+tenant.nom;
-  fetch('https://api.brevo.com/v3/smtp/email',{
-    method:'POST',
-    headers:{'api-key':BREVO_API_KEY,'Content-Type':'application/json','Accept':'application/json'},
-    body:JSON.stringify({sender:{name:FROM_NAME,email:FROM_EMAIL},to:isDubailQ?[{email:'savadur56@gmail.com',name:'J&A SAVADUR'},{email:ALERT_EMAIL,name:'Antoine JOSSE'}]:[{email:ALERT_EMAIL,name:'Antoine JOSSE'}],subject:copySubject,htmlContent:emailHtml})
-  }).catch(e=>console.warn('Copie archive failed:',e.message));
-  // Open print preview (with print button enabled)
-  try{
-    const previewHtml=isCommercial
-      ?buildFactureHtml(tenant,payment,mois,annee,loyerRef,chargesRef,totalRecu,datePaiement,invoiceNum,fmt,commentaire,false)
-      :buildQuittanceHtml(tenant,payment,mois,annee,loyerRef,chargesRef,totalRecu,datePaiement,fmt,commentaire,false);
-    const blob=new Blob([previewHtml],{type:'text/html;charset=utf-8'});
-    const blobUrl=URL.createObjectURL(blob);
-    // Use <a> click instead of window.open to bypass popup blocker
-    const a=document.createElement('a');
-    a.href=blobUrl;a.target='_blank';a.rel='noopener';
-    document.body.appendChild(a);a.click();document.body.removeChild(a);
-    setTimeout(()=>URL.revokeObjectURL(blobUrl),30000);
-  }catch(e){
-    const url='data:text/html;charset=utf-8,'+encodeURIComponent(emailHtml);
-    const a=document.createElement('a');a.href=url;a.target='_blank';a.click();
+  if(sent){
+    // Copie archive séparée à l'admin (contenu HTML, usage interne uniquement)
+    const copySubject='[COPIE] '+subject+' — '+tenant.nom;
+    fetch('https://api.brevo.com/v3/smtp/email',{
+      method:'POST',
+      headers:{'api-key':BREVO_API_KEY,'Content-Type':'application/json','Accept':'application/json'},
+      body:JSON.stringify({sender:{name:FROM_NAME,email:FROM_EMAIL},to:[{email:ALERT_EMAIL,name:'Antoine JOSSE'}],subject:copySubject,htmlContent:docHtml})
+    }).catch(e=>console.warn('Copie archive failed:',e.message));
   }
-  return true;
+  return sent;
 }
 
 async function sendFactureEau(releve,cpt,tenant,conso,montant,prix){
@@ -12648,32 +12723,28 @@ async function sendFactureEau(releve,cpt,tenant,conso,montant,prix){
   archiveEauToDrive(html,driveFilenameEau,moisEau,anneeEau);
   if(!BREVO_API_KEY)BREVO_API_KEY=ensureBrevoKey();
   if(!BREVO_API_KEY)throw new Error('Clé Brevo manquante');
-  // Envoi au locataire
-  const resp=await fetch('https://api.brevo.com/v3/smtp/email',{
-    method:'POST',
-    headers:{'api-key':BREVO_API_KEY,'Content-Type':'application/json','Accept':'application/json'},
-    body:JSON.stringify({sender:{name:FROM_NAME,email:FROM_EMAIL},to:[{email:tenant.email,name:tenant.nom}],subject,htmlContent:html})
+  const pdfBlob=await htmlStringToPdfBlob(html);
+  const bodyHtml=`<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
+    <p>Bonjour ${tenant.nom},</p>
+    <p>Veuillez trouver ci-jointe votre facture d'eau (relevé du ${dateReleve}).</p>
+    <p>Cordialement,<br>J&A SAVADUR</p>
+  </div>`;
+  const sent=await previewAndConfirmSend(pdfBlob,'Facture-eau_'+dateReleve.replace(/\//g,'-')+'.pdf',tenant,{
+    fromEmail:FROM_EMAIL,fromName:FROM_NAME,subject,bodyHtml,
   });
-  if(!resp.ok){const t=await resp.text();throw new Error(t);}
-  // Copie selon le bien : Dubail → savadur56, autres → antoinejosse56
-  const isDubailEau = dubailFilter(tenant.logement||'');
-  const copyToEau = isDubailEau
-    ? [{email:'savadur56@gmail.com',name:'J&A SAVADUR (archive)'}]
-    : [{email:'antoinejosse56@gmail.com',name:'Antoine JOSSE (archive)'}];
-  fetch('https://api.brevo.com/v3/smtp/email',{
-    method:'POST',
-    headers:{'api-key':BREVO_API_KEY,'Content-Type':'application/json','Accept':'application/json'},
-    body:JSON.stringify({sender:{name:FROM_NAME,email:FROM_EMAIL},to:copyToEau,subject:'[COPIE] '+subject,htmlContent:html})
-  }).catch(e=>console.warn('Copie facture eau failed:',e.message));
-  try{
-    const w=window.open('','_blank');
-    if(w){w.document.write(html);w.document.close();}
-    else{const url='data:text/html;charset=utf-8,'+encodeURIComponent(html);window.location.href=url;}
-  }catch(e){
-    const url='data:text/html;charset=utf-8,'+encodeURIComponent(html);
-    const a=document.createElement('a');a.href=url;a.target='_blank';a.click();
+  if(sent){
+    // Copie selon le bien : Dubail → savadur56, autres → antoinejosse56
+    const isDubailEau = dubailFilter(tenant.logement||'');
+    const copyToEau = isDubailEau
+      ? [{email:'savadur56@gmail.com',name:'J&A SAVADUR (archive)'}]
+      : [{email:'antoinejosse56@gmail.com',name:'Antoine JOSSE (archive)'}];
+    fetch('https://api.brevo.com/v3/smtp/email',{
+      method:'POST',
+      headers:{'api-key':BREVO_API_KEY,'Content-Type':'application/json','Accept':'application/json'},
+      body:JSON.stringify({sender:{name:FROM_NAME,email:FROM_EMAIL},to:copyToEau,subject:'[COPIE] '+subject,htmlContent:html})
+    }).catch(e=>console.warn('Copie facture eau failed:',e.message));
   }
-  return true;
+  return sent;
 }
 
 async function sendAccuseEau(releve,cpt,tenant,montant){
@@ -12700,14 +12771,14 @@ async function sendAccuseEau(releve,cpt,tenant,montant){
     +'<div style="margin-top:40px;text-align:right">Fait à Lorient, le '+today+'<br><br><strong>JOSSE Antoine — Gérant J&A SAVADUR</strong></div>'
     +'</body></html>';
   if(!BREVO_API_KEY)BREVO_API_KEY=ensureBrevoKey();
-  const resp=await fetch('https://api.brevo.com/v3/smtp/email',{
-    method:'POST',
-    headers:{'api-key':BREVO_API_KEY,'Content-Type':'application/json','Accept':'application/json'},
-    body:JSON.stringify({sender:{name:FROM_NAME,email:FROM_EMAIL},to:[{email:tenant.email,name:tenant.nom}],bcc:[{email:ALERT_EMAIL},{email:'savadur56@gmail.com'}],subject:'Accusé de réception paiement eau — '+dateReleve+' — '+tenant.logement,htmlContent:html})
+  const pdfBlob=await htmlStringToPdfBlob(html);
+  const sent=await previewAndConfirmSend(pdfBlob,'Accuse-reception-eau_'+dateReleve.replace(/\//g,'-')+'.pdf',tenant,{
+    fromEmail:FROM_EMAIL,fromName:FROM_NAME,
+    subject:'Accusé de réception paiement eau — '+dateReleve+' — '+tenant.logement,
+    bodyHtml:html,
+    bcc:[{email:ALERT_EMAIL},{email:'savadur56@gmail.com'}],
   });
-  if(!resp.ok){const t=await resp.text();throw new Error(t);}
-  const w=window.open('','_blank');if(w){w.document.write(html);w.document.close();}
-  return true;
+  return sent;
 }
 
 // ============================================================
