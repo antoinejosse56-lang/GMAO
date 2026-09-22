@@ -8913,8 +8913,12 @@ function collectBailFormData(){
   // contournement volontaire sont listes a part avec leur motif, pour
   // laisser une trace explicite dans le bail signe.
   if(t.logement){
+    // Tous les diagnostics presents sont desormais annexes, meme echus -
+    // le bailleur prefere fournir un document perime plutot que rien, et
+    // envoie la version a jour par mail au locataire des reception (le flag
+    // `expired` sert juste a l'annoter clairement dans le bail).
     logementDiagStatus(t.logement).forEach(d=>{
-      if(d.doc&&!d.expired)out['diag_'+d.key]={url:d.doc.document_url,date:d.doc.date};
+      if(d.doc)out['diag_'+d.key]={url:d.doc.document_url,date:d.doc.date,expired:d.expired};
     });
     if(bail._diagOverride&&bail._diagOverrideReason){
       out.diag_override_reason=bail._diagOverrideReason;
@@ -8973,7 +8977,7 @@ function genBailPDF(bail,tenant){
   y+=12;
   doc.setFont('helvetica','normal');doc.setFontSize(10);
 
-  const diagPresent=Object.keys(DIAG_LABELS).filter(k=>bail['diag_'+k]?.url&&!diagIsExpired(bail['diag_'+k].date,k));
+  const diagPresent=Object.keys(DIAG_LABELS).filter(k=>bail['diag_'+k]?.url);
 
   title('I. Désignation des parties');
   para('Le bailleur : '+(bail.bailleur_nom||'—')+(bail.bailleur_rep?', représenté par '+bail.bailleur_rep:'')+', domicilié '+(bail.bailleur_adr||'—')+'.');
@@ -9047,7 +9051,10 @@ function genBailPDF(bail,tenant){
   title((isComm?'IX':'XII')+'. Annexes');
   para('Sont annexés et joints au présent contrat :');
   para('- Un dossier de diagnostic technique'+(diagPresent.length?' comprenant :':' (à joindre).'));
-  diagPresent.forEach(k=>para('  • '+DIAG_LABELS[k]+(bail['diag_'+k].date?' (établi le '+dl(bail['diag_'+k].date)+')':'')+' — disponible dans GMAO Pro.'));
+  diagPresent.forEach(k=>{
+    const d=bail['diag_'+k];
+    para('  • '+DIAG_LABELS[k]+(d.date?' (établi le '+dl(d.date)+')':'')+(d.expired?' — ÉCHU, en attente de renouvellement (une version à jour sera transmise séparément par le bailleur dès réception).':' — disponible dans GMAO Pro.'));
+  });
   if(bail.diag_override_reason&&bail.diag_override_list?.length){
     para("Diagnostic(s) suivant(s) non fourni(s) à ce jour, le bailleur et le locataire reconnaissant expressément en être informés et poursuivre la signature du présent contrat en connaissance de cause : "+bail.diag_override_list.join(', ')+'.');
     para('Motif : '+bail.diag_override_reason+'.');
@@ -9077,21 +9084,22 @@ function genBailPDF(bail,tenant){
   return doc;
 }
 
-// Fusionne le bail (genere par jsPDF) avec les diagnostics encore valides
-// deja televerses (PDF ou image) en un seul document continu, une page de
-// garde par annexe pour la retrouver facilement, puis appose le paraphe des
-// 2 parties et la numerotation sur TOUTES les pages du resultat (bail +
-// annexes) - le locataire doit avoir paraphe l'ensemble du dossier, pas
-// seulement le corps du bail. Les diagnostics perimes ne sont jamais inclus
-// dans le document signe (mais restent visibles, en rouge, dans le
-// formulaire pour rappel de renouvellement).
+// Fusionne le bail (genere par jsPDF) avec les diagnostics deja televerses
+// (PDF ou image) en un seul document continu, une page de garde par annexe
+// pour la retrouver facilement, puis appose le paraphe des 2 parties et la
+// numerotation sur TOUTES les pages du resultat (bail + annexes) - le
+// locataire doit avoir paraphe l'ensemble du dossier, pas seulement le corps
+// du bail. Les diagnostics echus sont desormais inclus quand meme (annotes
+// "ECHU" sur leur page de garde) plutot qu'omis : le bailleur prefere
+// fournir un document perime que rien du tout, et transmet la version a
+// jour par mail au locataire des qu'il la recoit.
 async function mergeBailWithDiagnostics(jsDoc,bail){
   const {PDFDocument,StandardFonts,rgb}=PDFLib;
   const finalDoc=await PDFDocument.load(jsDoc.output('arraybuffer'));
   const font=await finalDoc.embedFont(StandardFonts.HelveticaBold);
   const A4=[595.28,841.89];
 
-  const diagPresent=Object.keys(DIAG_LABELS).filter(k=>bail['diag_'+k]?.url&&!diagIsExpired(bail['diag_'+k].date,k));
+  const diagPresent=Object.keys(DIAG_LABELS).filter(k=>bail['diag_'+k]?.url);
   for(const k of diagPresent){
     const url=bail['diag_'+k].url;
     try{
@@ -9100,7 +9108,7 @@ async function mergeBailWithDiagnostics(jsDoc,bail){
       const bytes=new Uint8Array(await resp.arrayBuffer());
       const ct=resp.headers.get('content-type')||'';
       const cover=finalDoc.addPage(A4);
-      cover.drawText('ANNEXE — '+DIAG_LABELS[k],{x:50,y:780,size:16,font,color:rgb(0.1,0.1,0.1)});
+      cover.drawText('ANNEXE — '+DIAG_LABELS[k]+(bail['diag_'+k].expired?' (ÉCHU)':''),{x:50,y:780,size:16,font,color:bail['diag_'+k].expired?rgb(0.75,0.1,0.1):rgb(0.1,0.1,0.1)});
       if(ct.includes('pdf')||url.toLowerCase().includes('.pdf')){
         const srcDoc=await PDFDocument.load(bytes,{ignoreEncryption:true});
         const pages=await finalDoc.copyPages(srcDoc,srcDoc.getPageIndices());
