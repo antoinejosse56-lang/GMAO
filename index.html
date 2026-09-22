@@ -9211,10 +9211,17 @@ async function sendBailEmail(tenant){
   if(!tenant.bail_url){alert('Aucun bail enregistré pour ce locataire');return;}
   if(!BREVO_API_KEY)BREVO_API_KEY=ensureBrevoKey();
   if(!BREVO_API_KEY)return;
+  // Meme regle que les quittances/factures (autoSendQuittance) : expediteur
+  // et copie dependent du bien (Dubail/Savadur vs perso), pour que savadur56
+  // soit toujours informe des documents envoyes concernant ses biens.
+  const isDubail=dubailFilter(tenant.logement||'');
+  const fromEmail=isDubail?'savadur56@gmail.com':'antoinejosse56@gmail.com';
+  const fromName=isDubail?'J&A SAVADUR':'Antoine JOSSE';
+  const copyBcc=isDubail?[{email:'savadur56@gmail.com'}]:[];
   const html=`<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
     <p>Bonjour ${tenant.nom},</p>
     <p>Veuillez trouver ci-joint votre contrat de bail signé.</p>
-    <p>Cordialement,<br>J&A SAVADUR</p>
+    <p>Cordialement,<br>${fromName}</p>
   </div>`;
   try{
     const pdfResp=await fetch(tenant.bail_url);
@@ -9224,7 +9231,7 @@ async function sendBailEmail(tenant){
     const resp=await fetch('https://api.brevo.com/v3/smtp/email',{
       method:'POST',
       headers:{'api-key':BREVO_API_KEY,'Content-Type':'application/json'},
-      body:JSON.stringify({sender:{name:'J&A SAVADUR',email:'savadur56@gmail.com'},to:[{email:tenant.email,name:tenant.nom}],subject:'Votre contrat de bail',htmlContent:html,attachment:[{content:b64,name:'Bail_'+(tenant.nom||'locataire').replace(/[^a-zA-Z0-9]/g,'-')+'.pdf'}]})
+      body:JSON.stringify({sender:{name:fromName,email:fromEmail},to:[{email:tenant.email,name:tenant.nom}],...(copyBcc.length?{bcc:copyBcc}:{}),subject:'Votre contrat de bail',htmlContent:html,attachment:[{content:b64,name:'Bail_'+(tenant.nom||'locataire').replace(/[^a-zA-Z0-9]/g,'-')+'.pdf'}]})
     });
     if(!resp.ok){const t=await resp.text();throw new Error(t);}
     alert('✓ Email envoyé à '+tenant.email);
@@ -9684,10 +9691,16 @@ async function sendEdlEmail(tenant){
   if(!tenant.edl_url){alert("Aucun état des lieux enregistré pour ce locataire");return;}
   if(!BREVO_API_KEY)BREVO_API_KEY=ensureBrevoKey();
   if(!BREVO_API_KEY)return;
+  // Meme regle que les quittances/factures (autoSendQuittance) et le bail
+  // (sendBailEmail) : expediteur et copie dependent du bien.
+  const isDubail=dubailFilter(tenant.logement||'');
+  const fromEmail=isDubail?'savadur56@gmail.com':'antoinejosse56@gmail.com';
+  const fromName=isDubail?'J&A SAVADUR':'Antoine JOSSE';
+  const copyBcc=isDubail?[{email:'savadur56@gmail.com'}]:[];
   const html=`<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
     <p>Bonjour ${tenant.nom},</p>
     <p>Veuillez trouver ci-joint votre état des lieux signé.</p>
-    <p>Cordialement,<br>J&A SAVADUR</p>
+    <p>Cordialement,<br>${fromName}</p>
   </div>`;
   try{
     const pdfResp=await fetch(tenant.edl_url);
@@ -9697,7 +9710,7 @@ async function sendEdlEmail(tenant){
     const resp=await fetch('https://api.brevo.com/v3/smtp/email',{
       method:'POST',
       headers:{'api-key':BREVO_API_KEY,'Content-Type':'application/json'},
-      body:JSON.stringify({sender:{name:'J&A SAVADUR',email:'savadur56@gmail.com'},to:[{email:tenant.email,name:tenant.nom}],subject:'Votre état des lieux',htmlContent:html,attachment:[{content:b64,name:'Etat-des-lieux_'+(tenant.nom||'locataire').replace(/[^a-zA-Z0-9]/g,'-')+'.pdf'}]})
+      body:JSON.stringify({sender:{name:fromName,email:fromEmail},to:[{email:tenant.email,name:tenant.nom}],...(copyBcc.length?{bcc:copyBcc}:{}),subject:'Votre état des lieux',htmlContent:html,attachment:[{content:b64,name:'Etat-des-lieux_'+(tenant.nom||'locataire').replace(/[^a-zA-Z0-9]/g,'-')+'.pdf'}]})
     });
     if(!resp.ok){const t=await resp.text();throw new Error(t);}
     alert('✓ Email envoyé à '+tenant.email);
