@@ -6584,6 +6584,10 @@ function renderModal(){
       </select></div>
       <div class="form-group"><label>Détail des charges incluses</label><input id="bail-charges-detail" value="${bail.charges_detail||''}" placeholder="Ménage parties communes, taxe ordures ménagères..."></div>
     </div>
+    <div class="form-group" style="display:flex;align-items:center;gap:8px">
+      <input type="checkbox" id="bail-eau-refacturee" style="width:auto" ${bail.eau_refacturee!==false?'checked':''}>
+      <label for="bail-eau-refacturee" style="margin:0">Eau : abonnement souscrit par le bailleur pour l'immeuble, consommation refacturée au locataire selon son relevé (tarif moyen de la dernière facture)</label>
+    </div>
     <div class="g2c">
       <div class="form-group"><label>Date de révision du loyer (jour/mois)</label><input id="bail-date-revision" value="${bail.date_revision||''}" placeholder="01/12"></div>
       <div class="form-group"><label>Trimestre de référence IRL</label><input id="bail-irl-trimestre" value="${bail.irl_trimestre||''}" placeholder="1er trimestre 2026"></div>
@@ -8730,6 +8734,7 @@ function collectBailFormData(){
     jour_paiement:q('bail-jour-paiement'),lieu_paiement:q('bail-lieu-paiement'),
     date_entree:q('bail-date-entree'),duree:q('bail-duree'),lieu_sig:q('bail-lieu-sig'),
     charges_modalite:q('bail-charges-modalite'),charges_detail:q('bail-charges-detail'),
+    eau_refacturee:!!document.getElementById('bail-eau-refacturee')?.checked,
     date_revision:q('bail-date-revision'),irl_trimestre:q('bail-irl-trimestre'),travaux:q('bail-travaux'),
   };
   // Diagnostics obligatoires, tires de la fiche du bien (bien_documents) -
@@ -8836,6 +8841,9 @@ function genBailPDF(bail,tenant){
     para('Modalités de révision : date de révision '+(bail.date_revision||'—')+', trimestre de référence de l\'IRL : '+(bail.irl_trimestre||'—')+'.');
   }
   para('B. Charges récupérables — Modalité de règlement : '+(bail.charges_modalite||'—')+'. Montant mensuel : '+fmt(bail.charges)+(bail.charges_detail?' ('+bail.charges_detail+')':'')+'.');
+  if(!isComm&&bail.eau_refacturee){
+    para("L'abonnement du service de l'eau est souscrit par le bailleur pour l'ensemble de l'immeuble. La consommation d'eau du locataire est refacturée par le bailleur sur la base du relevé de son compteur individuel, au tarif moyen constaté sur la dernière facture d'eau reçue par le bailleur.");
+  }
   para('E. Modalités de paiement — Périodicité mensuelle, paiement à échoir, '+(bail.jour_paiement||'—')+'. '+(bail.lieu_paiement||'—')+'.');
   para('Montant total dû à chaque échéance (loyer + charges) : '+fmt((bail.loyer_ref||0)+(bail.charges||0))+(isComm?' HT, TVA en sus':'')+'.');
   if(!isComm&&bail.travaux){
