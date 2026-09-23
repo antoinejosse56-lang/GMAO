@@ -323,13 +323,13 @@ def archive_validated_files(watch_path: Path, known_rows: dict, assets: dict, wo
             continue
         if info.get("statut") == "valide":
             dest_dir = resolve_devis_folder(info, NAS_SAVADUR_PATH, NAS_PERSO_PATH, assets, work_orders, chantiers)
-            new_name = dest_filename(p.suffix, info.get("date_devis"), info.get("entreprise"), info.get("motif"))
+            new_name = dest_filename(p.suffix, info.get("date_devis"), info.get("entreprise"), info.get("motif"), fallback="Devis")
         elif info.get("statut") == "rejete":
             original = valid_by_hash.get(info.get("content_hash"))
             if not original:
                 continue
             dest_dir = resolve_devis_folder(original, NAS_SAVADUR_PATH, NAS_PERSO_PATH, assets, work_orders, chantiers) / "_Doublons"
-            new_name = dest_filename(p.suffix, original.get("date_devis"), original.get("entreprise"), original.get("motif"))
+            new_name = dest_filename(p.suffix, original.get("date_devis"), original.get("entreprise"), original.get("motif"), fallback="Devis")
         else:
             continue
         dest_dir.mkdir(parents=True, exist_ok=True)
