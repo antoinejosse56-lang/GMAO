@@ -247,6 +247,16 @@ function tfRegulStatus(tenant){
 // Categories de facture, utilisees pour le filtre de la liste et le formulaire
 // manuel - une seule liste partagee pour eviter les deux copies divergentes.
 const CATS_FACTURE=['Travaux/Artisan','Matériaux','Énergie','Téléphone/Internet','Assurance','Abonnement','Achat','Autre'];
+// Types de document (bien_documents.type) - partagee entre le formulaire
+// "add-bien-document" et l'ecran de classification "Documents a valider"
+// (import_documents.py).
+const DOC_TYPES=['DPE','Diagnostic amiante','Diagnostic plomb','Diagnostic électricité','Diagnostic gaz','Diagnostic termites','ERP','Carrez','Autre'];
+// Types de document vehicule (assets.documents[].type) - mêmes valeurs que le
+// select de la fiche vehicule (icône choisie selon devis/facture/autre).
+const VEHICULE_DOC_TYPES=[['devis','Devis'],['facture','Facture'],['manuel','Manuel'],['autre','Autre']];
+// Types de document personnel (famille.documents[].type) - partagee entre le
+// formulaire "add-membre-doc" et l'ecran de classification "Documents a valider".
+const FAMILLE_DOC_TYPES=['Passeport','Carte nationale d\'identité','Permis de conduire','Carte Vitale','Mutuelle','Carte de séjour','Acte de naissance','Livret de famille','Autre'];
 // Corps de metier des artisans/entreprises (fournisseurs.corps_metier) -
 // liste fixe pour permettre le filtrage, a completer librement ici si besoin.
 const CORPS_METIER_LIST=['Plomberie','Électricité','Chauffage / Climatisation','Serrurerie','Peinture','Menuiserie','Maçonnerie','Couverture / Toiture','Vitrerie','Carrelage / Sols','Plâtrerie / Isolation','Électroménager','Ascenseur','Espaces verts','Nettoyage','Sécurité / Alarme','Ramonage','Autre'];
@@ -920,7 +930,7 @@ let S = {
   // data
   users: [], assets: [], tasks: [], tools: [], loans: [],
   workOrders: [], maintenanceTemplates: [], topology: {properties: []},
-  factures: [], facturesAValider: [], fournisseurs: [], chantiers: [], devis: [], devisAValider: [], bienDocuments: [], revenues: [], finTab: 'overview', reservations: [], resaYear: new Date().getFullYear(), taxeSejourTaux: 5, taxeSejourPlafond: 4.60, compteurs: [], releves: [], rangements: [], famille: [], consommables: [], crecheSaisies: [], ecoleSaisies: [], familleTab: 'membres', finFactCpte: 'savadur', familleEnfant: null, tfRegularisations: [], logementFiches: [], logementEdl: [], fieldMode: false, fieldSearch: ''
+  factures: [], facturesAValider: [], fournisseurs: [], chantiers: [], devis: [], devisAValider: [], bienDocuments: [], documentsAValider: [], revenues: [], finTab: 'overview', reservations: [], resaYear: new Date().getFullYear(), taxeSejourTaux: 5, taxeSejourPlafond: 4.60, compteurs: [], releves: [], rangements: [], famille: [], consommables: [], crecheSaisies: [], ecoleSaisies: [], familleTab: 'membres', finFactCpte: 'savadur', familleEnfant: null, tfRegularisations: [], logementFiches: [], logementEdl: [], fieldMode: false, fieldSearch: ''
 };
 
 async function loadAll() {
@@ -939,7 +949,7 @@ async function loadAll() {
     const test = await sb.from('users').select('count', {count:'exact',head:true});
     if (test.error) { showError(test.error.message || JSON.stringify(test.error)); return; }
 
-    const [u, a, tl, l, wo, mt, topo, rev, cpt, rel, ten, rp, rng, fam, crecheRes, ecoleRes, conso, facturesRes, resaRes, favRes, fournRes, chantiersRes, devisRes, devisAvRes, bienDocsRes, tfRegulRes, logFichesRes, logEdlRes, vehiculeRelevesRes] = await Promise.all([
+    const [u, a, tl, l, wo, mt, topo, rev, cpt, rel, ten, rp, rng, fam, crecheRes, ecoleRes, conso, facturesRes, resaRes, favRes, fournRes, chantiersRes, devisRes, devisAvRes, bienDocsRes, documentsAvRes, tfRegulRes, logFichesRes, logEdlRes, vehiculeRelevesRes] = await Promise.all([
       sb.from('users').select('*'),
       sb.from('assets').select('*'),
       sb.from('tools').select('*'),
@@ -965,6 +975,7 @@ async function loadAll() {
       sb.from('devis').select('*'),
       fetchAllRows('devis_a_valider','created_at',false),
       sb.from('bien_documents').select('*').order('created_at',{ascending:false}),
+      fetchAllRows('documents_a_valider','created_at',false),
       sb.from('tf_regularisations').select('*'),
       sb.from('logement_fiches').select('*'),
       sb.from('logement_edl').select('*').order('created_at',{ascending:false}),
@@ -1012,6 +1023,8 @@ async function loadAll() {
     S.devisAValider = devisAvRes?.error ? [] : (devisAvRes?.data || []);
     if (bienDocsRes?.error) console.warn('Table bien_documents non disponible:', bienDocsRes.error.message);
     S.bienDocuments = bienDocsRes?.error ? [] : (bienDocsRes?.data || []);
+    if (documentsAvRes?.error) console.warn('Table documents_a_valider non disponible:', documentsAvRes.error.message);
+    S.documentsAValider = documentsAvRes?.error ? [] : (documentsAvRes?.data || []);
     if (tfRegulRes?.error) console.warn('Table tf_regularisations non disponible:', tfRegulRes.error.message);
     S.tfRegularisations = tfRegulRes?.error ? [] : (tfRegulRes?.data || []);
     if (logFichesRes?.error) console.warn('Table logement_fiches non disponible:', logFichesRes.error.message);
@@ -2075,6 +2088,70 @@ function renderDevisAValider(){
   </div>`;
 }
 
+// Options combinees "Concerne" (bien/zone, vehicule ou personne) pour
+// renderDocumentsAValider() - un document deposé n'est pas forcement lie a
+// un bien (peut etre une carte grise/assurance vehicule, ou un document
+// personnel d'un membre de la famille). Prefixe la valeur (bien:/vehicule:/
+// personne:) pour retrouver la bonne table au moment de classer.
+function buildDocCibleOptsBase(){
+  const opts=[{v:'',l:'— Choisir à qui/quoi ça se rapporte —'}];
+  buildBienOptsBase().filter(o=>o.v).forEach(o=>opts.push({v:'bien:'+o.v,l:o.l}));
+  S.assets.filter(a=>a.category==='Véhicule'||a.category==='Bateau').forEach(a=>opts.push({v:'vehicule:'+a.id,l:'🚗 '+a.name}));
+  (S.famille||[]).forEach(mb=>opts.push({v:'personne:'+mb.id,l:'👤 '+[mb.prenom,mb.nom].filter(Boolean).join(' ')}));
+  return opts;
+}
+// Liste de types affichee dans le <select> "Type", differente selon la
+// cible choisie (bien_documents/assets.documents/famille.documents n'ont
+// pas le meme vocabulaire) - reconstruite par updateDocCibleType() a chaque
+// changement de cible.
+function docTypeOptionsHtml(cibleVal,sel){
+  if((cibleVal||'').startsWith('vehicule:'))return '<option value="">— Type —</option>'+VEHICULE_DOC_TYPES.map(([v,l])=>`<option value="${v}" ${v===sel?'selected':''}>${l}</option>`).join('');
+  if((cibleVal||'').startsWith('personne:'))return '<option value="">— Type —</option>'+FAMILLE_DOC_TYPES.map(t=>`<option value="${t}" ${t===sel?'selected':''}>${t}</option>`).join('');
+  return '<option value="">— Type —</option>'+DOC_TYPES.map(t=>`<option value="${t}" ${t===sel?'selected':''}>${t}</option>`).join('');
+}
+function updateDocCibleType(el){
+  const typeSel=document.querySelector('.doc-type[data-doc-id="'+el.dataset.docId+'"]');
+  if(typeSel)typeSel.innerHTML=docTypeOptionsHtml(el.value,'');
+}
+// Ecran de classification pour import_documents.py (DPE, assurance,
+// diagnostic, carte grise, document personnel... deposes dans le dossier NAS
+// partage avec Pauline) - jumeau leger de renderDevisAValider() : pas
+// d'entreprise/montant a saisir, juste une cible (bien/vehicule/personne) +
+// type + date + notes avant de ranger dans la bonne table.
+function renderDocumentsAValider(){
+  const pending=(S.documentsAValider||[]).filter(d=>d.statut==='en_attente').sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
+  if(!pending.length)return '';
+  const cibleOptsBase=buildDocCibleOptsBase();
+  const cibleOptsFor=(sel)=>renderOpts(cibleOptsBase,sel);
+  return `<div class="card" style="margin-bottom:14px">
+    <div class="sec" style="margin-bottom:8px">📥 Documents déposés par Pauline/Antoine, en attente de classification (${pending.length})</div>
+    <div style="overflow-x:auto"><table>
+      <thead><tr><th>Date</th><th>Fichier</th><th>Concerne</th><th>Type</th><th>Notes</th><th>Actions</th></tr></thead>
+      <tbody>
+      ${pending.map(d=>{
+        const fileUrl=(d.apercu_pdf_path||d.storage_path)?`${SUPABASE_URL}/storage/v1/object/public/documents-a-valider/${d.apercu_pdf_path||d.storage_path}`:null;
+        const cibleSel=d.bien?'bien:'+d.bien:d.asset_id?'vehicule:'+d.asset_id:d.famille_id?'personne:'+d.famille_id:'';
+        return `<tr>
+          <td style="vertical-align:top;padding-top:8px"><input type="date" class="doc-date" data-doc-id="${d.id}" value="${d.date_document||d.fichier_date||''}" style="width:130px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px"></td>
+          <td style="font-size:11px;vertical-align:top;padding-top:10px;max-width:160px;word-break:break-word">
+            ${d.fichier_nom||'—'}
+            ${fileUrl?`<br><a href="${fileUrl}" target="_blank" style="font-size:10px">📄 Ouvrir le fichier</a>`:'<br><span style="color:var(--red);font-size:10px">Fichier indisponible</span>'}
+            ${d.erreur_extraction?`<div class="badge bamber" style="font-size:9px;margin-top:4px;white-space:normal" title="${d.erreur_extraction.replace(/"/g,'&quot;')}">⚠ ${d.erreur_extraction}</div>`:''}
+          </td>
+          <td style="vertical-align:top"><select class="doc-cible" data-doc-id="${d.id}" onchange="updateDocCibleType(this)" style="width:190px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">${cibleOptsFor(cibleSel)}</select></td>
+          <td style="vertical-align:top"><select class="doc-type" data-doc-id="${d.id}" style="width:150px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">${docTypeOptionsHtml(cibleSel,d.type||'')}</select></td>
+          <td style="vertical-align:top"><input class="doc-notes" data-doc-id="${d.id}" value="${(d.notes||'').replace(/"/g,'&quot;')}" placeholder="Ex: refait suite à travaux..." style="width:160px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px"></td>
+          <td style="white-space:nowrap;vertical-align:top;padding-top:8px">
+            <button class="btn btn-sm btn-p" data-doc-valider="${d.id}" title="Classer">✅</button>
+            <button class="btn btn-sm btn-d" data-doc-rejeter="${d.id}" title="Rejeter (doublon, hors sujet...)" style="margin-left:3px">🚫</button>
+          </td>
+        </tr>`;
+      }).join('')}
+      </tbody>
+    </table></div>
+  </div>`;
+}
+
 function renderChantiers(){
   const cTab=S.chantierTab||'liste';
   const nDevisAValider=(S.devisAValider||[]).filter(d=>d.statut==='en_attente').length;
@@ -2522,7 +2599,7 @@ function renderTopology(){
     ${topoAssetPanel(prop.assetId, prop.name, prop.name)}`;
   }
 
-  return `<div class="split ${prop?'has-prop':''}">
+  return `${renderDocumentsAValider()}<div class="split ${prop?'has-prop':''}">
     <div class="split-left">
       <div class="card" style="padding:10px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
@@ -5542,7 +5619,6 @@ function renderModal(){
 
   if(m.type==='add-bien-document'||m.type==='edit-bien-document'){
     const d=m.doc||{};
-    const DOC_TYPES=['DPE','Diagnostic amiante','Diagnostic plomb','Diagnostic électricité','Diagnostic gaz','Diagnostic termites','ERP','Carrez','Autre'];
     html=`${mhd((m.type==='add-bien-document'?'Nouveau document — ':'Modifier — ')+(m.bien||d.bien||''))}
     <div class="form-group"><label>Type</label>
       <select id="m-bdoctype" onchange="updateBienDocExpiry()">
@@ -5983,7 +6059,7 @@ function renderModal(){
     const mb=S.famille.find(x=>x.id===m.membreId)||{};
     html=`${mhd('Document — '+(mb.prenom||''))}
     <div class="form-group"><label>Type de document *</label><select id="m-dtype">
-      ${['Passeport','Carte nationale d\'identité','Permis de conduire','Carte Vitale','Mutuelle','Carte de séjour','Acte de naissance','Livret de famille','Autre'].map(t=>`<option ${(m.doc?.type===t)?'selected':''}>${t}</option>`).join('')}
+      ${FAMILLE_DOC_TYPES.map(t=>`<option ${(m.doc?.type===t)?'selected':''}>${t}</option>`).join('')}
     </select></div>
     <div class="form-group"><label>N° de document</label><input id="m-dnum" value="${(m.doc?.numero)||''}" placeholder="Ex: 12AB34567"></div>
     <div class="g2c">
@@ -11395,6 +11471,65 @@ function bindAll(){
     const{error}=await sb.from('devis_a_valider').update({statut:'rejete',traite_at:new Date().toISOString()}).eq('id',id);
     if(error){alert('Erreur : '+error.message);return;}
     S.devisAValider=(S.devisAValider||[]).filter(x=>x.id!==id);
+    render();
+  });
+  // "Documents à valider" (import_documents.py, dossier NAS partagé avec
+  // Pauline) : classer range dans la bonne table selon la cible choisie
+  // (bien_documents / assets.documents / famille.documents) - meme principe
+  // que data-fav-classer (factures_a_valider mal classees) mais avec 3
+  // destinations possibles au lieu d'une seule.
+  document.querySelectorAll('[data-doc-valider]').forEach(el=>el.onclick=async()=>{
+    const id=el.dataset.docValider;
+    const d=(S.documentsAValider||[]).find(x=>x.id===id);
+    if(!d)return;
+    const cible=document.querySelector('.doc-cible[data-doc-id="'+id+'"]')?.value||'';
+    if(!cible){alert('Sélectionnez à qui/quoi ce document se rapporte avant de le classer');return;}
+    const sep=cible.indexOf(':');
+    const kind=cible.slice(0,sep),targetId=cible.slice(sep+1);
+    const type=document.querySelector('.doc-type[data-doc-id="'+id+'"]')?.value||'Autre';
+    const dateDoc=document.querySelector('.doc-date[data-doc-id="'+id+'"]')?.value||'';
+    const notes=(document.querySelector('.doc-notes[data-doc-id="'+id+'"]')?.value||'').trim();
+    const previewPath=d.apercu_pdf_path||d.storage_path;
+    const documentUrl=previewPath?`${SUPABASE_URL}/storage/v1/object/public/documents-a-valider/${previewPath}`:null;
+    const trackingUpdate={statut:'valide',traite_at:new Date().toISOString(),type,date_document:dateDoc||null,notes:notes||null,bien:null,asset_id:null,famille_id:null};
+    try{
+      if(kind==='bien'){
+        const rec={bien:targetId,type,date:dateDoc||null,document_url:documentUrl,fichier_nom:d.fichier_nom,notes:notes||null};
+        const{data,error}=await sb.from('bien_documents').insert(rec).select().single();
+        if(error)throw error;
+        S.bienDocuments.unshift(data);
+        trackingUpdate.bien=targetId;
+      }else if(kind==='vehicule'){
+        const asset=S.assets.find(a=>a.id===targetId);
+        if(!asset)throw new Error('Véhicule introuvable');
+        const doc={id:uid(),name:notes||d.fichier_nom||type,type,date:dateDoc||null,url:documentUrl};
+        const updatedDocs=[...(asset.documents||[]),doc];
+        const{error}=await sb.from('assets').update({documents:updatedDocs}).eq('id',asset.id);
+        if(error)throw error;
+        asset.documents=updatedDocs;
+        trackingUpdate.asset_id=targetId;
+      }else if(kind==='personne'){
+        const mb=S.famille.find(x=>x.id===targetId);
+        if(!mb)throw new Error('Personne introuvable');
+        const doc={id:uid(),type,numero:'',date_delivrance:dateDoc||null,date_expiry:null,reminder_days:60,drive_url:documentUrl,notes:notes||null};
+        const updatedDocs=[...(mb.documents||[]),doc];
+        const{error}=await sb.from('famille').update({documents:updatedDocs}).eq('id',mb.id);
+        if(error)throw error;
+        mb.documents=updatedDocs;
+        trackingUpdate.famille_id=targetId;
+      }
+    }catch(e){alert('Erreur : '+(e.message||e));return;}
+    const{error:updErr}=await sb.from('documents_a_valider').update(trackingUpdate).eq('id',id);
+    if(updErr){alert('Document classé, mais erreur de mise à jour du suivi : '+updErr.message);}
+    S.documentsAValider=(S.documentsAValider||[]).filter(x=>x.id!==id);
+    render();
+  });
+  document.querySelectorAll('[data-doc-rejeter]').forEach(el=>el.onclick=async()=>{
+    const id=el.dataset.docRejeter;
+    if(!confirm('Rejeter ce fichier ? Il ne sera plus proposé.'))return;
+    const{error}=await sb.from('documents_a_valider').update({statut:'rejete',traite_at:new Date().toISOString()}).eq('id',id);
+    if(error){alert('Erreur : '+error.message);return;}
+    S.documentsAValider=(S.documentsAValider||[]).filter(x=>x.id!==id);
     render();
   });
   document.querySelectorAll('[data-edit-fact]').forEach(el=>el.onclick=()=>{

@@ -33,30 +33,36 @@ def split_bien(bien):
     return [p.strip() for p in re.split(r"\s+[-–—]\s+", bien or "") if p.strip()]
 
 
-def dest_folder(root, kind, bien=None, equipment=None):
-    """<root>/<bien decompose en sous-dossiers>/<kind>, ou <root>/Vehicules/
+def dest_folder(root, kind, bien=None, equipment=None, equipment_kind="Véhicules"):
+    """<root>/<bien decompose en sous-dossiers>/<kind>, ou <root>/<equipment_kind>/
     <equipement>/<kind> si aucun bien n'est renseigne mais qu'un equipement
     (vehicule, bateau...) l'est - permet de classer les factures/devis d'un
-    bien mobile qui n'appartient a aucune propriete precise."""
+    bien mobile qui n'appartient a aucune propriete precise. `equipment_kind`
+    ("Véhicules" par defaut) permet de reutiliser le meme mecanisme de repli
+    pour un document personnel d'un membre de la famille (import_documents.py
+    passe equipment_kind="Famille" dans ce cas)."""
     parts = split_bien(bien)
     if parts:
         folder = Path(root)
         for p in parts:
             folder = folder / sanitize_filename(p)
     elif equipment:
-        folder = Path(root) / "Véhicules" / sanitize_filename(equipment)
+        folder = Path(root) / equipment_kind / sanitize_filename(equipment)
     else:
         folder = Path(root) / "Non classe"
     return folder / kind
 
 
-def dest_filename(ext, date_str, entreprise, description):
+def dest_filename(ext, date_str, entreprise, description, fallback="Facture"):
     """'<annee>.<mois>.<Entreprise>.<Description><ext>' - le bien/l'equipement
-    n'est pas repete ici, il est deja porte par le dossier (dest_folder)."""
+    n'est pas repete ici, il est deja porte par le dossier (dest_folder).
+    `fallback` remplace "Facture" comme valeur par defaut quand entreprise/
+    description sont vides - utilise par import_documents.py (un document
+    generique n'a pas d'"entreprise", "Facture" serait trompeur)."""
     parts = [
         year_month(date_str),
-        sanitize_filename(entreprise) if entreprise else "Facture",
-        sanitize_filename(description) if description else "Facture",
+        sanitize_filename(entreprise) if entreprise else fallback,
+        sanitize_filename(description) if description else fallback,
     ]
     return ".".join(parts) + ext
 
