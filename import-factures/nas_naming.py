@@ -102,3 +102,38 @@ def equipment_name_for(asset_id, wo_id, assets, work_orders=None):
         if wo and wo.get("asset_id") and assets.get(wo["asset_id"]):
             return assets[wo["asset_id"]].get("name")
     return None
+
+
+def chantier_name_for(chantier_id, wo_id, chantiers, work_orders=None):
+    """Nom de chantier a utiliser en repli quand un devis n'a ni `bien` ni
+    equipement renseigne mais est rattache a un chantier - directement
+    (devis_a_valider.chantier_id, cas d'un devis reclasse depuis les
+    factures) ou via un wo_id dont le bon de travaux pointe vers un chantier
+    (cas normal de validation d'un devis)."""
+    if chantier_id and chantiers.get(chantier_id):
+        return chantiers[chantier_id].get("nom")
+    if wo_id and work_orders:
+        wo = work_orders.get(wo_id)
+        if wo and wo.get("chantier_id") and chantiers.get(wo["chantier_id"]):
+            return chantiers[wo["chantier_id"]].get("nom")
+    return None
+
+
+def unique_dest_path(dest_dir, filename):
+    """Renvoie `dest_dir/filename`, ou une variante " (2)", " (3)"... si ce
+    nom est deja pris - 2 factures/devis distincts peuvent calculer le meme
+    nom de fichier (meme entreprise, meme mois, motif vide -> repli identique
+    "Facture"/"Document" pour les 2), auquel cas le fichier le plus recent
+    etait auparavant ignore silencieusement pour toujours plutot que renomme."""
+    dest = dest_dir / filename
+    if not dest.exists():
+        return dest
+    stem, _, ext = filename.rpartition(".")
+    if not stem:
+        stem, ext = filename, ""
+    n = 2
+    while True:
+        candidate = dest_dir / (f"{stem} ({n}).{ext}" if ext else f"{stem} ({n})")
+        if not candidate.exists():
+            return candidate
+        n += 1

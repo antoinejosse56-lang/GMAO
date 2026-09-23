@@ -43,7 +43,7 @@ from import_factures import (
     parse_filename_date,
     slugify_path,
 )
-from nas_naming import dest_folder, dest_filename, equipment_name_for, is_savadur_for
+from nas_naming import dest_folder, dest_filename, equipment_name_for, chantier_name_for, is_savadur_for, unique_dest_path
 
 try:
     import pdfplumber
@@ -101,7 +101,7 @@ def fetch_known_rows() -> dict:
     while True:
         resp = requests.get(
             f"{SUPABASE_URL}/rest/v1/{TABLE}",
-            params={"select": "chemin_relatif,statut,bien,motif,entreprise,montant_ttc,date_devis,wo_id"},
+            params={"select": "chemin_relatif,statut,bien,motif,entreprise,montant_ttc,date_devis,wo_id,chantier_id,content_hash"},
             headers={**HEADERS, "Range-Unit": "items", "Range": f"{offset}-{offset+page_size-1}"},
             timeout=30,
         )
@@ -145,9 +145,17 @@ def fetch_equipment_maps():
     vehicule/bateau) - memes tables que backup_to_nas.py/import_factures.py."""
     a = requests.get(f"{SUPABASE_URL}/rest/v1/assets", params={"select": "id,name,compte", "limit": 1000}, headers=HEADERS, timeout=30)
     a.raise_for_status()
-    w = requests.get(f"{SUPABASE_URL}/rest/v1/work_orders", params={"select": "id,asset_id", "limit": 1000}, headers=HEADERS, timeout=30)
+    w = requests.get(f"{SUPABASE_URL}/rest/v1/work_orders", params={"select": "id,asset_id,chantier_id", "limit": 1000}, headers=HEADERS, timeout=30)
     w.raise_for_status()
     return {x["id"]: x for x in a.json()}, {x["id"]: x for x in w.json()}
+
+
+def fetch_chantiers() -> dict:
+    """Charge les chantiers (repli de rangement pour un devis rattache a un
+    chantier sans bien precis, ex: piscine) - voir chantier_name_for."""
+    c = requests.get(f"{SUPABASE_URL}/rest/v1/chantiers", params={"select": "id,nom", "limit": 1000}, headers=HEADERS, timeout=30)
+    c.raise_for_status()
+    return {x["id"]: x for x in c.json()}
 
 
 def generate_pdf_preview(path: Path, storage_path: str, word_converter: LazyWordConverter):
@@ -274,34 +282,58 @@ def process_file(path: Path, chemin_relatif: str, word_converter: LazyWordConver
     log(f"  -> importe (entreprise={row['entreprise']!r}, montant_ttc={row['montant_ttc']!r}, date_devis={row['date_devis']!r})")
 
 
-def archive_validated_files(watch_path: Path, known_rows: dict, assets: dict, work_orders: dict):
+def resolve_devis_folder(info: dict, root_savadur: str, root_perso: str, assets: dict, work_orders: dict, chantiers: dict):
+    """Determine <root SAVADUR/Perso> + dossier de destination "Devis" pour
+    une ligne devis_a_valider, dans l'ordre : bien renseigne -> chantier lie
+    (directement ou via le bon de travaux) -> equipement (vehicule/bateau) lie
+    au bon de travaux -> "Non classe". Partage entre l'archivage normal (devis
+    valide) et le rangement d'un doublon rejete (qui reprend la destination
+    du devis original, pas la sienne - il n'a lui-meme ni bien ni wo_id)."""
+    bien = info.get("bien")
+    wo_id = info.get("wo_id")
+    chantier_id = info.get("chantier_id")
+    chantier_nom = None if bien else chantier_name_for(chantier_id, wo_id, chantiers, work_orders)
+    equipment = None if (bien or chantier_nom) else equipment_name_for(None, wo_id, assets, work_orders)
+    asset_id_for_savadur = (work_orders.get(wo_id) or {}).get("asset_id") if wo_id else None
+    root = root_savadur if is_savadur_for(bien, asset_id_for_savadur, assets) else root_perso
+    if chantier_nom:
+        dest_dir = dest_folder(root, "Devis", equipment=chantier_nom, equipment_kind="Chantiers")
+    else:
+        dest_dir = dest_folder(root, "Devis", bien=bien, equipment=equipment)
+    return dest_dir
+
+
+def archive_validated_files(watch_path: Path, known_rows: dict, assets: dict, work_orders: dict, chantiers: dict):
     """Deplace vers le NAS les fichiers dont le devis correspondant a ete
-    valide dans le GMAO (statut == 'valide' sur devis_a_valider). Meme
-    convention de rangement/nommage que backup_to_nas.py (nas_naming.py) :
-    <NAS_SAVADUR_PATH ou NAS_PERSO_PATH>/<bien (ou Vehicules/<nom> a defaut,
-    via le bon de travaux lie)>/Devis/<BIEN>.<annee>.<mois>.<Entreprise>.
-    <motif>.ext."""
+    valide dans le GMAO (statut == 'valide' sur devis_a_valider) - voir
+    resolve_devis_folder() pour la logique de rangement (bien/chantier/
+    equipement). Un fichier "rejete" comme doublon (meme empreinte SHA256
+    qu'un devis deja valide) est lui aussi range, dans un sous-dossier
+    _Doublons a cote du devis original qu'il duplique - au lieu de rester
+    coince pour toujours dans le dossier de depot comme avant ce correctif."""
     if not NAS_SAVADUR_PATH or not NAS_PERSO_PATH:
         return
+    valid_by_hash = {r["content_hash"]: r for r in known_rows.values() if r.get("statut") == "valide" and r.get("content_hash")}
     moved = 0
     for p in sorted(watch_path.iterdir()):
         if not p.is_file() or p.suffix.lower() not in ALLOWED_EXTENSIONS:
             continue
         info = known_rows.get(p.name)
-        if not info or info.get("statut") != "valide":
+        if not info:
             continue
-        bien = info.get("bien")
-        wo_id = info.get("wo_id")
-        equipment = None if bien else equipment_name_for(None, wo_id, assets, work_orders)
-        asset_id_for_savadur = (work_orders.get(wo_id) or {}).get("asset_id") if wo_id else None
-        root = NAS_SAVADUR_PATH if is_savadur_for(bien, asset_id_for_savadur, assets) else NAS_PERSO_PATH
-        new_name = dest_filename(p.suffix, info.get("date_devis"), info.get("entreprise"), info.get("motif"))
-        dest_dir = dest_folder(root, "Devis", bien=bien, equipment=equipment)
+        if info.get("statut") == "valide":
+            dest_dir = resolve_devis_folder(info, NAS_SAVADUR_PATH, NAS_PERSO_PATH, assets, work_orders, chantiers)
+            new_name = dest_filename(p.suffix, info.get("date_devis"), info.get("entreprise"), info.get("motif"))
+        elif info.get("statut") == "rejete":
+            original = valid_by_hash.get(info.get("content_hash"))
+            if not original:
+                continue
+            dest_dir = resolve_devis_folder(original, NAS_SAVADUR_PATH, NAS_PERSO_PATH, assets, work_orders, chantiers) / "_Doublons"
+            new_name = dest_filename(p.suffix, original.get("date_devis"), original.get("entreprise"), original.get("motif"))
+        else:
+            continue
         dest_dir.mkdir(parents=True, exist_ok=True)
-        dest = dest_dir / new_name
-        if dest.exists():
-            log(f"  ARCHIVAGE ignore (deja present a destination) : {p.name} -> {new_name}")
-            continue
+        dest = unique_dest_path(dest_dir, new_name)
         try:
             shutil.move(str(p), str(dest))
             moved += 1
@@ -354,7 +386,8 @@ def main():
 
     if NAS_SAVADUR_PATH and NAS_PERSO_PATH:
         assets, work_orders = fetch_equipment_maps()
-        archive_validated_files(watch_path, known_rows, assets, work_orders)
+        chantiers = fetch_chantiers()
+        archive_validated_files(watch_path, known_rows, assets, work_orders, chantiers)
 
 
 if __name__ == "__main__":

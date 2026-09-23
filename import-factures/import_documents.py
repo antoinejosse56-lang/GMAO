@@ -34,7 +34,7 @@ import requests
 from dotenv import load_dotenv
 
 from import_factures import LazyWordConverter, parse_filename_date, slugify_path
-from nas_naming import dest_folder, dest_filename, is_savadur_for
+from nas_naming import dest_folder, dest_filename, is_savadur_for, unique_dest_path
 
 load_dotenv()
 
@@ -278,10 +278,7 @@ def archive_validated_files(watch_path: Path, known_rows: dict, assets: dict, fa
             continue
         new_name = dest_filename(p.suffix, info.get("date_document"), info.get("type"), p.stem, fallback="Document")
         dest_dir.mkdir(parents=True, exist_ok=True)
-        dest = dest_dir / new_name
-        if dest.exists():
-            log(f"  ARCHIVAGE ignore (deja present a destination) : {p.name} -> {new_name}")
-            continue
+        dest = unique_dest_path(dest_dir, new_name)
         try:
             shutil.move(str(p), str(dest))
             moved += 1
