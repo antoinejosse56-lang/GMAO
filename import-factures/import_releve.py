@@ -133,6 +133,18 @@ def fetch_savadur_tenant_names():
     ]
 
 
+def fetch_recurring_expenses() -> dict:
+    """Prelevements recurrents deja reconnus (voir add_recurring_expenses.sql) -
+    cle (libelle bancaire exact, montant) pour un lookup direct par operation."""
+    resp = requests.get(
+        f"{SUPABASE_URL}/rest/v1/recurring_expenses",
+        params={"compte": "eq.savadur", "actif": "eq.true", "select": "*"},
+        headers=HEADERS, timeout=30,
+    )
+    resp.raise_for_status()
+    return {(r["libelle"].strip(), round(float(r["montant"]), 2)): r for r in resp.json()}
+
+
 def update_facture(facture_id, patch):
     resp = requests.patch(
         f"{SUPABASE_URL}/rest/v1/factures?id=eq.{facture_id}",
@@ -173,10 +185,39 @@ def match_debit(txn, unrapprochees):
     return None, candidates
 
 
+def apply_recurring(txn, rule, factures_by_id):
+    """Applique une regle deja reconnue (recurring_expenses) a une operation :
+    renvoie True si l'operation est bien prise en compte (echeancier sans
+    facture, ou facture liee avec encore du solde disponible), False si la
+    regle existe mais ne peut pas s'appliquer ce mois-ci (facture liee deja
+    soldee - probablement une nouvelle annee sans facture encore attachee) et
+    que l'operation doit donc repasser par le rapprochement normal."""
+    if rule["mode"] == "echeancier":
+        return True
+    facture = factures_by_id.get(rule.get("facture_id"))
+    if not facture:
+        return False
+    rapprochements = list(facture.get("rapprochements") or [])
+    deja = sum(float(x.get("montant") or 0) for x in rapprochements)
+    montant_ttc = float(facture.get("montant_ttc") or 0)
+    if deja >= montant_ttc - 0.01:
+        return False  # facture deja soldee, la regle doit etre mise a jour cote GMAO
+    rapprochements.append({"montant": abs(txn["amount"]), "date": txn["date"].isoformat(), "recurring_expense_id": rule["id"]})
+    total = sum(float(x.get("montant") or 0) for x in rapprochements)
+    patch = {"rapprochements": rapprochements, "rapproche": total >= montant_ttc - 0.01}
+    if not facture.get("date_paiement"):
+        patch["date_paiement"] = txn["date"].isoformat()
+    update_facture(facture["id"], patch)
+    facture.update(patch)
+    return True
+
+
 def process_file(path: Path, tenant_names: list):
     log(f"Traitement : {path.name}")
     period_start, period_end, txns = parse_ofx(path)
     factures = fetch_savadur_factures()
+    factures_by_id = {f["id"]: f for f in factures}
+    recurring = fetch_recurring_expenses()
     # Le rapprochement bancaire n'a demarre qu'en 2026 : une facture plus
     # ancienne que ~12 mois n'a plus de raison d'etre proposee comme
     # candidate (evite aussi qu'une vieille facture ne soit retenue par
@@ -193,10 +234,15 @@ def process_file(path: Path, tenant_names: list):
     nb_sans_facture = 0
     nb_ambigus = 0
     nb_credits_non_identifies = 0
+    nb_recurrents_connus = 0
     tenant_names_lower = [n.lower() for n in tenant_names]
 
     for txn in txns:
         if txn["type"] == "DEBIT":
+            rule = recurring.get((txn["name"].strip(), round(abs(txn["amount"]), 2)))
+            if rule and apply_recurring(txn, rule, factures_by_id):
+                nb_recurrents_connus += 1
+                continue
             match, ambigus = match_debit(txn, unrapprochees)
             if match:
                 patch = {"rapproche": True}
@@ -244,9 +290,10 @@ def process_file(path: Path, tenant_names: list):
         "nb_debits_sans_facture": nb_sans_facture,
         "nb_ambigus": nb_ambigus,
         "nb_credits_non_identifies": nb_credits_non_identifies,
+        "nb_recurrents_connus": nb_recurrents_connus,
         "anomalies": anomalies,
     })
-    log(f"  -> {nb_rapproches} rapprochee(s), {nb_sans_facture} sans facture, {nb_ambigus} ambigu(s), {nb_credits_non_identifies} credit(s) non identifie(s)")
+    log(f"  -> {nb_rapproches} rapprochee(s), {nb_recurrents_connus} recurrent(s) reconnu(s), {nb_sans_facture} sans facture, {nb_ambigus} ambigu(s), {nb_credits_non_identifies} credit(s) non identifie(s)")
 
     marked = path.with_name(IMPORT_MARKER + path.name)
     path.rename(marked)

@@ -930,7 +930,7 @@ let S = {
   // data
   users: [], assets: [], tasks: [], tools: [], loans: [],
   workOrders: [], maintenanceTemplates: [], topology: {properties: []},
-  factures: [], facturesAValider: [], fournisseurs: [], chantiers: [], devis: [], devisAValider: [], bienDocuments: [], documentsAValider: [], releveImports: [], revenues: [], finTab: 'overview', reservations: [], resaYear: new Date().getFullYear(), taxeSejourTaux: 5, taxeSejourPlafond: 4.60, compteurs: [], releves: [], rangements: [], famille: [], consommables: [], crecheSaisies: [], ecoleSaisies: [], familleTab: 'membres', finFactCpte: 'savadur', familleEnfant: null, tfRegularisations: [], logementFiches: [], logementEdl: [], fieldMode: false, fieldSearch: ''
+  factures: [], facturesAValider: [], fournisseurs: [], chantiers: [], devis: [], devisAValider: [], bienDocuments: [], documentsAValider: [], releveImports: [], recurringExpenses: [], revenues: [], finTab: 'overview', reservations: [], resaYear: new Date().getFullYear(), taxeSejourTaux: 5, taxeSejourPlafond: 4.60, compteurs: [], releves: [], rangements: [], famille: [], consommables: [], crecheSaisies: [], ecoleSaisies: [], familleTab: 'membres', finFactCpte: 'savadur', familleEnfant: null, tfRegularisations: [], logementFiches: [], logementEdl: [], fieldMode: false, fieldSearch: ''
 };
 
 async function loadAll() {
@@ -949,7 +949,7 @@ async function loadAll() {
     const test = await sb.from('users').select('count', {count:'exact',head:true});
     if (test.error) { showError(test.error.message || JSON.stringify(test.error)); return; }
 
-    const [u, a, tl, l, wo, mt, topo, rev, cpt, rel, ten, rp, rng, fam, crecheRes, ecoleRes, conso, facturesRes, resaRes, favRes, fournRes, chantiersRes, devisRes, devisAvRes, bienDocsRes, documentsAvRes, tfRegulRes, logFichesRes, logEdlRes, vehiculeRelevesRes, releveImportsRes] = await Promise.all([
+    const [u, a, tl, l, wo, mt, topo, rev, cpt, rel, ten, rp, rng, fam, crecheRes, ecoleRes, conso, facturesRes, resaRes, favRes, fournRes, chantiersRes, devisRes, devisAvRes, bienDocsRes, documentsAvRes, tfRegulRes, logFichesRes, logEdlRes, vehiculeRelevesRes, releveImportsRes, recurringExpensesRes] = await Promise.all([
       sb.from('users').select('*'),
       sb.from('assets').select('*'),
       sb.from('tools').select('*'),
@@ -980,7 +980,8 @@ async function loadAll() {
       sb.from('logement_fiches').select('*'),
       sb.from('logement_edl').select('*').order('created_at',{ascending:false}),
       sb.from('vehicule_releves').select('*').order('date',{ascending:false}),
-      sb.from('releve_imports').select('*').order('created_at',{ascending:false}).limit(12)
+      sb.from('releve_imports').select('*').order('created_at',{ascending:false}).limit(12),
+      sb.from('recurring_expenses').select('*').order('created_at',{ascending:false})
     ]);
 
     // Only block on critical tables
@@ -1036,6 +1037,8 @@ async function loadAll() {
     S.vehiculeReleves = vehiculeRelevesRes?.error ? [] : (vehiculeRelevesRes?.data || []);
     if (releveImportsRes?.error) console.warn('Table releve_imports non disponible:', releveImportsRes.error.message);
     S.releveImports = releveImportsRes?.error ? [] : (releveImportsRes?.data || []);
+    if (recurringExpensesRes?.error) console.warn('Table recurring_expenses non disponible:', recurringExpensesRes.error.message);
+    S.recurringExpenses = recurringExpensesRes?.error ? [] : (recurringExpensesRes?.data || []);
     const loadedTopo = topo.data?.[0]?.data;
     S.topoId = topo.data?.[0]?.id;
     if(loadedTopo?.properties?.length){
@@ -2193,6 +2196,18 @@ function createFactureForAnomaly(releveId,idx){
   S.modal={type:'add-facture',facture:{fournisseur:guess,date:a.date,montant_ttc:Math.abs(a.montant),compte:'savadur',date_paiement:a.date}};
   render();
 }
+// Ouvre le formulaire "Prélèvement récurrent" pré-rempli depuis une anomalie
+// (libellé exact + montant repris de l'opération) - une fois enregistrée, la
+// règle sera reconnue automatiquement par import_releve.py chaque mois
+// suivant, sans repasser par ce rapprochement manuel.
+function markAsRecurringFromAnomaly(releveId,idx){
+  const r=(S.releveImports||[]).find(x=>x.id===releveId);
+  const a=r?.anomalies?.[idx];
+  if(!a)return;
+  const guess=(a.libelle||'').replace(/^(PRLV|VIR INST|VIR|CARTE \d{2}\/\d{2})\s+/i,'').trim();
+  S.modal={type:'add-recurring-expense',recurring:{libelle:a.libelle,montant:Math.abs(a.montant),fournisseur:guess}};
+  render();
+}
 // Options <option> "Locataire SAVADUR actif" pour le rapprochement manuel
 // d'un credit du releve - le payeur (patron, CAF, tiers...) ne correspond
 // pas forcement au nom du locataire, d'ou le choix manuel plutot qu'une
@@ -2287,6 +2302,7 @@ function renderReleveImports(){
         <select class="anomaly-facture-select" data-releve-id="${r.id}" data-anomaly-idx="${i}" style="font-size:11px;padding:4px 6px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);max-width:260px">${facturesLinkOptsFor('')}</select>
         <button type="button" class="btn btn-sm btn-p" style="font-size:10px;padding:3px 8px" data-releve-id="${r.id}" data-anomaly-idx="${i}" onclick="linkReleveAnomaly(this)">🔗 Lier</button>
         <button type="button" class="btn btn-sm" style="font-size:10px;padding:3px 8px" onclick="createFactureForAnomaly('${r.id}',${i})">+ Créer une facture</button>
+        <button type="button" class="btn btn-sm" style="font-size:10px;padding:3px 8px" onclick="markAsRecurringFromAnomaly('${r.id}',${i})" title="Ce montant revient chaque mois avec ce même libellé (assurance mensualisée, échéance de prêt...) - le reconnaître automatiquement désormais">🔁 Récurrent</button>
       </div>`:''}
       ${a.type==='credit_non_identifie'?`<div class="credit-link-row" data-releve-id="${r.id}" data-anomaly-idx="${i}" style="margin:6px 0 0 20px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
         <select class="credit-tenant" onchange="updateCreditCheckInfo(this)" style="font-size:11px;padding:4px 6px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);max-width:220px">${tenantsLinkOptsFor('')}</select>
@@ -2310,9 +2326,39 @@ function renderReleveImports(){
       return `<div style="margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--border)">
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
           <span style="font-size:12px;font-weight:500">${r.fichier_nom}${r.periode_debut?' — '+dateLabel(r.periode_debut)+' → '+dateLabel(r.periode_fin):''}</span>
-          <span style="font-size:11px;color:var(--text2)">${r.nb_operations} opération(s) · ${r.nb_debits_rapproches} rapprochée(s)${nbAnomalies?' · '+nbAnomalies+' à vérifier':''}</span>
+          <span style="font-size:11px;color:var(--text2)">${r.nb_operations} opération(s) · ${r.nb_debits_rapproches} rapprochée(s)${r.nb_recurrents_connus?' · '+r.nb_recurrents_connus+' récurrent(s) reconnu(s)':''}${nbAnomalies?' · '+nbAnomalies+' à vérifier':''}</span>
         </div>
         ${(r.anomalies||[]).length?`<div style="margin-top:6px">${r.anomalies.map((a,i)=>anomalyLine(r,a,i)).join('')}</div>`:'<div style="font-size:11px;color:var(--green);margin-top:4px">✓ Aucune anomalie</div>'}
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+// Liste/gestion des prelevements recurrents deja reconnus (voir bouton "🔁
+// Récurrent" sur une anomalie de releve, et import_releve.py qui les
+// applique automatiquement chaque mois) - permet de les modifier (ex:
+// attacher la facture annuelle des sa reception) ou de les desactiver.
+function renderRecurringExpensesList(){
+  const list=S.recurringExpenses||[];
+  const fmtE=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(n||0);
+  return `<div class="card" style="margin-bottom:14px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <div class="sec" style="margin:0">🔁 Prélèvements récurrents reconnus (${list.length})</div>
+      <button type="button" class="btn btn-sm btn-p" id="btn-add-recurring">+ Ajouter</button>
+    </div>
+    ${list.length===0?'<div style="font-size:12px;color:var(--text2)">Aucun — utilisez le bouton "🔁 Récurrent" sur une anomalie du relevé pour en créer un.</div>':''}
+    ${list.map(re=>{
+      const facture=re.facture_id?S.factures.find(f=>f.id===re.facture_id):null;
+      const detail=re.mode==='facture'
+        ?(facture?`Facture : ${facture.fournisseur} (${dateLabel(facture.date)})${factureResteAPayer(facture)>0.01?' — reste '+fmtE(factureResteAPayer(facture)):' — soldée'}`:'⚠ Facture liée introuvable')
+        :'Échéancier — pas de facture';
+      return `<div class="row" style="${re.actif===false?'opacity:.5':''}">
+        <div class="fg">
+          <div class="fgs">${re.fournisseur||re.libelle} — ${fmtE(re.montant)}</div>
+          <div class="fgsub">${re.libelle} · ${detail}</div>
+        </div>
+        <button class="btn btn-sm" data-edit-recurring="${re.id}">✎</button>
+        <button class="btn btn-sm" data-toggle-recurring="${re.id}" style="margin-left:4px">${re.actif===false?'▶ Réactiver':'⏸ Désactiver'}</button>
+        <button class="btn btn-d btn-sm" data-del-recurring="${re.id}" style="margin-left:4px">✕</button>
       </div>`;
     }).join('')}
   </div>`;
@@ -4005,7 +4051,7 @@ function renderFactures(){
     <div class="stat" style="flex:1"><div class="stat-l">Non rapprochées</div><div class="stat-v" style="color:${nonRappr>0?'var(--amber)':'var(--green)'}">${nonRappr}</div></div>
     <div class="stat" style="flex:1"><div class="stat-l">Nb factures</div><div class="stat-v">${facts.length}</div></div>
   </div>
-  ${fTab==='savadur'?renderReleveImports():''}
+  ${fTab==='savadur'?renderReleveImports()+renderRecurringExpensesList():''}
   ${facts.length===0?'<div class="card" style="text-align:center;padding:20px;color:var(--text2)">Aucune facture. Cliquez "+ Facture" pour commencer.</div>':''}
   ${topNames.map(top=>{
     const subMap=groups.get(top);
@@ -6437,6 +6483,32 @@ function renderModal(){
     ${mf}`;
   }
 
+  if(m.type==='add-recurring-expense'||m.type==='edit-recurring-expense'){
+    const re=m.recurring||{};
+    const mode=re.mode||'echeancier';
+    html=`${mhd(m.type==='add-recurring-expense'?'Prélèvement récurrent':'Modifier — '+re.fournisseur)}
+    <div class="form-group"><label>Libellé bancaire exact *</label><input id="m-relibelle" value="${(re.libelle||'').replace(/"/g,'&quot;')}" placeholder="Ex: PRLV AREAS DOMMAGES" ${re.id?'readonly style="opacity:.7"':''}>
+      <div style="font-size:11px;color:var(--text2);margin-top:4px">Doit correspondre exactement au libellé qui apparaît sur le relevé, sinon la reconnaissance automatique ne fonctionnera pas.</div>
+    </div>
+    <div class="g2c">
+      <div class="form-group"><label>Montant (€) *</label><input id="m-remontant" type="number" step="0.01" value="${re.montant||''}"></div>
+      <div class="form-group"><label>Fournisseur</label><input id="m-refournisseur" value="${(re.fournisseur||'').replace(/"/g,'&quot;')}" placeholder="Ex: Areas Dommages"></div>
+    </div>
+    <div class="form-group"><label>Type</label>
+      <select id="m-remode" onchange="document.getElementById('m-refacture-wrap').style.display=this.value==='facture'?'':'none'">
+        <option value="echeancier" ${mode==='echeancier'?'selected':''}>Échéancier — pas de facture (prêt, taxe...)</option>
+        <option value="facture" ${mode==='facture'?'selected':''}>Facture existante à créditer chaque mois</option>
+      </select>
+    </div>
+    <div class="form-group" id="m-refacture-wrap" style="display:${mode==='facture'?'':'none'}">
+      <label>Facture à créditer</label>
+      <select id="m-refacture">${facturesLinkOptsFor(re.facture_id||'')}</select>
+      <div style="font-size:11px;color:var(--text2);margin-top:4px">Pas encore reçue ? Choisissez "Échéancier" pour l'instant, revenez modifier cette règle dès réception.</div>
+    </div>
+    <div class="form-group"><label>Notes</label><input id="m-renotes" value="${(re.notes||'').replace(/"/g,'&quot;')}"></div>
+    ${mf}`;
+  }
+
   if(m.type==='add-cso'||m.type==='edit-cso'){
     const c=m.cso||{};
     const rngOpts=rngOptions(c.emplacement);
@@ -8707,6 +8779,25 @@ async function saveModal(){
       const {error}=await sb.from('factures').update(rec).eq('id',m.facture.id);
       if(error){alert('Erreur : '+error.message);return;}
       Object.assign(m.facture,rec);
+    }
+  }
+
+  if(m.type==='add-recurring-expense'||m.type==='edit-recurring-expense'){
+    const libelle=q('m-relibelle')?.value.trim();if(!libelle)return alert('Libellé requis');
+    const montant=parseFloat(q('m-remontant')?.value);if(!montant)return alert('Montant requis');
+    const mode=q('m-remode')?.value||'echeancier';
+    const rec={libelle,montant,compte:'savadur',
+      fournisseur:q('m-refournisseur')?.value.trim()||null,
+      mode,facture_id:mode==='facture'?(q('m-refacture')?.value||null):null,
+      notes:q('m-renotes')?.value||null};
+    if(m.type==='add-recurring-expense'){
+      const {data,error}=await sb.from('recurring_expenses').insert(rec).select().single();
+      if(error){alert('Erreur : '+error.message);return;}
+      if(data)S.recurringExpenses=[data,...(S.recurringExpenses||[])];
+    }else{
+      const {error}=await sb.from('recurring_expenses').update(rec).eq('id',m.recurring.id);
+      if(error){alert('Erreur : '+error.message);return;}
+      Object.assign(m.recurring,rec);
     }
   }
 
@@ -11735,6 +11826,26 @@ function bindAll(){
     const{error}=await sb.from('documents_a_valider').update({statut:'rejete',traite_at:new Date().toISOString()}).eq('id',id);
     if(error){alert('Erreur : '+error.message);return;}
     S.documentsAValider=(S.documentsAValider||[]).filter(x=>x.id!==id);
+    render();
+  });
+  if(q('btn-add-recurring'))q('btn-add-recurring').onclick=()=>{S.modal={type:'add-recurring-expense'};render();};
+  document.querySelectorAll('[data-edit-recurring]').forEach(el=>el.onclick=()=>{
+    const re=(S.recurringExpenses||[]).find(x=>x.id===el.dataset.editRecurring);
+    if(re){S.modal={type:'edit-recurring-expense',recurring:re};render();}
+  });
+  document.querySelectorAll('[data-toggle-recurring]').forEach(el=>el.onclick=async()=>{
+    const re=(S.recurringExpenses||[]).find(x=>x.id===el.dataset.toggleRecurring);
+    if(!re)return;
+    const actif=re.actif===false;
+    const{error}=await sb.from('recurring_expenses').update({actif}).eq('id',re.id);
+    if(error){alert('Erreur : '+error.message);return;}
+    re.actif=actif;render();
+  });
+  document.querySelectorAll('[data-del-recurring]').forEach(el=>el.onclick=async()=>{
+    if(!confirm('Supprimer ce prélèvement récurrent ? Il ne sera plus reconnu automatiquement (les factures déjà rapprochées via cette règle ne sont pas affectées).'))return;
+    const{error}=await sb.from('recurring_expenses').delete().eq('id',el.dataset.delRecurring);
+    if(error){alert('Erreur : '+error.message);return;}
+    S.recurringExpenses=(S.recurringExpenses||[]).filter(x=>x.id!==el.dataset.delRecurring);
     render();
   });
   document.querySelectorAll('[data-edit-fact]').forEach(el=>el.onclick=()=>{
