@@ -930,7 +930,7 @@ let S = {
   // data
   users: [], assets: [], tasks: [], tools: [], loans: [],
   workOrders: [], maintenanceTemplates: [], topology: {properties: []},
-  factures: [], facturesAValider: [], fournisseurs: [], chantiers: [], devis: [], devisAValider: [], bienDocuments: [], documentsAValider: [], revenues: [], finTab: 'overview', reservations: [], resaYear: new Date().getFullYear(), taxeSejourTaux: 5, taxeSejourPlafond: 4.60, compteurs: [], releves: [], rangements: [], famille: [], consommables: [], crecheSaisies: [], ecoleSaisies: [], familleTab: 'membres', finFactCpte: 'savadur', familleEnfant: null, tfRegularisations: [], logementFiches: [], logementEdl: [], fieldMode: false, fieldSearch: ''
+  factures: [], facturesAValider: [], fournisseurs: [], chantiers: [], devis: [], devisAValider: [], bienDocuments: [], documentsAValider: [], releveImports: [], revenues: [], finTab: 'overview', reservations: [], resaYear: new Date().getFullYear(), taxeSejourTaux: 5, taxeSejourPlafond: 4.60, compteurs: [], releves: [], rangements: [], famille: [], consommables: [], crecheSaisies: [], ecoleSaisies: [], familleTab: 'membres', finFactCpte: 'savadur', familleEnfant: null, tfRegularisations: [], logementFiches: [], logementEdl: [], fieldMode: false, fieldSearch: ''
 };
 
 async function loadAll() {
@@ -949,7 +949,7 @@ async function loadAll() {
     const test = await sb.from('users').select('count', {count:'exact',head:true});
     if (test.error) { showError(test.error.message || JSON.stringify(test.error)); return; }
 
-    const [u, a, tl, l, wo, mt, topo, rev, cpt, rel, ten, rp, rng, fam, crecheRes, ecoleRes, conso, facturesRes, resaRes, favRes, fournRes, chantiersRes, devisRes, devisAvRes, bienDocsRes, documentsAvRes, tfRegulRes, logFichesRes, logEdlRes, vehiculeRelevesRes] = await Promise.all([
+    const [u, a, tl, l, wo, mt, topo, rev, cpt, rel, ten, rp, rng, fam, crecheRes, ecoleRes, conso, facturesRes, resaRes, favRes, fournRes, chantiersRes, devisRes, devisAvRes, bienDocsRes, documentsAvRes, tfRegulRes, logFichesRes, logEdlRes, vehiculeRelevesRes, releveImportsRes] = await Promise.all([
       sb.from('users').select('*'),
       sb.from('assets').select('*'),
       sb.from('tools').select('*'),
@@ -979,7 +979,8 @@ async function loadAll() {
       sb.from('tf_regularisations').select('*'),
       sb.from('logement_fiches').select('*'),
       sb.from('logement_edl').select('*').order('created_at',{ascending:false}),
-      sb.from('vehicule_releves').select('*').order('date',{ascending:false})
+      sb.from('vehicule_releves').select('*').order('date',{ascending:false}),
+      sb.from('releve_imports').select('*').order('created_at',{ascending:false}).limit(12)
     ]);
 
     // Only block on critical tables
@@ -1033,6 +1034,8 @@ async function loadAll() {
     S.logementEdl = logEdlRes?.error ? [] : (logEdlRes?.data || []);
     if (vehiculeRelevesRes?.error) console.warn('Table vehicule_releves non disponible:', vehiculeRelevesRes.error.message);
     S.vehiculeReleves = vehiculeRelevesRes?.error ? [] : (vehiculeRelevesRes?.data || []);
+    if (releveImportsRes?.error) console.warn('Table releve_imports non disponible:', releveImportsRes.error.message);
+    S.releveImports = releveImportsRes?.error ? [] : (releveImportsRes?.data || []);
     const loadedTopo = topo.data?.[0]?.data;
     S.topoId = topo.data?.[0]?.id;
     if(loadedTopo?.properties?.length){
@@ -2112,6 +2115,39 @@ function docTypeOptionsHtml(cibleVal,sel){
 function updateDocCibleType(el){
   const typeSel=document.querySelector('.doc-type[data-doc-id="'+el.dataset.docId+'"]');
   if(typeSel)typeSel.innerHTML=docTypeOptionsHtml(el.value,'');
+}
+// Rapport (lecture seule, pas d'action - le rapprochement est automatique)
+// pour import_releve.py : montre les derniers relevés bancaires SAVADUR
+// traites et les anomalies a verifier a l'oeil (operation sans facture,
+// montant ambigu entre plusieurs factures, credit dont le payeur ne
+// correspond a aucun locataire actif).
+function renderReleveImports(){
+  const imports=(S.releveImports||[]).slice(0,6);
+  if(!imports.length)return '';
+  const fmtE=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(n||0);
+  const anomalyLine=(a)=>{
+    const icon=a.type==='debit_sans_facture'?'🔴':a.type==='ambigu'?'🟠':'🔵';
+    const label=a.type==='debit_sans_facture'?'aucune facture correspondante'
+      :a.type==='ambigu'?'plusieurs factures au même montant — à vérifier'
+      :'payeur non reconnu parmi les locataires actifs';
+    return `<div style="font-size:12px;padding:4px 0;border-bottom:0.5px solid var(--border)">
+      ${icon} ${dateLabel(a.date)} — <strong>${(a.libelle||'').replace(/</g,'&lt;')}</strong> — ${fmtE(a.montant)} : ${label}
+      ${a.candidats?.length?`<div style="font-size:11px;color:var(--text2);margin-left:20px">Candidats : ${a.candidats.map(c=>(c.fournisseur||'—')+' ('+dateLabel(c.date)+')').join(', ')}</div>`:''}
+    </div>`;
+  };
+  return `<div class="card" style="margin-bottom:14px">
+    <div class="sec" style="margin-bottom:8px">🏦 Relevés bancaires rapprochés automatiquement</div>
+    ${imports.map(r=>{
+      const nbAnomalies=(r.nb_debits_sans_facture||0)+(r.nb_ambigus||0)+(r.nb_credits_non_identifies||0);
+      return `<div style="margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--border)">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+          <span style="font-size:12px;font-weight:500">${r.fichier_nom}${r.periode_debut?' — '+dateLabel(r.periode_debut)+' → '+dateLabel(r.periode_fin):''}</span>
+          <span style="font-size:11px;color:var(--text2)">${r.nb_operations} opération(s) · ${r.nb_debits_rapproches} rapprochée(s)${nbAnomalies?' · '+nbAnomalies+' à vérifier':''}</span>
+        </div>
+        ${(r.anomalies||[]).length?`<div style="margin-top:6px">${r.anomalies.map(anomalyLine).join('')}</div>`:'<div style="font-size:11px;color:var(--green);margin-top:4px">✓ Aucune anomalie</div>'}
+      </div>`;
+    }).join('')}
+  </div>`;
 }
 // Ecran de classification pour import_documents.py (DPE, assurance,
 // diagnostic, carte grise, document personnel... deposes dans le dossier NAS
@@ -3801,6 +3837,7 @@ function renderFactures(){
     <div class="stat" style="flex:1"><div class="stat-l">Non rapprochées</div><div class="stat-v" style="color:${nonRappr>0?'var(--amber)':'var(--green)'}">${nonRappr}</div></div>
     <div class="stat" style="flex:1"><div class="stat-l">Nb factures</div><div class="stat-v">${facts.length}</div></div>
   </div>
+  ${fTab==='savadur'?renderReleveImports():''}
   ${facts.length===0?'<div class="card" style="text-align:center;padding:20px;color:var(--text2)">Aucune facture. Cliquez "+ Facture" pour commencer.</div>':''}
   ${topNames.map(top=>{
     const subMap=groups.get(top);
