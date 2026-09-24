@@ -34,7 +34,7 @@ import os
 import re
 import subprocess
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import requests
@@ -177,7 +177,16 @@ def process_file(path: Path, tenant_names: list):
     log(f"Traitement : {path.name}")
     period_start, period_end, txns = parse_ofx(path)
     factures = fetch_savadur_factures()
-    unrapprochees = [f for f in factures if not f.get("rapproche")]
+    # Le rapprochement bancaire n'a demarre qu'en 2026 : une facture plus
+    # ancienne que ~12 mois n'a plus de raison d'etre proposee comme
+    # candidate (evite aussi qu'une vieille facture ne soit retenue par
+    # coincidence de montant comme seul candidat "sur - donc auto-rapprochee
+    # a tort).
+    date_cutoff = datetime.now().date() - timedelta(days=365)
+    unrapprochees = [
+        f for f in factures
+        if not f.get("rapproche") and (not f.get("date") or datetime.strptime(f["date"][:10], "%Y-%m-%d").date() >= date_cutoff)
+    ]
 
     anomalies = []
     nb_rapproches = 0

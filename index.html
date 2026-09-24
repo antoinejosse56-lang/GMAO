@@ -2130,10 +2130,15 @@ function factureResteAPayer(f){
 // des rapprochements >= montant TTC) disparait de la liste ; une facture
 // partiellement reglee (charge mensualisee) reste proposee, avec le solde
 // restant affiche, pour pouvoir y rattacher les prelevements suivants.
+// Fenetre glissante de 12 mois (recalculee a chaque affichage, donc avance
+// toute seule avec le temps) : le rapprochement bancaire n'a demarre qu'en
+// 2026, remonter des factures plus anciennes n'a plus d'interet et alourdit
+// la liste inutilement.
 function facturesLinkOptsFor(sel){
   const fmtE=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(n||0);
+  const cutoff=new Date();cutoff.setMonth(cutoff.getMonth()-12);
   const opts=[{v:'',l:'— Choisir une facture —'}]
-    .concat([...S.factures].filter(f=>f.compte==='savadur'&&factureResteAPayer(f)>0.01).sort((a,b)=>new Date(b.date||0)-new Date(a.date||0))
+    .concat([...S.factures].filter(f=>f.compte==='savadur'&&factureResteAPayer(f)>0.01&&(!f.date||new Date(f.date)>=cutoff)).sort((a,b)=>new Date(b.date||0)-new Date(a.date||0))
       .map(f=>{
         const reste=factureResteAPayer(f);
         const partiel=reste<f.montant_ttc-0.01;
