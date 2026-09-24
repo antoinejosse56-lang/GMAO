@@ -2206,6 +2206,16 @@ function createFactureForAnomaly(releveId,idx){
   S.modal={type:'add-facture',facture:{fournisseur:guess,date:a.date,montant_ttc:Math.abs(a.montant),compte:'savadur',date_paiement:a.date}};
   render();
 }
+// Ouvre le petit formulaire de rapprochement d'un remboursement de depot de
+// garantie (debit "virement au locataire", souvent apres son depart - d'ou
+// tenantsLinkOptsFor() qui liste aussi les locataires partis).
+function markAsCautionRefund(releveId,idx){
+  const r=(S.releveImports||[]).find(x=>x.id===releveId);
+  const a=r?.anomalies?.[idx];
+  if(!a)return;
+  S.modal={type:'caution-refund-link',releveId,idx};
+  render();
+}
 // Ouvre le formulaire "Prélèvement récurrent" pré-rempli depuis une anomalie
 // (libellé exact + montant repris de l'opération) - une fois enregistrée, la
 // règle sera reconnue automatiquement par import_releve.py chaque mois
@@ -2222,11 +2232,44 @@ function markAsRecurringFromAnomaly(releveId,idx){
 // d'un credit du releve - le payeur (patron, CAF, tiers...) ne correspond
 // pas forcement au nom du locataire, d'ou le choix manuel plutot qu'une
 // reconnaissance automatique par nom.
+// Locataires SAVADUR, y compris partis (actif=false, suffixe "(parti)") :
+// un virement peut arriver bien apres le depart (regularisation, caution...),
+// et le payeur (patron, CAF, tiers) ne correspond de toute facon jamais au
+// nom du locataire, d'ou le choix manuel plutot qu'une reconnaissance auto.
 function tenantsLinkOptsFor(sel){
   const opts=[{v:'',l:'— Choisir un locataire —'}]
-    .concat(S.tenants.filter(t=>t.actif!==false&&dubailFilter(t.logement||'')).sort((a,b)=>(a.nom||'').localeCompare(b.nom||''))
-      .map(t=>({v:t.id,l:`${t.nom} — ${t.logement||''}`})));
+    .concat(S.tenants.filter(t=>dubailFilter(t.logement||'')).sort((a,b)=>{
+      if((a.actif!==false)!==(b.actif!==false))return a.actif!==false?-1:1;
+      return (a.nom||'').localeCompare(b.nom||'');
+    }).map(t=>({v:t.id,l:`${t.nom} — ${t.logement||''}${t.actif===false?' (parti)':''}`})));
   return renderOpts(opts,sel);
+}
+// Options <option> "Relevé d'eau non payé" pour un locataire donne (via ses
+// compteurs) - montant calcule comme dans renderCompteurs (index x prix).
+function waterReleveOptsFor(tenantId,sel){
+  const fmtE=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(n||0);
+  const compteurIds=new Set((S.compteurs||[]).filter(c=>c.tenant_id===tenantId).map(c=>c.id));
+  const unpaid=(S.releves||[]).filter(r=>compteurIds.has(r.compteur_id)&&!r.paye);
+  const opts=[{v:'',l:'— Choisir un relevé —'}]
+    .concat(unpaid.sort((a,b)=>new Date(b.date||0)-new Date(a.date||0)).map(r=>{
+      const montant=(parseFloat(r.nouvel_index||0)-parseFloat(r.ancien_index||0))*parseFloat(r.prix_unitaire||0);
+      return {v:r.id,l:`${dateLabel(r.date)} · ${fmtE(montant)}`};
+    }));
+  return renderOpts(opts,sel);
+}
+// Bascule les champs affiches (loyer/CAF vs facture d'eau) et repeuple le
+// select des releves d'eau quand le locataire ou le type change.
+function updateCreditTypeUI(el){
+  const wrap=el.closest('.credit-link-row');
+  if(!wrap)return;
+  const type=wrap.querySelector('.credit-type').value;
+  wrap.querySelector('.credit-loyer-fields').style.display=type==='eau'?'none':'';
+  wrap.querySelector('.credit-eau-fields').style.display=type==='eau'?'':'none';
+  if(type==='eau'){
+    const tenantId=wrap.querySelector('.credit-tenant').value;
+    wrap.querySelector('.credit-releve').innerHTML=waterReleveOptsFor(tenantId,'');
+  }
+  updateCreditCheckInfo(el);
 }
 // Affiche a cote des selects le montant deja saisi manuellement (caf ou
 // locataire_part) pour la quittance du mois choisi - la double verification
@@ -2235,12 +2278,18 @@ function tenantsLinkOptsFor(sel){
 function updateCreditCheckInfo(el){
   const wrap=el.closest('.credit-link-row');
   if(!wrap)return;
+  const info=wrap.querySelector('.credit-check-info');
+  const type=wrap.querySelector('.credit-type').value;
   const tenantId=wrap.querySelector('.credit-tenant').value;
+  if(!tenantId){info.textContent='';return;}
+  if(type==='eau'){
+    wrap.querySelector('.credit-releve').innerHTML=waterReleveOptsFor(tenantId,'');
+    info.textContent='';
+    return;
+  }
   const mois=parseInt(wrap.querySelector('.credit-mois').value);
   const annee=parseInt(wrap.querySelector('.credit-annee').value);
   const part=wrap.querySelector('.credit-part').value;
-  const info=wrap.querySelector('.credit-check-info');
-  if(!tenantId){info.textContent='';return;}
   const rp=S.rentPayments.find(p=>p.tenant_id===tenantId&&p.mois_num===mois&&p.annee===annee);
   const fmtE=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(n||0);
   if(!rp){info.textContent='⚠ Aucune quittance saisie pour ce mois';info.style.color='var(--red)';return;}
@@ -2251,21 +2300,31 @@ function updateCreditCheckInfo(el){
 }
 // Rapproche un credit du releve avec la quittance deja saisie manuellement
 // (double verification, pas de creation) : complete date_caf/date_loc si
-// vide, sans jamais toucher `paye` (effets de bord ailleurs - quittances,
-// dette locataire - hors de portee de ce rapprochement bancaire).
-async function resolveReleveCreditAnomaly(releveId,idx,tenantId,mois,annee,part){
+// vide (mode loyer), ou marque le releve d'eau paye (mode eau) - sans jamais
+// toucher `rent_payments.paye` (effets de bord ailleurs - quittances, dette
+// locataire - hors de portee de ce rapprochement bancaire).
+async function resolveReleveCreditAnomaly(releveId,idx,type,tenantId,extra){
   if(!tenantId){alert('Choisissez un locataire avant de valider');return;}
   const r=(S.releveImports||[]).find(x=>x.id===releveId);
   const anomalies=[...(r?.anomalies||[])];
   const anomaly=anomalies[idx];
   if(!r||!anomaly)return;
-  const rp=S.rentPayments.find(p=>p.tenant_id===tenantId&&p.mois_num===mois&&p.annee===annee);
-  if(!rp){alert('Aucune quittance trouvée pour ce locataire à cette période — saisissez d\'abord le loyer de ce mois avant de le rapprocher.');return;}
-  const dateField=part==='caf'?'date_caf':'date_loc';
-  if(!rp[dateField]){
-    const{error}=await sb.from('rent_payments').update({[dateField]:anomaly.date}).eq('id',rp.id);
+  if(type==='eau'){
+    if(!extra.releveId){alert('Choisissez un relevé avant de valider');return;}
+    const rel=(S.releves||[]).find(x=>x.id===extra.releveId);
+    if(!rel){alert('Relevé introuvable');return;}
+    const{error}=await sb.from('releves').update({paye:true}).eq('id',rel.id);
     if(error){alert('Erreur : '+error.message);return;}
-    rp[dateField]=anomaly.date;
+    rel.paye=true;
+  }else{
+    const rp=S.rentPayments.find(p=>p.tenant_id===tenantId&&p.mois_num===extra.mois&&p.annee===extra.annee);
+    if(!rp){alert('Aucune quittance trouvée pour ce locataire à cette période — saisissez d\'abord le loyer de ce mois avant de le rapprocher.');return;}
+    const dateField=extra.part==='caf'?'date_caf':'date_loc';
+    if(!rp[dateField]){
+      const{error}=await sb.from('rent_payments').update({[dateField]:anomaly.date}).eq('id',rp.id);
+      if(error){alert('Erreur : '+error.message);return;}
+      rp[dateField]=anomaly.date;
+    }
   }
   anomalies.splice(idx,1);
   const patch={anomalies,nb_credits_non_identifies:Math.max(0,(r.nb_credits_non_identifies||0)-1)};
@@ -2274,14 +2333,28 @@ async function resolveReleveCreditAnomaly(releveId,idx,tenantId,mois,annee,part)
   Object.assign(r,patch);
   render();
 }
+// Affiche a cote du select locataire (modal remboursement caution) le
+// montant de depot de garantie enregistre sur sa fiche, pour comparaison
+// avec le montant du virement - meme principe de double verification que
+// pour le loyer/CAF.
+function updateCautionRefundInfo(el){
+  const tenant=S.tenants.find(t=>t.id===el.value);
+  const info=document.getElementById('m-crinfo');
+  if(!info)return;
+  if(!tenant){info.textContent='';return;}
+  const fmtE=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(n||0);
+  info.textContent=`Dépôt de garantie enregistré : ${fmtE(tenant.caution)}${tenant.caution_remboursee_date?' (déjà daté '+dateLabel(tenant.caution_remboursee_date)+')':''}`;
+}
 function linkReleveCredit(btn){
   const wrap=btn.closest('.credit-link-row');
+  const type=wrap.querySelector('.credit-type').value;
+  const tenantId=wrap.querySelector('.credit-tenant').value;
+  const extra=type==='eau'
+    ?{releveId:wrap.querySelector('.credit-releve').value}
+    :{mois:parseInt(wrap.querySelector('.credit-mois').value),annee:parseInt(wrap.querySelector('.credit-annee').value),part:wrap.querySelector('.credit-part').value};
   resolveReleveCreditAnomaly(
     wrap.dataset.releveId,parseInt(wrap.dataset.anomalyIdx),
-    wrap.querySelector('.credit-tenant').value,
-    parseInt(wrap.querySelector('.credit-mois').value),
-    parseInt(wrap.querySelector('.credit-annee').value),
-    wrap.querySelector('.credit-part').value
+    type,tenantId,extra
   );
 }
 // Une anomalie est "couverte" des qu'une regle recurring_expenses existe
@@ -2333,17 +2406,27 @@ function anomalyLine(r,a,i){
       <button type="button" class="btn btn-sm btn-p" style="font-size:10px;padding:3px 8px" data-releve-id="${r.id}" data-anomaly-idx="${i}" onclick="linkReleveAnomaly(this)">🔗 Lier</button>
       <button type="button" class="btn btn-sm" style="font-size:10px;padding:3px 8px" onclick="createFactureForAnomaly('${r.id}',${i})">+ Créer une facture</button>
       <button type="button" class="btn btn-sm" style="font-size:10px;padding:3px 8px" onclick="markAsRecurringFromAnomaly('${r.id}',${i})" title="Ce montant revient chaque mois avec ce même libellé (assurance mensualisée, échéance de prêt...) - le reconnaître automatiquement désormais">🔁 Récurrent</button>
+      <button type="button" class="btn btn-sm" style="font-size:10px;padding:3px 8px" onclick="markAsCautionRefund('${r.id}',${i})" title="Virement sortant vers un locataire (souvent parti) - remboursement de son dépôt de garantie">🏠 Remboursement caution</button>
     </div>`:''}
     ${a.type==='credit_non_identifie'?`<div class="credit-link-row" data-releve-id="${r.id}" data-anomaly-idx="${i}" style="margin:6px 0 0 20px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-      <select class="credit-tenant" onchange="updateCreditCheckInfo(this)" style="font-size:11px;padding:4px 6px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);max-width:220px">${tenantsLinkOptsFor('')}</select>
-      <select class="credit-mois" onchange="updateCreditCheckInfo(this)" style="font-size:11px;padding:4px 6px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text)">
-        ${MONTHS.map((m,mi)=>`<option value="${mi+1}" ${anomalyDate&&anomalyDate.getMonth()===mi?'selected':''}>${m}</option>`).join('')}
+      <select class="credit-type" onchange="updateCreditTypeUI(this)" style="font-size:11px;padding:4px 6px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text)">
+        <option value="loyer">Loyer / CAF</option>
+        <option value="eau">Facture d'eau</option>
       </select>
-      <input type="number" class="credit-annee" onchange="updateCreditCheckInfo(this)" value="${anomalyDate?anomalyDate.getFullYear():''}" style="font-size:11px;padding:4px 6px;width:70px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text)">
-      <select class="credit-part" onchange="updateCreditCheckInfo(this)" style="font-size:11px;padding:4px 6px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text)">
-        <option value="locataire" ${guessPart==='locataire'?'selected':''}>Part locataire</option>
-        <option value="caf" ${guessPart==='caf'?'selected':''}>Part CAF</option>
-      </select>
+      <select class="credit-tenant" onchange="updateCreditTypeUI(this)" style="font-size:11px;padding:4px 6px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);max-width:220px">${tenantsLinkOptsFor('')}</select>
+      <span class="credit-loyer-fields" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <select class="credit-mois" onchange="updateCreditCheckInfo(this)" style="font-size:11px;padding:4px 6px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text)">
+          ${MONTHS.map((m,mi)=>`<option value="${mi+1}" ${anomalyDate&&anomalyDate.getMonth()===mi?'selected':''}>${m}</option>`).join('')}
+        </select>
+        <input type="number" class="credit-annee" onchange="updateCreditCheckInfo(this)" value="${anomalyDate?anomalyDate.getFullYear():''}" style="font-size:11px;padding:4px 6px;width:70px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text)">
+        <select class="credit-part" onchange="updateCreditCheckInfo(this)" style="font-size:11px;padding:4px 6px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text)">
+          <option value="locataire" ${guessPart==='locataire'?'selected':''}>Part locataire</option>
+          <option value="caf" ${guessPart==='caf'?'selected':''}>Part CAF</option>
+        </select>
+      </span>
+      <span class="credit-eau-fields" style="display:none">
+        <select class="credit-releve" style="font-size:11px;padding:4px 6px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);max-width:200px">${waterReleveOptsFor('','')}</select>
+      </span>
       <button type="button" class="btn btn-sm btn-p" style="font-size:10px;padding:3px 8px" onclick="linkReleveCredit(this)">🔗 Lier</button>
       <span class="credit-check-info" style="font-size:11px;color:var(--text2)"></span>
     </div>`:''}
@@ -6592,6 +6675,19 @@ function renderModal(){
     ${mf}`;
   }
 
+  if(m.type==='caution-refund-link'){
+    const r=(S.releveImports||[]).find(x=>x.id===m.releveId);
+    const a=r?.anomalies?.[m.idx];
+    const fmtE2=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(n||0);
+    html=`${mhd('Remboursement de dépôt de garantie')}
+    <div class="form-group"><label>Opération</label><div style="font-size:13px">${dateLabel(a?.date)} — ${fmtE2(Math.abs(a?.montant||0))} — ${(a?.libelle||'').replace(/</g,'&lt;')}</div></div>
+    <div class="form-group"><label>Locataire *</label>
+      <select id="m-crtenant" onchange="updateCautionRefundInfo(this)">${tenantsLinkOptsFor('')}</select>
+      <div id="m-crinfo" style="font-size:11px;color:var(--text2);margin-top:4px"></div>
+    </div>
+    ${mf}`;
+  }
+
   if(m.type==='add-cso'||m.type==='edit-cso'){
     const c=m.cso||{};
     const rngOpts=rngOptions(c.emplacement);
@@ -8885,6 +8981,26 @@ async function saveModal(){
       if(error){alert('Erreur : '+error.message);return;}
       Object.assign(m.recurring,rec);
     }
+  }
+
+  if(m.type==='caution-refund-link'){
+    const tenantId=q('m-crtenant')?.value;if(!tenantId)return alert('Choisissez un locataire');
+    const tenant=S.tenants.find(t=>t.id===tenantId);
+    const r=(S.releveImports||[]).find(x=>x.id===m.releveId);
+    const a=r?.anomalies?.[m.idx];
+    if(!tenant||!r||!a)return;
+    if(!tenant.caution_remboursee_date){
+      const{error}=await sb.from('tenants').update({caution_remboursee_date:a.date}).eq('id',tenant.id);
+      if(error){alert('Erreur : '+error.message);return;}
+      tenant.caution_remboursee_date=a.date;
+    }
+    const anomalies=[...r.anomalies];anomalies.splice(m.idx,1);
+    const patch={anomalies,nb_debits_rapproches:(r.nb_debits_rapproches||0)+1};
+    if(a.type==='debit_sans_facture')patch.nb_debits_sans_facture=Math.max(0,(r.nb_debits_sans_facture||0)-1);
+    if(a.type==='ambigu')patch.nb_ambigus=Math.max(0,(r.nb_ambigus||0)-1);
+    const{error:err2}=await sb.from('releve_imports').update(patch).eq('id',r.id);
+    if(err2){alert('Remboursement enregistré, mais erreur de mise à jour du rapport : '+err2.message);}
+    Object.assign(r,patch);
   }
 
   if(m.type==='add-cso'||m.type==='edit-cso'){
