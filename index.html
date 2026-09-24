@@ -1538,6 +1538,7 @@ function navItems(){
   const dubailAssetIds=getDubailAssetIds();
   const urgentImmoSavadur=S.assets.filter(a=>a.category==='Immobilier'&&a.status==='urgent'&&dubailAssetIds.has(a.id)).length;
   const urgentImmoPerso=S.assets.filter(a=>a.category==='Immobilier'&&a.status==='urgent'&&!dubailAssetIds.has(a.id)).length;
+  const nbARapprocher=getReleveARapprocher('all').length;
   const allGroups = [
     {group:'Principal', items:[
       {id:'mobile_home', label:'Accueil mobile', icon:'📱'},
@@ -1570,6 +1571,7 @@ function navItems(){
       {id:'compteurs_savadur', label:'Compteurs', icon:'💧'},
       {id:'finances_savadur', label:'Coûts & Revenus', icon:'€'},
       {id:'factures_savadur', label:'Factures', icon:'🧾'},
+      {id:'releve_savadur', label:'Relevé bancaire', icon:'🏦', badge: nbARapprocher},
     ]},
     {group:'PERSO', items:[
       {id:'bien_perso', label:'Bien', icon:'◍', badge: urgentImmoPerso},
@@ -1626,6 +1628,7 @@ function renderApp(){
     finances_perso: renderFinances(),
     factures_savadur: renderFactures(),
     factures_perso: renderFactures(),
+    releve_savadur: renderReleveBancaire(),
     maintenance: renderMaintenance(),
     users: isAdmin() ? renderUsers() : '<div style="padding:20px;color:var(--text2)">Accès restreint.</div>',
     settings: isAdmin() ? renderSettings() : '',
@@ -1653,6 +1656,7 @@ function renderApp(){
     compteurs_savadur:'Compteurs & Relevés — SAVADUR',compteurs_perso:'Compteurs & Relevés — Perso',
     finances_savadur:'Coûts & Revenus — SAVADUR',finances_perso:'Coûts & Revenus — Perso',
     factures_savadur:'Factures — SAVADUR',factures_perso:'Factures — Perso',
+    releve_savadur:'Relevé bancaire — SAVADUR',
     asset_detail:S.selectedAsset?.name||'Détail'};
 
   return `<div class="app">
@@ -2122,8 +2126,14 @@ function updateDocCibleType(el){
 // Montant deja rapproche sur une facture (somme de rapprochements[], suivi
 // necessaire pour une charge mensualisee : 1 seule facture annuelle reglee
 // via plusieurs prelevements mensuels distincts) et montant restant du.
+// Si `rapproche` est deja a true mais que la somme ne couvre pas encore le
+// montant TTC (rapprochement fait avant l'ajout de ce suivi detaille, ou
+// coche manuellement ailleurs dans le GMAO), on considere la facture soldee
+// pour son montant TTC entier plutot que d'afficher un solde restant faux.
 function factureMontantRapproche(f){
-  return (f.rapprochements||[]).reduce((s,r)=>s+(parseFloat(r.montant)||0),0);
+  const somme=(f.rapprochements||[]).reduce((s,r)=>s+(parseFloat(r.montant)||0),0);
+  const ttc=parseFloat(f.montant_ttc)||0;
+  return f.rapproche&&somme<ttc?ttc:somme;
 }
 function factureResteAPayer(f){
   return Math.max(0,(parseFloat(f.montant_ttc)||0)-factureMontantRapproche(f));
@@ -2274,70 +2284,138 @@ function linkReleveCredit(btn){
     wrap.querySelector('.credit-part').value
   );
 }
-// Rapport pour import_releve.py : montre les derniers relevés bancaires
-// SAVADUR traites et les anomalies a verifier (operation sans facture,
-// montant ambigu entre plusieurs factures - toutes deux rapprochables
-// manuellement ici -, ou credit dont le payeur ne correspond a aucun
-// locataire actif, en lecture seule).
-function renderReleveImports(){
-  const imports=(S.releveImports||[]).slice(0,12);
-  if(!imports.length)return '';
+// Une anomalie est "couverte" des qu'une regle recurring_expenses existe
+// pour son libelle+montant exacts - meme si l'anomalie elle-meme date d'avant
+// la creation de la regle (les rapports stockes ne sont jamais recalcules
+// retroactivement). Sert a la fois a l'exclure du tableau "a rapprocher" et
+// a eviter de re-proposer un rapprochement qui creerait un doublon.
+function isRecurringCovered(a){
+  return (S.recurringExpenses||[]).some(re=>re.libelle===a.libelle&&Math.abs(re.montant-Math.abs(a.montant))<0.01);
+}
+// Aplati toutes les anomalies encore ouvertes de tous les releves importes
+// (hors celles deja couvertes par une regle recurrente) en une seule liste,
+// optionnellement filtree par annee - vue "a rapprocher" de l'onglet Relevé
+// bancaire, et badge de menu.
+function getReleveARapprocher(year){
+  const out=[];
+  (S.releveImports||[]).forEach(r=>{
+    (r.anomalies||[]).forEach((a,i)=>{
+      if(!['debit_sans_facture','ambigu','credit_non_identifie'].includes(a.type))return;
+      if(isRecurringCovered(a))return;
+      if(year&&year!=='all'&&(a.date||'').slice(0,4)!==String(year))return;
+      out.push({r,a,i});
+    });
+  });
+  return out.sort((x,y)=>new Date(y.a.date||0)-new Date(x.a.date||0));
+}
+// Ligne d'une operation "a rapprocher" (tableau 1 de l'onglet Relevé
+// bancaire) - reprend les memes controles de rapprochement manuel deja
+// construits (facture/candidats/recurrent pour un debit, locataire/mois/
+// part pour un credit).
+function anomalyLine(r,a,i){
   const fmtE=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(n||0);
   const MONTHS=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
-  const anomalyLine=(r,a,i)=>{
-    const icon=a.type==='debit_sans_facture'?'🔴':a.type==='ambigu'?'🟠':'🔵';
-    const label=a.type==='debit_sans_facture'?'aucune facture correspondante'
-      :a.type==='ambigu'?'plusieurs factures au même montant — à vérifier'
-      :'payeur non reconnu parmi les locataires actifs';
-    const linkable=a.type==='debit_sans_facture'||a.type==='ambigu';
-    const anomalyDate=a.date?new Date(a.date):null;
-    const guessPart=/\bcaf\b/i.test(a.libelle||'')?'caf':'locataire';
-    // Anomalie d'un ancien releve (avant qu'une regle recurrente n'existe
-    // pour ce libelle/montant) : les rapports deja stockes ne sont jamais
-    // recalcules retroactivement, donc l'entree reste visible ici - mais
-    // proposer de la relier a nouveau creerait juste une erreur de doublon.
-    const existingRule=(S.recurringExpenses||[]).find(re=>re.libelle===a.libelle&&Math.abs(re.montant-Math.abs(a.montant))<0.01);
-    return `<div style="font-size:12px;padding:6px 0;border-bottom:0.5px solid var(--border)">
-      ${icon} ${dateLabel(a.date)} — <strong>${(a.libelle||'').replace(/</g,'&lt;')}</strong> — ${fmtE(a.montant)} : ${label}
-      ${a.candidats?.length?`<div style="font-size:11px;color:var(--text2);margin:4px 0 0 20px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-        Candidats :
-        ${a.candidats.map(c=>`<button type="button" class="btn btn-sm" style="font-size:10px;padding:2px 6px" onclick="resolveReleveAnomaly('${r.id}',${i},'${c.id}')">✓ ${(c.fournisseur||'—')} (${dateLabel(c.date)})</button>`).join('')}
-      </div>`:''}
-      ${linkable&&existingRule?`<div style="margin:6px 0 0 20px;font-size:11px;color:var(--text2)">🔁 Déjà couvert par une règle récurrente (voir "Prélèvements récurrents reconnus" ci-dessous) — cette ancienne ligne n'a plus besoin d'action.</div>`:''}
-      ${linkable&&!existingRule?`<div style="margin:6px 0 0 20px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-        <select class="anomaly-facture-select" data-releve-id="${r.id}" data-anomaly-idx="${i}" style="font-size:11px;padding:4px 6px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);max-width:260px">${facturesLinkOptsFor('')}</select>
-        <button type="button" class="btn btn-sm btn-p" style="font-size:10px;padding:3px 8px" data-releve-id="${r.id}" data-anomaly-idx="${i}" onclick="linkReleveAnomaly(this)">🔗 Lier</button>
-        <button type="button" class="btn btn-sm" style="font-size:10px;padding:3px 8px" onclick="createFactureForAnomaly('${r.id}',${i})">+ Créer une facture</button>
-        <button type="button" class="btn btn-sm" style="font-size:10px;padding:3px 8px" onclick="markAsRecurringFromAnomaly('${r.id}',${i})" title="Ce montant revient chaque mois avec ce même libellé (assurance mensualisée, échéance de prêt...) - le reconnaître automatiquement désormais">🔁 Récurrent</button>
-      </div>`:''}
-      ${a.type==='credit_non_identifie'?`<div class="credit-link-row" data-releve-id="${r.id}" data-anomaly-idx="${i}" style="margin:6px 0 0 20px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-        <select class="credit-tenant" onchange="updateCreditCheckInfo(this)" style="font-size:11px;padding:4px 6px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);max-width:220px">${tenantsLinkOptsFor('')}</select>
-        <select class="credit-mois" onchange="updateCreditCheckInfo(this)" style="font-size:11px;padding:4px 6px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text)">
-          ${MONTHS.map((m,mi)=>`<option value="${mi+1}" ${anomalyDate&&anomalyDate.getMonth()===mi?'selected':''}>${m}</option>`).join('')}
-        </select>
-        <input type="number" class="credit-annee" onchange="updateCreditCheckInfo(this)" value="${anomalyDate?anomalyDate.getFullYear():''}" style="font-size:11px;padding:4px 6px;width:70px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text)">
-        <select class="credit-part" onchange="updateCreditCheckInfo(this)" style="font-size:11px;padding:4px 6px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text)">
-          <option value="locataire" ${guessPart==='locataire'?'selected':''}>Part locataire</option>
-          <option value="caf" ${guessPart==='caf'?'selected':''}>Part CAF</option>
-        </select>
-        <button type="button" class="btn btn-sm btn-p" style="font-size:10px;padding:3px 8px" onclick="linkReleveCredit(this)">🔗 Lier</button>
-        <span class="credit-check-info" style="font-size:11px;color:var(--text2)"></span>
-      </div>`:''}
-    </div>`;
-  };
-  return `<div class="card" style="margin-bottom:14px">
-    <div class="sec" style="margin-bottom:8px">🏦 Relevés bancaires rapprochés automatiquement</div>
-    ${imports.map(r=>{
-      const nbAnomalies=(r.nb_debits_sans_facture||0)+(r.nb_ambigus||0)+(r.nb_credits_non_identifies||0);
-      return `<div style="margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--border)">
-        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
-          <span style="font-size:12px;font-weight:500">${r.fichier_nom}${r.periode_debut?' — '+dateLabel(r.periode_debut)+' → '+dateLabel(r.periode_fin):''}</span>
-          <span style="font-size:11px;color:var(--text2)">${r.nb_operations} opération(s) · ${r.nb_debits_rapproches} rapprochée(s)${r.nb_recurrents_connus?' · '+r.nb_recurrents_connus+' récurrent(s) reconnu(s)':''}${nbAnomalies?' · '+nbAnomalies+' à vérifier':''}</span>
-        </div>
-        ${(r.anomalies||[]).length?`<div style="margin-top:6px">${r.anomalies.map((a,i)=>anomalyLine(r,a,i)).join('')}</div>`:'<div style="font-size:11px;color:var(--green);margin-top:4px">✓ Aucune anomalie</div>'}
-      </div>`;
-    }).join('')}
+  const icon=a.type==='debit_sans_facture'?'🔴':a.type==='ambigu'?'🟠':'🔵';
+  const label=a.type==='debit_sans_facture'?'aucune facture correspondante'
+    :a.type==='ambigu'?'plusieurs factures au même montant — à vérifier'
+    :'payeur non reconnu parmi les locataires actifs';
+  const linkable=a.type==='debit_sans_facture'||a.type==='ambigu';
+  const anomalyDate=a.date?new Date(a.date):null;
+  const guessPart=/\bcaf\b/i.test(a.libelle||'')?'caf':'locataire';
+  return `<div style="font-size:12px;padding:6px 0;border-bottom:0.5px solid var(--border)">
+    ${icon} ${dateLabel(a.date)} — <strong>${(a.libelle||'').replace(/</g,'&lt;')}</strong> — ${fmtE(a.montant)} : ${label}
+    ${a.candidats?.length?`<div style="font-size:11px;color:var(--text2);margin:4px 0 0 20px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+      Candidats :
+      ${a.candidats.map(c=>`<button type="button" class="btn btn-sm" style="font-size:10px;padding:2px 6px" onclick="resolveReleveAnomaly('${r.id}',${i},'${c.id}')">✓ ${(c.fournisseur||'—')} (${dateLabel(c.date)})</button>`).join('')}
+    </div>`:''}
+    ${linkable?`<div style="margin:6px 0 0 20px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+      <select class="anomaly-facture-select" data-releve-id="${r.id}" data-anomaly-idx="${i}" style="font-size:11px;padding:4px 6px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);max-width:260px">${facturesLinkOptsFor('')}</select>
+      <button type="button" class="btn btn-sm btn-p" style="font-size:10px;padding:3px 8px" data-releve-id="${r.id}" data-anomaly-idx="${i}" onclick="linkReleveAnomaly(this)">🔗 Lier</button>
+      <button type="button" class="btn btn-sm" style="font-size:10px;padding:3px 8px" onclick="createFactureForAnomaly('${r.id}',${i})">+ Créer une facture</button>
+      <button type="button" class="btn btn-sm" style="font-size:10px;padding:3px 8px" onclick="markAsRecurringFromAnomaly('${r.id}',${i})" title="Ce montant revient chaque mois avec ce même libellé (assurance mensualisée, échéance de prêt...) - le reconnaître automatiquement désormais">🔁 Récurrent</button>
+    </div>`:''}
+    ${a.type==='credit_non_identifie'?`<div class="credit-link-row" data-releve-id="${r.id}" data-anomaly-idx="${i}" style="margin:6px 0 0 20px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+      <select class="credit-tenant" onchange="updateCreditCheckInfo(this)" style="font-size:11px;padding:4px 6px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);max-width:220px">${tenantsLinkOptsFor('')}</select>
+      <select class="credit-mois" onchange="updateCreditCheckInfo(this)" style="font-size:11px;padding:4px 6px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text)">
+        ${MONTHS.map((m,mi)=>`<option value="${mi+1}" ${anomalyDate&&anomalyDate.getMonth()===mi?'selected':''}>${m}</option>`).join('')}
+      </select>
+      <input type="number" class="credit-annee" onchange="updateCreditCheckInfo(this)" value="${anomalyDate?anomalyDate.getFullYear():''}" style="font-size:11px;padding:4px 6px;width:70px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text)">
+      <select class="credit-part" onchange="updateCreditCheckInfo(this)" style="font-size:11px;padding:4px 6px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text)">
+        <option value="locataire" ${guessPart==='locataire'?'selected':''}>Part locataire</option>
+        <option value="caf" ${guessPart==='caf'?'selected':''}>Part CAF</option>
+      </select>
+      <button type="button" class="btn btn-sm btn-p" style="font-size:10px;padding:3px 8px" onclick="linkReleveCredit(this)">🔗 Lier</button>
+      <span class="credit-check-info" style="font-size:11px;color:var(--text2)"></span>
+    </div>`:''}
   </div>`;
+}
+// Onglet dedie "Relevé bancaire" (SAVADUR) : tableau 1 = tout ce qui reste a
+// rapprocher (hors regles recurrentes deja couvertes), tableau 2 = tout ce
+// qui est deja rapproche (factures avec un rapprochement partiel/total,
+// locataires avec une date CAF/loc confirmee) - avec des sous-onglets annee,
+// comme Factures. Le "rapproche" est deduit de l'etat actuel des donnees
+// (factures.rapprochements, rent_payments.date_caf/date_loc) plutot que d'un
+// journal separe : plus simple, et toujours a jour meme si une facture est
+// modifiee ailleurs dans le GMAO.
+function renderReleveBancaire(){
+  const fmtE=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(n||0);
+  const yearsSet=new Set((S.releveImports||[]).map(r=>(r.periode_debut||'').slice(0,4)).filter(Boolean));
+  yearsSet.add(String(new Date().getFullYear()));
+  const years=[...yearsSet].sort((a,b)=>b-a);
+  const year=S.releveBancaireYear||years[0]||String(new Date().getFullYear());
+  const yearBar=`<div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap">
+    ${years.map(y=>`<span class="pill ${year===y?'active':''}" data-releve-year="${y}">${y}</span>`).join('')}
+    <span class="pill ${year==='all'?'active':''}" data-releve-year="all">Tout</span>
+  </div>`;
+
+  const aRapprocher=getReleveARapprocher(year);
+  const table1=`<div class="card" style="margin-bottom:14px">
+    <div class="sec" style="margin-bottom:8px">📋 À rapprocher (${aRapprocher.length})</div>
+    ${aRapprocher.length===0?'<div style="font-size:12px;color:var(--green)">✓ Rien à rapprocher pour cette période.</div>':aRapprocher.map(({r,a,i})=>anomalyLine(r,a,i)).join('')}
+  </div>`;
+
+  const facturesRapprochees=[...S.factures].filter(f=>f.compte==='savadur'&&(factureMontantRapproche(f)>0||f.rapproche)
+    &&(year==='all'||(f.date||'').slice(0,4)===String(year)))
+    .sort((a,b)=>new Date(b.date||0)-new Date(a.date||0));
+  const rentPaymentsRapproches=(S.rentPayments||[]).filter(p=>(p.date_caf||p.date_loc)
+    &&(year==='all'||String(p.annee)===String(year)))
+    .filter(p=>dubailFilter((S.tenants.find(t=>t.id===p.tenant_id)||{}).logement||''))
+    .sort((a,b)=>new Date(b.date_loc||b.date_caf||0)-new Date(a.date_loc||a.date_caf||0));
+
+  const table2=`<div class="card">
+    <div class="sec" style="margin-bottom:8px">✓ Rapprochées (${facturesRapprochees.length+rentPaymentsRapproches.length})</div>
+    ${(facturesRapprochees.length+rentPaymentsRapproches.length)===0?'<div style="font-size:12px;color:var(--text2)">Rien pour cette période.</div>':''}
+    ${facturesRapprochees.length?`<div style="font-size:11px;font-weight:500;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin:6px 0 4px">Factures</div>
+    <div style="overflow-x:auto"><table>
+      <thead><tr><th>Date</th><th>Fournisseur</th><th style="text-align:right">TTC</th><th style="text-align:right">Rapproché</th><th>Statut</th></tr></thead>
+      <tbody>${facturesRapprochees.map(f=>{
+        const reste=factureResteAPayer(f);
+        const partiel=reste>0.01;
+        return `<tr>
+          <td style="font-size:12px;white-space:nowrap">${dateLabel(f.date)}</td>
+          <td style="font-size:12px">${f.fournisseur}</td>
+          <td style="font-size:12px;text-align:right">${fmtE(f.montant_ttc)}</td>
+          <td style="font-size:12px;text-align:right;color:var(--green)">${fmtE(factureMontantRapproche(f))}</td>
+          <td>${partiel?`<span class="badge bamber" style="font-size:10px">Partielle — reste ${fmtE(reste)}</span>`:'<span class="badge bgreen" style="font-size:10px">Soldée</span>'}</td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table></div>`:''}
+    ${rentPaymentsRapproches.length?`<div style="font-size:11px;font-weight:500;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin:14px 0 4px">Locataires</div>
+    <div style="overflow-x:auto"><table>
+      <thead><tr><th>Locataire</th><th>Mois</th><th>Part CAF</th><th>Part locataire</th></tr></thead>
+      <tbody>${rentPaymentsRapproches.map(p=>{
+        const t=S.tenants.find(x=>x.id===p.tenant_id);
+        return `<tr>
+          <td style="font-size:12px">${t?.nom||'—'}</td>
+          <td style="font-size:12px">${p.mois} ${p.annee}</td>
+          <td style="font-size:12px">${p.date_caf?fmtE(p.caf)+' — '+dateLabel(p.date_caf):'—'}</td>
+          <td style="font-size:12px">${p.date_loc?fmtE(p.locataire_part)+' — '+dateLabel(p.date_loc):'—'}</td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table></div>`:''}
+  </div>`;
+
+  return yearBar+table1+table2+renderRecurringExpensesList();
 }
 // Liste/gestion des prelevements recurrents deja reconnus (voir bouton "🔁
 // Récurrent" sur une anomalie de releve, et import_releve.py qui les
@@ -4057,7 +4135,6 @@ function renderFactures(){
     <div class="stat" style="flex:1"><div class="stat-l">Non rapprochées</div><div class="stat-v" style="color:${nonRappr>0?'var(--amber)':'var(--green)'}">${nonRappr}</div></div>
     <div class="stat" style="flex:1"><div class="stat-l">Nb factures</div><div class="stat-v">${facts.length}</div></div>
   </div>
-  ${fTab==='savadur'?renderReleveImports()+renderRecurringExpensesList():''}
   ${facts.length===0?'<div class="card" style="text-align:center;padding:20px;color:var(--text2)">Aucune facture. Cliquez "+ Facture" pour commencer.</div>':''}
   ${topNames.map(top=>{
     const subMap=groups.get(top);
@@ -11242,6 +11319,7 @@ function bindAll(){
   // FACTURES
   document.querySelectorAll('[data-fact-tab]').forEach(el=>el.onclick=()=>{S.factTab=el.dataset.factTab;render();});
   document.querySelectorAll('[data-fact-year]').forEach(el=>el.onclick=()=>{S.factYear=parseInt(el.dataset.factYear)||0;render();});
+  document.querySelectorAll('[data-releve-year]').forEach(el=>el.onclick=()=>{S.releveBancaireYear=el.dataset.releveYear;render();});
   if(q('fact-bien-filter'))q('fact-bien-filter').onchange=e=>{S.factBienFilter=e.target.value;render();};
   document.querySelectorAll('[data-fav-valider]').forEach(el=>el.onclick=async()=>{
     const id=el.dataset.favValider;

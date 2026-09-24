@@ -245,11 +245,12 @@ def process_file(path: Path, tenant_names: list):
                 continue
             match, ambigus = match_debit(txn, unrapprochees)
             if match:
-                patch = {"rapproche": True}
+                rapprochements = list(match.get("rapprochements") or []) + [{"montant": abs(txn["amount"]), "date": txn["date"].isoformat()}]
+                patch = {"rapproche": True, "rapprochements": rapprochements}
                 if not match.get("date_paiement"):
                     patch["date_paiement"] = txn["date"].isoformat()
                 update_facture(match["id"], patch)
-                match["rapproche"] = True  # ne plus le proposer a un autre txn du meme releve
+                match.update(patch)  # ne plus le proposer a un autre txn du meme releve
                 nb_rapproches += 1
             elif ambigus:
                 nb_ambigus += 1
