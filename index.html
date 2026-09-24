@@ -2116,23 +2116,88 @@ function updateDocCibleType(el){
   const typeSel=document.querySelector('.doc-type[data-doc-id="'+el.dataset.docId+'"]');
   if(typeSel)typeSel.innerHTML=docTypeOptionsHtml(el.value,'');
 }
-// Rapport (lecture seule, pas d'action - le rapprochement est automatique)
-// pour import_releve.py : montre les derniers relevés bancaires SAVADUR
-// traites et les anomalies a verifier a l'oeil (operation sans facture,
-// montant ambigu entre plusieurs factures, credit dont le payeur ne
-// correspond a aucun locataire actif).
+// Options <option> "Facture SAVADUR" pour le rapprochement manuel d'une
+// anomalie de releve_imports - toutes les factures (pas seulement les non
+// rapprochees : une charge mensualisee sur une facture annuelle unique doit
+// pouvoir etre reliee plusieurs fois, une fois par prelevement mensuel).
+function facturesLinkOptsFor(sel){
+  const fmtE=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(n||0);
+  const opts=[{v:'',l:'— Choisir une facture —'}]
+    .concat([...S.factures].filter(f=>f.compte==='savadur').sort((a,b)=>new Date(b.date||0)-new Date(a.date||0))
+      .map(f=>({v:f.id,l:`${dateLabel(f.date)} · ${f.fournisseur} · ${fmtE(f.montant_ttc)}`})));
+  return renderOpts(opts,sel);
+}
+// Rapproche manuellement une facture (existante ou tout juste creee) avec
+// une anomalie de releve bancaire : marque la facture rapprochee et retire
+// l'anomalie du rapport stocke. Pas de filtre sur l'etat rapproche actuel de
+// la facture (volontaire - une charge mensualisee sur une seule facture
+// annuelle doit pouvoir etre reliee a plusieurs prelevements du meme mois).
+async function resolveReleveAnomaly(releveId,idx,factureId){
+  if(!factureId){alert('Choisissez une facture avant de valider');return;}
+  const r=(S.releveImports||[]).find(x=>x.id===releveId);
+  const anomalies=[...(r?.anomalies||[])];
+  const anomaly=anomalies[idx];
+  if(!r||!anomaly)return;
+  const facture=S.factures.find(f=>f.id===factureId);
+  if(!facture)return;
+  const patchFacture={rapproche:true};
+  if(!facture.date_paiement)patchFacture.date_paiement=anomaly.date;
+  const{error}=await sb.from('factures').update(patchFacture).eq('id',factureId);
+  if(error){alert('Erreur : '+error.message);return;}
+  Object.assign(facture,patchFacture);
+  anomalies.splice(idx,1);
+  const patch={anomalies,nb_debits_rapproches:(r.nb_debits_rapproches||0)+1};
+  if(anomaly.type==='debit_sans_facture')patch.nb_debits_sans_facture=Math.max(0,(r.nb_debits_sans_facture||0)-1);
+  if(anomaly.type==='ambigu')patch.nb_ambigus=Math.max(0,(r.nb_ambigus||0)-1);
+  const{error:err2}=await sb.from('releve_imports').update(patch).eq('id',releveId);
+  if(err2){alert('Facture rapprochée, mais erreur de mise à jour du rapport : '+err2.message);}
+  Object.assign(r,patch);
+  render();
+}
+function linkReleveAnomaly(btn){
+  const sel=document.querySelector('.anomaly-facture-select[data-releve-id="'+btn.dataset.releveId+'"][data-anomaly-idx="'+btn.dataset.anomalyIdx+'"]');
+  resolveReleveAnomaly(btn.dataset.releveId,parseInt(btn.dataset.anomalyIdx),sel?.value);
+}
+// Prefiltre le formulaire facture classique (fournisseur devine depuis le
+// libelle bancaire, montant/date repris de l'operation) - l'utilisateur
+// complete/verifie et peut joindre le vrai document trouve, puis revient
+// relier cette nouvelle facture via le select "Lier une facture" (pas de
+// lien automatique : la creation passe par le formulaire standard, sans
+// modification pour ce cas particulier).
+function createFactureForAnomaly(releveId,idx){
+  const r=(S.releveImports||[]).find(x=>x.id===releveId);
+  const a=r?.anomalies?.[idx];
+  if(!a)return;
+  const guess=(a.libelle||'').replace(/^(PRLV|VIR INST|VIR|CARTE \d{2}\/\d{2})\s+/i,'').trim();
+  S.modal={type:'add-facture',facture:{fournisseur:guess,date:a.date,montant_ttc:Math.abs(a.montant),compte:'savadur',date_paiement:a.date}};
+  render();
+}
+// Rapport pour import_releve.py : montre les derniers relevés bancaires
+// SAVADUR traites et les anomalies a verifier (operation sans facture,
+// montant ambigu entre plusieurs factures - toutes deux rapprochables
+// manuellement ici -, ou credit dont le payeur ne correspond a aucun
+// locataire actif, en lecture seule).
 function renderReleveImports(){
   const imports=(S.releveImports||[]).slice(0,6);
   if(!imports.length)return '';
   const fmtE=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(n||0);
-  const anomalyLine=(a)=>{
+  const anomalyLine=(r,a,i)=>{
     const icon=a.type==='debit_sans_facture'?'🔴':a.type==='ambigu'?'🟠':'🔵';
     const label=a.type==='debit_sans_facture'?'aucune facture correspondante'
       :a.type==='ambigu'?'plusieurs factures au même montant — à vérifier'
       :'payeur non reconnu parmi les locataires actifs';
-    return `<div style="font-size:12px;padding:4px 0;border-bottom:0.5px solid var(--border)">
+    const linkable=a.type==='debit_sans_facture'||a.type==='ambigu';
+    return `<div style="font-size:12px;padding:6px 0;border-bottom:0.5px solid var(--border)">
       ${icon} ${dateLabel(a.date)} — <strong>${(a.libelle||'').replace(/</g,'&lt;')}</strong> — ${fmtE(a.montant)} : ${label}
-      ${a.candidats?.length?`<div style="font-size:11px;color:var(--text2);margin-left:20px">Candidats : ${a.candidats.map(c=>(c.fournisseur||'—')+' ('+dateLabel(c.date)+')').join(', ')}</div>`:''}
+      ${a.candidats?.length?`<div style="font-size:11px;color:var(--text2);margin:4px 0 0 20px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        Candidats :
+        ${a.candidats.map(c=>`<button type="button" class="btn btn-sm" style="font-size:10px;padding:2px 6px" onclick="resolveReleveAnomaly('${r.id}',${i},'${c.id}')">✓ ${(c.fournisseur||'—')} (${dateLabel(c.date)})</button>`).join('')}
+      </div>`:''}
+      ${linkable?`<div style="margin:6px 0 0 20px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <select class="anomaly-facture-select" data-releve-id="${r.id}" data-anomaly-idx="${i}" style="font-size:11px;padding:4px 6px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);max-width:260px">${facturesLinkOptsFor('')}</select>
+        <button type="button" class="btn btn-sm btn-p" style="font-size:10px;padding:3px 8px" data-releve-id="${r.id}" data-anomaly-idx="${i}" onclick="linkReleveAnomaly(this)">🔗 Lier</button>
+        <button type="button" class="btn btn-sm" style="font-size:10px;padding:3px 8px" onclick="createFactureForAnomaly('${r.id}',${i})">+ Créer une facture</button>
+      </div>`:''}
     </div>`;
   };
   return `<div class="card" style="margin-bottom:14px">
@@ -2144,7 +2209,7 @@ function renderReleveImports(){
           <span style="font-size:12px;font-weight:500">${r.fichier_nom}${r.periode_debut?' — '+dateLabel(r.periode_debut)+' → '+dateLabel(r.periode_fin):''}</span>
           <span style="font-size:11px;color:var(--text2)">${r.nb_operations} opération(s) · ${r.nb_debits_rapproches} rapprochée(s)${nbAnomalies?' · '+nbAnomalies+' à vérifier':''}</span>
         </div>
-        ${(r.anomalies||[]).length?`<div style="margin-top:6px">${r.anomalies.map(anomalyLine).join('')}</div>`:'<div style="font-size:11px;color:var(--green);margin-top:4px">✓ Aucune anomalie</div>'}
+        ${(r.anomalies||[]).length?`<div style="margin-top:6px">${r.anomalies.map((a,i)=>anomalyLine(r,a,i)).join('')}</div>`:'<div style="font-size:11px;color:var(--green);margin-top:4px">✓ Aucune anomalie</div>'}
       </div>`;
     }).join('')}
   </div>`;
