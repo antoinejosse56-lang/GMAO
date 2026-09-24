@@ -2292,13 +2292,19 @@ function renderReleveImports(){
     const linkable=a.type==='debit_sans_facture'||a.type==='ambigu';
     const anomalyDate=a.date?new Date(a.date):null;
     const guessPart=/\bcaf\b/i.test(a.libelle||'')?'caf':'locataire';
+    // Anomalie d'un ancien releve (avant qu'une regle recurrente n'existe
+    // pour ce libelle/montant) : les rapports deja stockes ne sont jamais
+    // recalcules retroactivement, donc l'entree reste visible ici - mais
+    // proposer de la relier a nouveau creerait juste une erreur de doublon.
+    const existingRule=(S.recurringExpenses||[]).find(re=>re.libelle===a.libelle&&Math.abs(re.montant-Math.abs(a.montant))<0.01);
     return `<div style="font-size:12px;padding:6px 0;border-bottom:0.5px solid var(--border)">
       ${icon} ${dateLabel(a.date)} — <strong>${(a.libelle||'').replace(/</g,'&lt;')}</strong> — ${fmtE(a.montant)} : ${label}
       ${a.candidats?.length?`<div style="font-size:11px;color:var(--text2);margin:4px 0 0 20px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
         Candidats :
         ${a.candidats.map(c=>`<button type="button" class="btn btn-sm" style="font-size:10px;padding:2px 6px" onclick="resolveReleveAnomaly('${r.id}',${i},'${c.id}')">✓ ${(c.fournisseur||'—')} (${dateLabel(c.date)})</button>`).join('')}
       </div>`:''}
-      ${linkable?`<div style="margin:6px 0 0 20px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+      ${linkable&&existingRule?`<div style="margin:6px 0 0 20px;font-size:11px;color:var(--text2)">🔁 Déjà couvert par une règle récurrente (voir "Prélèvements récurrents reconnus" ci-dessous) — cette ancienne ligne n'a plus besoin d'action.</div>`:''}
+      ${linkable&&!existingRule?`<div style="margin:6px 0 0 20px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
         <select class="anomaly-facture-select" data-releve-id="${r.id}" data-anomaly-idx="${i}" style="font-size:11px;padding:4px 6px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);max-width:260px">${facturesLinkOptsFor('')}</select>
         <button type="button" class="btn btn-sm btn-p" style="font-size:10px;padding:3px 8px" data-releve-id="${r.id}" data-anomaly-idx="${i}" onclick="linkReleveAnomaly(this)">🔗 Lier</button>
         <button type="button" class="btn btn-sm" style="font-size:10px;padding:3px 8px" onclick="createFactureForAnomaly('${r.id}',${i})">+ Créer une facture</button>
@@ -8792,7 +8798,10 @@ async function saveModal(){
       notes:q('m-renotes')?.value||null};
     if(m.type==='add-recurring-expense'){
       const {data,error}=await sb.from('recurring_expenses').insert(rec).select().single();
-      if(error){alert('Erreur : '+error.message);return;}
+      if(error){
+        alert(error.code==='23505'?'Une règle existe déjà pour ce libellé et ce montant exacts — regardez la liste "Prélèvements récurrents reconnus" ci-dessous, elle est probablement déjà active.':'Erreur : '+error.message);
+        return;
+      }
       if(data)S.recurringExpenses=[data,...(S.recurringExpenses||[])];
     }else{
       const {error}=await sb.from('recurring_expenses').update(rec).eq('id',m.recurring.id);
