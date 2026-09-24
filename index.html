@@ -2257,6 +2257,18 @@ function waterReleveOptsFor(tenantId,sel){
     }));
   return renderOpts(opts,sel);
 }
+// Ouvre le petit formulaire de relevé d'eau retroactif : pour un locataire
+// (souvent parti) dont la consommation n'a jamais ete suivie via le module
+// Compteurs (systeme pas encore en place a l'epoque) - permet quand meme de
+// rapprocher son dernier reglement d'eau plutot que de rester bloque faute
+// de releve existant a choisir dans waterReleveOptsFor().
+function createWaterReleveForAnomaly(releveId,idx){
+  const r=(S.releveImports||[]).find(x=>x.id===releveId);
+  const a=r?.anomalies?.[idx];
+  if(!a)return;
+  S.modal={type:'add-water-releve-link',releveId,idx,montant:Math.abs(a.montant),date:a.date};
+  render();
+}
 // Bascule les champs affiches (loyer/CAF vs facture d'eau) et repeuple le
 // select des releves d'eau quand le locataire ou le type change.
 function updateCreditTypeUI(el){
@@ -2303,12 +2315,18 @@ function updateCreditCheckInfo(el){
 // vide (mode loyer), ou marque le releve d'eau paye (mode eau) - sans jamais
 // toucher `rent_payments.paye` (effets de bord ailleurs - quittances, dette
 // locataire - hors de portee de ce rapprochement bancaire).
+// Ne retire PAS l'anomalie apres un lien reussi (contrairement au debit) :
+// un meme virement peut regrouper plusieurs choses (loyer + facture d'eau du
+// meme locataire, par ex.) - chaque "Lier" enregistre sa part (visible sous
+// forme de petite liste sur la ligne) et on ne retire la ligne qu'au clic
+// explicite sur "Terminé" (finalizeReleveAnomaly), une fois tout traite.
 async function resolveReleveCreditAnomaly(releveId,idx,type,tenantId,extra){
   if(!tenantId){alert('Choisissez un locataire avant de valider');return;}
   const r=(S.releveImports||[]).find(x=>x.id===releveId);
-  const anomalies=[...(r?.anomalies||[])];
-  const anomaly=anomalies[idx];
+  const anomaly=r?.anomalies?.[idx];
   if(!r||!anomaly)return;
+  const tenant=S.tenants.find(t=>t.id===tenantId);
+  let label;
   if(type==='eau'){
     if(!extra.releveId){alert('Choisissez un relevé avant de valider');return;}
     const rel=(S.releves||[]).find(x=>x.id===extra.releveId);
@@ -2316,6 +2334,7 @@ async function resolveReleveCreditAnomaly(releveId,idx,type,tenantId,extra){
     const{error}=await sb.from('releves').update({paye:true}).eq('id',rel.id);
     if(error){alert('Erreur : '+error.message);return;}
     rel.paye=true;
+    label=`Facture d'eau — ${tenant?.nom||'—'}`;
   }else{
     const rp=S.rentPayments.find(p=>p.tenant_id===tenantId&&p.mois_num===extra.mois&&p.annee===extra.annee);
     if(!rp){alert('Aucune quittance trouvée pour ce locataire à cette période — saisissez d\'abord le loyer de ce mois avant de le rapprocher.');return;}
@@ -2325,11 +2344,28 @@ async function resolveReleveCreditAnomaly(releveId,idx,type,tenantId,extra){
       if(error){alert('Erreur : '+error.message);return;}
       rp[dateField]=anomaly.date;
     }
+    label=`${extra.part==='caf'?'Part CAF':'Part locataire'} ${rp.mois} ${rp.annee} — ${tenant?.nom||'—'}`;
   }
+  const anomalies=[...r.anomalies];
+  anomalies[idx]={...anomaly,parts:[...(anomaly.parts||[]),label]};
+  const patch={anomalies};
+  const{error:err2}=await sb.from('releve_imports').update(patch).eq('id',releveId);
+  if(err2){alert('Rapproché, mais erreur de mise à jour du rapport : '+err2.message);}
+  Object.assign(r,patch);
+  render();
+}
+// Retire definitivement une anomalie une fois que toutes ses parts (voir
+// ci-dessus) ont ete traitees - separe du rapprochement lui-meme pour
+// permettre de diviser un virement (ex: loyer + eau) en plusieurs liens
+// successifs avant de la faire disparaitre.
+async function finalizeReleveAnomaly(releveId,idx){
+  const r=(S.releveImports||[]).find(x=>x.id===releveId);
+  const anomalies=[...(r?.anomalies||[])];
+  if(!r||!anomalies[idx])return;
   anomalies.splice(idx,1);
   const patch={anomalies,nb_credits_non_identifies:Math.max(0,(r.nb_credits_non_identifies||0)-1)};
-  const{error:err2}=await sb.from('releve_imports').update(patch).eq('id',releveId);
-  if(err2){alert('Locataire rapproché, mais erreur de mise à jour du rapport : '+err2.message);}
+  const{error}=await sb.from('releve_imports').update(patch).eq('id',releveId);
+  if(error){alert('Erreur : '+error.message);return;}
   Object.assign(r,patch);
   render();
 }
@@ -2408,6 +2444,9 @@ function anomalyLine(r,a,i){
       <button type="button" class="btn btn-sm" style="font-size:10px;padding:3px 8px" onclick="markAsRecurringFromAnomaly('${r.id}',${i})" title="Ce montant revient chaque mois avec ce même libellé (assurance mensualisée, échéance de prêt...) - le reconnaître automatiquement désormais">🔁 Récurrent</button>
       <button type="button" class="btn btn-sm" style="font-size:10px;padding:3px 8px" onclick="markAsCautionRefund('${r.id}',${i})" title="Virement sortant vers un locataire (souvent parti) - remboursement de son dépôt de garantie">🏠 Remboursement caution</button>
     </div>`:''}
+    ${a.type==='credit_non_identifie'&&a.parts?.length?`<div style="margin:4px 0 0 20px;font-size:11px;color:var(--green)">
+      ${a.parts.map(p=>`✓ ${p}`).join('<br>')}
+    </div>`:''}
     ${a.type==='credit_non_identifie'?`<div class="credit-link-row" data-releve-id="${r.id}" data-anomaly-idx="${i}" style="margin:6px 0 0 20px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
       <select class="credit-type" onchange="updateCreditTypeUI(this)" style="font-size:11px;padding:4px 6px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text)">
         <option value="loyer">Loyer / CAF</option>
@@ -2424,10 +2463,12 @@ function anomalyLine(r,a,i){
           <option value="caf" ${guessPart==='caf'?'selected':''}>Part CAF</option>
         </select>
       </span>
-      <span class="credit-eau-fields" style="display:none">
+      <span class="credit-eau-fields" style="display:none;gap:6px;flex-wrap:wrap;align-items:center">
         <select class="credit-releve" style="font-size:11px;padding:4px 6px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);max-width:200px">${waterReleveOptsFor('','')}</select>
+        <button type="button" class="btn btn-sm" style="font-size:10px;padding:3px 8px" onclick="createWaterReleveForAnomaly('${r.id}',${i})" title="Aucun relevé suivi pour ce locataire (système Compteurs pas encore en place à l'époque) - enregistrer quand même ce règlement">+ Relevé rétroactif</button>
       </span>
-      <button type="button" class="btn btn-sm btn-p" style="font-size:10px;padding:3px 8px" onclick="linkReleveCredit(this)">🔗 Lier</button>
+      <button type="button" class="btn btn-sm btn-p" style="font-size:10px;padding:3px 8px" onclick="linkReleveCredit(this)">🔗 Lier cette part</button>
+      <button type="button" class="btn btn-sm" style="font-size:10px;padding:3px 8px" onclick="finalizeReleveAnomaly('${r.id}',${i})" title="Une fois toutes les parts de ce virement traitées (ex: loyer + eau), retire cette ligne">✓ Terminé</button>
       <span class="credit-check-info" style="font-size:11px;color:var(--text2)"></span>
     </div>`:''}
   </div>`;
@@ -6688,6 +6729,18 @@ function renderModal(){
     ${mf}`;
   }
 
+  if(m.type==='add-water-releve-link'){
+    html=`${mhd("Relevé d'eau rétroactif")}
+    <div style="font-size:11px;color:var(--text2);margin-bottom:10px">Pour un locataire dont la consommation n'a jamais été suivie via l'onglet Compteurs (système pas encore en place à l'époque) - crée un relevé déjà réglé, sans historique d'index précis.</div>
+    <div class="form-group"><label>Locataire *</label><select id="m-wrtenant">${tenantsLinkOptsFor('')}</select></div>
+    <div class="g2c">
+      <div class="form-group"><label>Date</label><input id="m-wrdate" type="date" value="${m.date||''}"></div>
+      <div class="form-group"><label>Montant réglé (€) *</label><input id="m-wrmontant" type="number" step="0.01" value="${m.montant||''}"></div>
+    </div>
+    <div class="form-group"><label>Notes</label><input id="m-wrnotes" value="Facture d'eau rétroactive — système Compteurs pas encore en place à l'époque"></div>
+    ${mf}`;
+  }
+
   if(m.type==='add-cso'||m.type==='edit-cso'){
     const c=m.cso||{};
     const rngOpts=rngOptions(c.emplacement);
@@ -9001,6 +9054,34 @@ async function saveModal(){
     const{error:err2}=await sb.from('releve_imports').update(patch).eq('id',r.id);
     if(err2){alert('Remboursement enregistré, mais erreur de mise à jour du rapport : '+err2.message);}
     Object.assign(r,patch);
+  }
+
+  if(m.type==='add-water-releve-link'){
+    const tenantId=q('m-wrtenant')?.value;if(!tenantId)return alert('Choisissez un locataire');
+    const montant=parseFloat(q('m-wrmontant')?.value);if(!montant)return alert('Montant requis');
+    const date=q('m-wrdate')?.value||null;
+    const notes=q('m-wrnotes')?.value||null;
+    const tenant=S.tenants.find(t=>t.id===tenantId);
+    let compteur=(S.compteurs||[]).find(c=>c.tenant_id===tenantId);
+    if(!compteur){
+      const cRec={name:'Compteur eau — '+(tenant?.nom||'')+' ('+(tenant?.logement||'')+')',tenant_id:tenantId,type:'Eau froide',unite:'m³',prix_unitaire:0,index_initial:0,notes:'Créé automatiquement pour un relevé rétroactif (locataire jamais suivi via Compteurs)'};
+      const{data,error}=await sb.from('compteurs').insert(cRec).select().single();
+      if(error){alert('Erreur création compteur : '+error.message);return;}
+      compteur=data;S.compteurs.push(compteur);
+    }
+    const relRec={compteur_id:compteur.id,date,ancien_index:0,nouvel_index:1,prix_unitaire:montant,notes,paye:true};
+    const{data:relData,error:relErr}=await sb.from('releves').insert(relRec).select().single();
+    if(relErr){alert('Erreur création relevé : '+relErr.message);return;}
+    S.releves.push(relData);
+    const r=(S.releveImports||[]).find(x=>x.id===m.releveId);
+    const anomaly=r?.anomalies?.[m.idx];
+    if(r&&anomaly){
+      const anomalies=[...r.anomalies];
+      anomalies[m.idx]={...anomaly,parts:[...(anomaly.parts||[]),`Facture d'eau rétroactive — ${tenant?.nom||'—'}`]};
+      const{error:err2}=await sb.from('releve_imports').update({anomalies}).eq('id',r.id);
+      if(err2){alert('Relevé créé, mais erreur de mise à jour du rapport : '+err2.message);}
+      Object.assign(r,{anomalies});
+    }
   }
 
   if(m.type==='add-cso'||m.type==='edit-cso'){
