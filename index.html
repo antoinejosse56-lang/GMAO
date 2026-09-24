@@ -2178,7 +2178,7 @@ function createFactureForAnomaly(releveId,idx){
 // manuellement ici -, ou credit dont le payeur ne correspond a aucun
 // locataire actif, en lecture seule).
 function renderReleveImports(){
-  const imports=(S.releveImports||[]).slice(0,6);
+  const imports=(S.releveImports||[]).slice(0,12);
   if(!imports.length)return '';
   const fmtE=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(n||0);
   const anomalyLine=(r,a,i)=>{
