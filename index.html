@@ -4637,6 +4637,30 @@ function renderFinances(){
     const colors=['#185FA5','#1D9E75','#9B59B6','#E67E22','#E74C3C','#2ECC71','#3498DB','#F39C12'];
     const allTenants=S.tenants.filter(function(t){return t.actif!==false&&(!scopeTenantIds||scopeTenantIds.includes(t.id));});
     const allPmts=S.rentPayments.filter(function(p){return p.annee===year&&(!scopeTenantIds||scopeTenantIds.includes(p.tenant_id));});
+    // Reutilise calcDetteLigne (deja utilise pour la dette locataire) plutot
+    // que le seul booleen `paye` : donne le vrai montant du (loyer+charges,
+    // TVA/prorata/remise deja pris en compte) et le vrai montant recu
+    // (caf+locataire_part) mois par mois, pour distinguer rien recu/partiel/
+    // complet - `paye` est une case cochee a la main, pas toujours a jour.
+    // Ne couvre que janvier 2026 -> mois courant (DETTE_DEPUIS) ; en dehors
+    // de cette fenetre (annees anterieures, mois pas encore atteints), on
+    // retombe sur l'ancien calcul base sur `paye`.
+    const detteLineCache=new Map();
+    function tenantMonthLine(t,mois){
+      if(!detteLineCache.has(t.id)){
+        const{lignes}=calcDetteLigne(t,null,null,true);
+        const byKey={};
+        lignes.forEach(l=>{byKey[l.annee+'|'+l.mois]=l;});
+        detteLineCache.set(t.id,byKey);
+      }
+      return detteLineCache.get(t.id)[year+'|'+mois];
+    }
+    function tenantMonthAmounts(t,m,propPmts){
+      const line=tenantMonthLine(t,m);
+      if(line)return{attendu:line.attendu,recu:line.recu};
+      const p=propPmts.find(function(x){return x.tenant_id===t.id&&x.mois===m;});
+      return{attendu:p?(p.loyer||0):0,recu:(p&&p.paye)?(p.loyer||0):0};
+    }
 
     const visProps=getFilteredProperties();
     const propBlocks=visProps.map(function(prop,pi){
@@ -4648,17 +4672,18 @@ function renderFinances(){
       const propPmts=allPmts.filter(function(p){
         return propTenants.some(function(t){return t.id===p.tenant_id;});
       });
-      const percu=propPmts.filter(function(p){return p.paye;}).reduce(function(s,p){return s+(p.loyer||0);},0);
-      const attendu=propTenants.reduce(function(s,t){return s+(t.loyer_ref||0)*12;},0);
+      const tenantMonthly=new Map(propTenants.map(function(t){
+        return[t.id,MONTHS.map(function(m){return tenantMonthAmounts(t,m,propPmts);})];
+      }));
+      const percu=propTenants.reduce(function(s,t){return s+tenantMonthly.get(t.id).reduce(function(ss,v){return ss+v.recu;},0);},0);
+      const attendu=propTenants.reduce(function(s,t){return s+tenantMonthly.get(t.id).reduce(function(ss,v){return ss+v.attendu;},0);},0);
       const taux=attendu>0?Math.round(percu/attendu*100):0;
 
       const rows=propTenants.map(function(t){
-        const monthly=MONTHS.map(function(m){
-          const p=propPmts.find(function(x){return x.tenant_id===t.id&&x.mois===m;});
-          return p&&p.paye?p.loyer||0:0;
-        });
-        const total=monthly.reduce(function(s,v){return s+v;},0);
-        if(!total&&!t.loyer_ref) return '';
+        const monthly=tenantMonthly.get(t.id);
+        const total=monthly.reduce(function(s,v){return s+v.recu;},0);
+        const loyerTotalTTC=(parseFloat(t.loyer_ref||0)+parseFloat(t.charges||0))*(t.type_bail==='commercial'?1.2:1);
+        if(!total&&!loyerTotalTTC) return '';
         const badge=t.type_bail==='commercial'
           ?'<span class="badge bblue" style="font-size:10px">Com.</span>'
           :'<span class="badge bgreen" style="font-size:10px">Hab.</span>';
@@ -4669,9 +4694,13 @@ function renderFinances(){
           +'<td style="font-size:12px;color:var(--text2)">'+zone+'</td>'
           +'<td style="font-size:12px;font-weight:500">'+t.nom+'</td>'
           +'<td>'+badge+'</td>'
-          +'<td style="font-size:12px;text-align:right">'+fmt(t.loyer_ref||0)+'</td>'
+          +'<td style="font-size:12px;text-align:right">'+fmt(loyerTotalTTC)+'</td>'
           +monthly.map(function(v){
-            return '<td style="font-size:11px;text-align:right;padding:4px 3px;color:'+(v>0?'var(--green)':'var(--text3)')+'">'+(v>0?v.toFixed(0):'—')+'</td>';
+            if(v.attendu<=0.01)return '<td style="font-size:11px;text-align:right;padding:4px 3px;color:var(--text3)">—</td>';
+            const complet=v.recu>=v.attendu-0.01;
+            const rien=v.recu<=0.01;
+            const cellColor=rien?'var(--red)':complet?'var(--green)':'var(--amber)';
+            return '<td style="font-size:11px;text-align:right;padding:4px 3px;color:'+cellColor+';font-weight:'+(rien||!complet?600:400)+'">'+v.recu.toFixed(0)+'</td>';
           }).join('')
           +'<td style="font-weight:600;color:var(--green)">'+fmt(total)+'</td>'
           +'</tr>';
@@ -4680,8 +4709,8 @@ function renderFinances(){
       const totalRow='<tr style="border-top:2px solid var(--border);font-weight:600;background:var(--bg2)">'
         +'<td colspan="3">Total</td>'
         +'<td style="text-align:right;font-size:12px">'+fmt(attendu/12)+'/mois</td>'
-        +MONTHS.map(function(m){
-          const v=propPmts.filter(function(p){return p.paye&&p.mois===m;}).reduce(function(s,p){return s+(p.loyer||0);},0);
+        +MONTHS.map(function(m,mi){
+          const v=propTenants.reduce(function(s,t){return s+tenantMonthly.get(t.id)[mi].recu;},0);
           return '<td style="font-size:11px;text-align:right;padding:4px 3px">'+(v>0?v.toFixed(0):'—')+'</td>';
         }).join('')
         +'<td style="color:var(--green)">'+fmt(percu)+'</td>'
@@ -4713,7 +4742,7 @@ function renderFinances(){
         +'</div>';
     }).join('');
 
-    const grandTotal=allPmts.filter(function(p){return p.paye;}).reduce(function(s,p){return s+(p.loyer||0);},0);
+    const grandTotal=allTenants.reduce(function(s,t){return s+MONTHS.reduce(function(ss,m){return ss+tenantMonthAmounts(t,m,allPmts).recu;},0);},0);
     return tabBar+yearBar
       +(propBlocks||'<div style="padding:20px;text-align:center;color:var(--text2)">Aucun locataire actif</div>')
       +'<div class="card" style="background:var(--bg2)">'
