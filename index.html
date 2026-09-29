@@ -3618,125 +3618,19 @@ function renderLocatif(){
     // On inclut les locataires actifs, PLUS les locataires partis en cours d'année
     // (ex: changement de locataire) dès lors qu'ils ont des loyers enregistrés sur l'année
     // sélectionnée — sinon leurs mois payés avant leur départ disparaissent du tableau.
+    // Même tableau (biens -> locataires -> mois, Réf. TTC + couleur) que Coûts &
+    // Revenus > Revenus locatifs, via renderRevenusLocatifsBlocks.
     const scopedTenants=getFilteredTenants();
     const synthTenants=scopedTenants.filter(t=>t.actif!==false||S.rentPayments.some(p=>p.tenant_id===t.id&&p.annee===year));
-    const allowedTenantIds=new Set(synthTenants.map(t=>t.id));
-    const filteredPayments=S.rentPayments.filter(p=>allowedTenantIds.has(p.tenant_id));
-    // Split Dubail vs perso
-    const dubailTenants=synthTenants.filter(t=>dubailFilter(t.logement||''));
-    const persoTenants=synthTenants.filter(t=>!dubailFilter(t.logement||''));
-    const dubailIds=new Set(dubailTenants.map(t=>t.id));
-    const persoIds=new Set(persoTenants.map(t=>t.id));
-    const dubailPmts=filteredPayments.filter(p=>dubailIds.has(p.tenant_id));
-    const persoPmts=filteredPayments.filter(p=>persoIds.has(p.tenant_id));
-
-    function getZoneS(t){
-      if(!t||!t.logement)return '';
-      const sep=t.logement.includes(' — ')?' — ':' - ';
-      return t.logement.includes(sep)?t.logement.split(sep).slice(1).join(sep):'';
-    }
-
-    function statsBlock(label,tList,pmtList,color){
-      // Loyer attendu / perçu recalculés à partir du même parcours mois-par-mois que
-      // calcDetteLigne (includeAll=true), pour que "Loyers attendus" et "Taux d'encaissement"
-      // comptent bien TOUS les mois dus depuis le 1er janvier 2026 (ou l'entrée du locataire),
-      // y compris les mois où aucune saisie n'a été faite (auparavant ignorés — c'est ce qui
-      // faisait apparaître un taux d'encaissement artificiellement élevé face à la vraie dette).
-      const tenantStats=tList.map(t=>{
-        const isComm=t.type_bail==='commercial';
-        let lignesAnnee=[];
-        try{const{lignes}=calcDetteLigne(t,null,null,true);lignesAnnee=lignes.filter(l=>l.annee===year);}catch(e){}
-        const nbMois=lignesAnnee.length;
-        const lHT=parseFloat(t.loyer_ref||0)*nbMois;
-        const cHT=parseFloat(t.charges||0)*nbMois;
-        const tva=isComm?Math.round((lHT+cHT)*0.2*100)/100:0;
-        const rec=lignesAnnee.reduce((s,l)=>s+(l.recu||0),0);
-        const zone=getZoneS(t)||t.nom||'';
-        return{t,isComm,lHT,cHT,tva,rec,zone,attTotal:Math.round((lHT+cHT+tva)*100)/100};
-      });
-      let attHT=0,attCharges=0,attTVA=0,percu=0;
-      tenantStats.forEach(ts=>{attHT+=ts.lHT;attCharges+=ts.cHT;attTVA+=ts.tva;percu+=ts.rec;});
-      const attendu=Math.round((attHT+attCharges+attTVA)*100)/100;
-      const hasComm=tenantStats.some(ts=>ts.isComm);
-      // En retard = dette réelle cumulée par locataire (total à date, y compris solde de départ
-      // et mois antérieurs à l'année sélectionnée si non soldés) — cohérent avec l'onglet Dettes.
-      const dettes=tList.reduce((s,t)=>{
-        try{const{detteFinale}=calcDetteLigne(t,null,null,false);return s+Math.max(0,detteFinale);}
-        catch(e){return s;}
-      },0);
-      // Regroupement par local (zone) : un local ayant eu 2 locataires dans l'année
-      // (ex: changement de locataire) est fusionné en une seule ligne, loyer+charges+TVA compris.
-      const byZone={};
-      tenantStats.forEach(ts=>{
-        if(!byZone[ts.zone])byZone[ts.zone]={zone:ts.zone,attTotal:0,percu:0};
-        byZone[ts.zone].attTotal+=ts.attTotal;
-        byZone[ts.zone].percu+=ts.rec;
-      });
-      const zoneRows=Object.values(byZone).sort((a,b)=>a.zone.localeCompare(b.zone,'fr'));
-      return `<div class="card" style="margin-bottom:14px">
-        <div style="font-size:13px;font-weight:600;color:${color};margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid ${color}">${label} — ${tList.length} locataire(s)</div>
-        <div class="g4">
-          <div class="stat"><div class="stat-l">Loyers perçus ${year}</div><div class="stat-v" style="color:var(--green)">${fmt(percu)}</div></div>
-          <div class="stat">
-            <div class="stat-l">Loyers attendus</div>
-            <div class="stat-v">${fmt(attendu)}</div>
-            <div style="font-size:10px;color:var(--text2);margin-top:2px">dont HT : ${fmt(attHT)} · Charges : ${fmt(attCharges)}${hasComm?' · TVA : '+fmt(attTVA):''}</div>
-          </div>
-          <div class="stat"><div class="stat-l">En retard</div><div class="stat-v" style="color:var(--red)">${fmt(dettes)}</div></div>
-          <div class="stat"><div class="stat-l">Taux encaissement</div><div class="stat-v" style="color:${attendu>0?'var(--blue)':'var(--text2)'}">${attendu>0?Math.round(percu/attendu*100)+'%':'—'}</div></div>
-        </div>
-        ${zoneRows.length>0?`<div style="margin-top:14px">
-          <div style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Taux d'encaissement par local (loyer + charges${hasComm?' + TVA':''})</div>
-          <div style="overflow-x:auto"><table>
-            <thead><tr><th style="font-size:10px">Local</th><th style="font-size:10px;text-align:right">Attendu TTC</th><th style="font-size:10px;text-align:right">Perçu</th><th style="font-size:10px;text-align:right">Taux</th></tr></thead>
-            <tbody>${zoneRows.map(z=>{
-              const taux=z.attTotal>0?Math.round(z.percu/z.attTotal*100):null;
-              const tauxColor=taux===null?'var(--text2)':taux>=95?'var(--green)':taux>=70?'var(--amber)':'var(--red)';
-              return '<tr><td style="font-size:12px;font-weight:500">'+z.zone+'</td><td style="text-align:right;font-size:12px">'+fmt(z.attTotal)+'</td><td style="text-align:right;font-size:12px;color:var(--green)">'+fmt(z.percu)+'</td><td style="text-align:right;font-size:12px;font-weight:700;color:'+tauxColor+'">'+(taux===null?'—':taux+'%')+'</td></tr>';
-            }).join('')}</tbody>
-          </table></div>
-        </div>`:''}
-        ${tList.length>0?`<div style="overflow-x:auto;margin-top:14px"><table>
-          <thead><tr><th>Locataire</th><th>Logement</th><th>Loyer HT</th>${MONTHS.filter((_,i)=>i<new Date().getMonth()+2).map(m=>`<th style="font-size:10px">${m.slice(0,3)}</th>`).join('')}<th>Total</th></tr></thead>
-          <tbody>${tList.map(t=>{
-            const tPmts=pmtList.filter(p=>p.tenant_id===t.id&&p.annee===year);
-            const total=tPmts.reduce((s,p)=>s+(p.locataire_part||0)+(p.caf||0),0);
-            const partiTag=t.actif===false?' <span style="font-size:9px;color:var(--text2);font-weight:400">(parti)</span>':'';
-            return '<tr><td style="font-weight:500;font-size:12px">'+t.nom+partiTag+'</td><td style="font-size:11px;color:var(--text2)">'+t.logement+'</td><td style="font-size:12px">'+fmt(t.loyer_ref||0)+'</td>'+MONTHS.filter((_,i)=>i<new Date().getMonth()+2).map(m=>{const p=tPmts.find(x=>x.mois===m);return '<td style="font-size:11px;text-align:center">'+(p?p.paye?'<span style="color:var(--green)">✓</span>':'<span style="color:var(--amber)">…</span>':'<span style="color:var(--text3)">—</span>')+'</td>';}).join('')+'<td style="font-weight:600;font-size:12px">'+fmt(total)+'</td></tr>';
-          }).join('')}</tbody>
-        </table></div>`:''}
-      </div>`;
-    }
-
-    // Build one block per property (bien) dynamically
-    const colors=['#185FA5','#1D9E75','#9B59B6','#E67E22','#E74C3C','#2ECC71','#3498DB','#F39C12'];
-    
-    // Get all unique logements (properties) that have tenants
-    // Use topology properties order, then fallback to logement prefixes
-    const allProps=[];
-    // First: topology properties
-    S.topology.properties.forEach(p=>{
-      const propTenants=synthTenants.filter(t=>(t.logement||'').startsWith(p.name));
-      if(propTenants.length>0){
-        allProps.push({name:p.name,tenants:propTenants});
-      }
-    });
-    // Then: tenants not matched by topology (edge case)
-    const matchedIds=new Set(allProps.flatMap(p=>p.tenants.map(t=>t.id)));
-    const unmatched=synthTenants.filter(t=>!matchedIds.has(t.id));
-    if(unmatched.length>0) allProps.push({name:'Autres',tenants:unmatched});
-    
-    const propBlocks=allProps.map((prop,i)=>{
-      const propPmts=filteredPayments.filter(p=>prop.tenants.some(t=>t.id===p.tenant_id));
-      const isThisPropDubail=dubailFilter(prop.name);
-      const icon=isThisPropDubail?'🏢':'🏠';
-      const color=colors[i%colors.length];
-      return statsBlock(icon+' '+prop.name,prop.tenants,propPmts,color);
-    }).join('');
-    
+    const{propBlocks,grandTotal,fmt:fmt0}=renderRevenusLocatifsBlocks(year,synthTenants);
     return `${tabBar}${yearBar}
     ${propBlocks||'<div style="padding:20px;text-align:center;color:var(--text2)">Aucun locataire actif</div>'}
-    `;
+    <div class="card" style="background:var(--bg2)">
+      <div style="display:flex;justify-content:space-between;font-weight:600;font-size:14px">
+        <span>TOTAL GÉNÉRAL ${year}</span>
+        <span style="color:var(--green)">${fmt0(grandTotal)}</span>
+      </div>
+    </div>`;
   }
 
   if(tab==='dettes'){
@@ -4354,6 +4248,122 @@ function renderCompteurs(){
   return tabBar;
 }
 
+// Tableau "Revenus locatifs" (biens -> locataires -> mois), partage entre
+// Couts & Revenus (fTab='revenus') et Gestion locative (tab='synthese') afin
+// d'afficher exactement la meme grille (Ref. TTC + couleur rouge/orange/vert
+// par mois) aux deux endroits, au lieu de deux implementations divergentes.
+// `tenantsList` doit deja etre filtre (scope + locataires partis en cours
+// d'annee inclus) par l'appelant.
+function renderRevenusLocatifsBlocks(year,tenantsList){
+  const MONTHS=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+  const colors=['#185FA5','#1D9E75','#9B59B6','#E67E22','#E74C3C','#2ECC71','#3498DB','#F39C12'];
+  const fmt = n => new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR',maximumFractionDigits:0}).format(n||0);
+  const allTenants=tenantsList;
+  const tenantIds=new Set(allTenants.map(t=>t.id));
+  const allPmts=S.rentPayments.filter(function(p){return p.annee===year&&tenantIds.has(p.tenant_id);});
+  const detteLineCache=new Map();
+  function tenantMonthLine(t,mois){
+    if(!detteLineCache.has(t.id)){
+      const{lignes}=calcDetteLigne(t,null,null,true);
+      const byKey={};
+      lignes.forEach(l=>{byKey[l.annee+'|'+l.mois]=l;});
+      detteLineCache.set(t.id,byKey);
+    }
+    return detteLineCache.get(t.id)[year+'|'+mois];
+  }
+  function tenantMonthAmounts(t,m,propPmts){
+    const line=tenantMonthLine(t,m);
+    if(line)return{attendu:line.attendu,recu:line.recu};
+    const p=propPmts.find(function(x){return x.tenant_id===t.id&&x.mois===m;});
+    return{attendu:p?(p.loyer||0):0,recu:(p&&p.paye)?(p.loyer||0):0};
+  }
+
+  const visProps=getFilteredProperties();
+  const propBlocks=visProps.map(function(prop,pi){
+    const propTenants=allTenants.filter(function(t){
+      return (t.logement||'').toLowerCase().startsWith(prop.name.toLowerCase());
+    });
+    if(!propTenants.length) return '';
+    const color=colors[pi%colors.length];
+    const propPmts=allPmts.filter(function(p){
+      return propTenants.some(function(t){return t.id===p.tenant_id;});
+    });
+    const tenantMonthly=new Map(propTenants.map(function(t){
+      return[t.id,MONTHS.map(function(m){return tenantMonthAmounts(t,m,propPmts);})];
+    }));
+    const percu=propTenants.reduce(function(s,t){return s+tenantMonthly.get(t.id).reduce(function(ss,v){return ss+v.recu;},0);},0);
+    const attendu=propTenants.reduce(function(s,t){return s+tenantMonthly.get(t.id).reduce(function(ss,v){return ss+v.attendu;},0);},0);
+    const taux=attendu>0?Math.round(percu/attendu*100):0;
+
+    const rows=propTenants.map(function(t){
+      const monthly=tenantMonthly.get(t.id);
+      const total=monthly.reduce(function(s,v){return s+v.recu;},0);
+      const loyerTotalTTC=(parseFloat(t.loyer_ref||0)+parseFloat(t.charges||0))*(t.type_bail==='commercial'?1.2:1);
+      if(!total&&!loyerTotalTTC) return '';
+      const badge=t.type_bail==='commercial'
+        ?'<span class="badge bblue" style="font-size:10px">Com.</span>'
+        :'<span class="badge bgreen" style="font-size:10px">Hab.</span>';
+      const logStr=t.logement||'';
+      const sep=logStr.includes(' — ')?' — ':' - ';
+      const zone=logStr.includes(sep)?logStr.split(sep).slice(1).join(sep):'';
+      const partiTag=t.actif===false?' <span style="font-size:9px;color:var(--text2);font-weight:400">(parti)</span>':'';
+      return '<tr>'
+        +'<td style="font-size:12px;color:var(--text2)">'+zone+'</td>'
+        +'<td style="font-size:12px;font-weight:500">'+t.nom+partiTag+'</td>'
+        +'<td>'+badge+'</td>'
+        +'<td style="font-size:12px;text-align:right">'+fmt(loyerTotalTTC)+'</td>'
+        +monthly.map(function(v){
+          if(v.attendu<=0.01)return '<td style="font-size:11px;text-align:right;padding:4px 3px;color:var(--text3)">—</td>';
+          const complet=v.recu>=v.attendu-0.01;
+          const rien=v.recu<=0.01;
+          const cellColor=rien?'var(--red)':complet?'var(--green)':'var(--amber)';
+          return '<td style="font-size:11px;text-align:right;padding:4px 3px;color:'+cellColor+';font-weight:'+(rien||!complet?600:400)+'">'+v.recu.toFixed(0)+'</td>';
+        }).join('')
+        +'<td style="font-weight:600;color:var(--green)">'+fmt(total)+'</td>'
+        +'</tr>';
+    }).join('');
+
+    const totalRow='<tr style="border-top:2px solid var(--border);font-weight:600;background:var(--bg2)">'
+      +'<td colspan="3">Total</td>'
+      +'<td style="text-align:right;font-size:12px">'+fmt(attendu/12)+'/mois</td>'
+      +MONTHS.map(function(m,mi){
+        const v=propTenants.reduce(function(s,t){return s+tenantMonthly.get(t.id)[mi].recu;},0);
+        return '<td style="font-size:11px;text-align:right;padding:4px 3px">'+(v>0?v.toFixed(0):'—')+'</td>';
+      }).join('')
+      +'<td style="color:var(--green)">'+fmt(percu)+'</td>'
+      +'</tr>';
+
+    const isThisPropDubail=dubailFilter(prop.name);
+    const icon=isThisPropDubail?'&#127970;':'&#127968;';
+    return '<div class="card" style="margin-bottom:16px">'
+      +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;padding-bottom:8px;border-bottom:2px solid '+color+';flex-wrap:wrap;gap:8px">'
+        +'<div style="font-size:13px;font-weight:600;color:'+color+'">'
+          +icon+' '+prop.name+' — '+propTenants.length+' locataire'+(propTenants.length>1?'s':'')
+        +'</div>'
+        +'<div style="display:flex;gap:16px;font-size:12px;flex-wrap:wrap">'
+          +'<span>Perçu : <strong style="color:var(--green)">'+fmt(percu)+'</strong></span>'
+          +'<span>Attendu : <strong>'+fmt(attendu)+'</strong></span>'
+          +'<span>Taux : <strong style="color:'+(taux>=90?'var(--green)':taux>=70?'var(--amber)':'var(--red)')+'">'+taux+'%</strong></span>'
+        +'</div>'
+      +'</div>'
+      +'<div style="overflow-x:auto"><table>'
+        +'<thead><tr>'
+          +'<th style="font-size:11px">Zone</th>'
+          +'<th style="font-size:11px">Locataire</th>'
+          +'<th style="font-size:11px">Type</th>'
+          +'<th style="font-size:11px;text-align:right">Réf.</th>'
+          +MONTHS.map(function(m){return '<th style="font-size:10px;padding:4px 3px">'+m.slice(0,3)+'</th>';}).join('')
+          +'<th style="font-size:11px">Total</th>'
+        +'</tr></thead>'
+        +'<tbody>'+rows+totalRow+'</tbody>'
+      +'</table></div>'
+      +'</div>';
+  }).join('');
+
+  const grandTotal=allTenants.reduce(function(s,t){return s+MONTHS.reduce(function(ss,m){return ss+tenantMonthAmounts(t,m,allPmts).recu;},0);},0);
+  return{propBlocks,grandTotal,fmt};
+}
+
 function renderFinances(){
   const fTab = S.finTab||'overview';
   const fmt = n => new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR',maximumFractionDigits:0}).format(n||0);
@@ -4633,116 +4643,18 @@ function renderFinances(){
 
 
   if(fTab==='revenus'){
-    const MONTHS=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
-    const colors=['#185FA5','#1D9E75','#9B59B6','#E67E22','#E74C3C','#2ECC71','#3498DB','#F39C12'];
-    const allTenants=S.tenants.filter(function(t){return t.actif!==false&&(!scopeTenantIds||scopeTenantIds.includes(t.id));});
-    const allPmts=S.rentPayments.filter(function(p){return p.annee===year&&(!scopeTenantIds||scopeTenantIds.includes(p.tenant_id));});
-    // Reutilise calcDetteLigne (deja utilise pour la dette locataire) plutot
-    // que le seul booleen `paye` : donne le vrai montant du (loyer+charges,
-    // TVA/prorata/remise deja pris en compte) et le vrai montant recu
-    // (caf+locataire_part) mois par mois, pour distinguer rien recu/partiel/
-    // complet - `paye` est une case cochee a la main, pas toujours a jour.
-    // Ne couvre que janvier 2026 -> mois courant (DETTE_DEPUIS) ; en dehors
-    // de cette fenetre (annees anterieures, mois pas encore atteints), on
-    // retombe sur l'ancien calcul base sur `paye`.
-    const detteLineCache=new Map();
-    function tenantMonthLine(t,mois){
-      if(!detteLineCache.has(t.id)){
-        const{lignes}=calcDetteLigne(t,null,null,true);
-        const byKey={};
-        lignes.forEach(l=>{byKey[l.annee+'|'+l.mois]=l;});
-        detteLineCache.set(t.id,byKey);
-      }
-      return detteLineCache.get(t.id)[year+'|'+mois];
-    }
-    function tenantMonthAmounts(t,m,propPmts){
-      const line=tenantMonthLine(t,m);
-      if(line)return{attendu:line.attendu,recu:line.recu};
-      const p=propPmts.find(function(x){return x.tenant_id===t.id&&x.mois===m;});
-      return{attendu:p?(p.loyer||0):0,recu:(p&&p.paye)?(p.loyer||0):0};
-    }
-
-    const visProps=getFilteredProperties();
-    const propBlocks=visProps.map(function(prop,pi){
-      const propTenants=allTenants.filter(function(t){
-        return (t.logement||'').toLowerCase().startsWith(prop.name.toLowerCase());
-      });
-      if(!propTenants.length) return '';
-      const color=colors[pi%colors.length];
-      const propPmts=allPmts.filter(function(p){
-        return propTenants.some(function(t){return t.id===p.tenant_id;});
-      });
-      const tenantMonthly=new Map(propTenants.map(function(t){
-        return[t.id,MONTHS.map(function(m){return tenantMonthAmounts(t,m,propPmts);})];
-      }));
-      const percu=propTenants.reduce(function(s,t){return s+tenantMonthly.get(t.id).reduce(function(ss,v){return ss+v.recu;},0);},0);
-      const attendu=propTenants.reduce(function(s,t){return s+tenantMonthly.get(t.id).reduce(function(ss,v){return ss+v.attendu;},0);},0);
-      const taux=attendu>0?Math.round(percu/attendu*100):0;
-
-      const rows=propTenants.map(function(t){
-        const monthly=tenantMonthly.get(t.id);
-        const total=monthly.reduce(function(s,v){return s+v.recu;},0);
-        const loyerTotalTTC=(parseFloat(t.loyer_ref||0)+parseFloat(t.charges||0))*(t.type_bail==='commercial'?1.2:1);
-        if(!total&&!loyerTotalTTC) return '';
-        const badge=t.type_bail==='commercial'
-          ?'<span class="badge bblue" style="font-size:10px">Com.</span>'
-          :'<span class="badge bgreen" style="font-size:10px">Hab.</span>';
-        const logStr=t.logement||'';
-        const sep=logStr.includes(' — ')?' — ':' - ';
-        const zone=logStr.includes(sep)?logStr.split(sep).slice(1).join(sep):'';
-        return '<tr>'
-          +'<td style="font-size:12px;color:var(--text2)">'+zone+'</td>'
-          +'<td style="font-size:12px;font-weight:500">'+t.nom+'</td>'
-          +'<td>'+badge+'</td>'
-          +'<td style="font-size:12px;text-align:right">'+fmt(loyerTotalTTC)+'</td>'
-          +monthly.map(function(v){
-            if(v.attendu<=0.01)return '<td style="font-size:11px;text-align:right;padding:4px 3px;color:var(--text3)">—</td>';
-            const complet=v.recu>=v.attendu-0.01;
-            const rien=v.recu<=0.01;
-            const cellColor=rien?'var(--red)':complet?'var(--green)':'var(--amber)';
-            return '<td style="font-size:11px;text-align:right;padding:4px 3px;color:'+cellColor+';font-weight:'+(rien||!complet?600:400)+'">'+v.recu.toFixed(0)+'</td>';
-          }).join('')
-          +'<td style="font-weight:600;color:var(--green)">'+fmt(total)+'</td>'
-          +'</tr>';
-      }).join('');
-
-      const totalRow='<tr style="border-top:2px solid var(--border);font-weight:600;background:var(--bg2)">'
-        +'<td colspan="3">Total</td>'
-        +'<td style="text-align:right;font-size:12px">'+fmt(attendu/12)+'/mois</td>'
-        +MONTHS.map(function(m,mi){
-          const v=propTenants.reduce(function(s,t){return s+tenantMonthly.get(t.id)[mi].recu;},0);
-          return '<td style="font-size:11px;text-align:right;padding:4px 3px">'+(v>0?v.toFixed(0):'—')+'</td>';
-        }).join('')
-        +'<td style="color:var(--green)">'+fmt(percu)+'</td>'
-        +'</tr>';
-
-      const icon=isDubailProfile()?'&#127970;':'&#127968;';
-      return '<div class="card" style="margin-bottom:16px">'
-        +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;padding-bottom:8px;border-bottom:2px solid '+color+';flex-wrap:wrap;gap:8px">'
-          +'<div style="font-size:13px;font-weight:600;color:'+color+'">'
-            +icon+' '+prop.name+' — '+propTenants.length+' locataire'+(propTenants.length>1?'s':'')
-          +'</div>'
-          +'<div style="display:flex;gap:16px;font-size:12px;flex-wrap:wrap">'
-            +'<span>Perçu : <strong style="color:var(--green)">'+fmt(percu)+'</strong></span>'
-            +'<span>Attendu : <strong>'+fmt(attendu)+'</strong></span>'
-            +'<span>Taux : <strong style="color:'+(taux>=90?'var(--green)':taux>=70?'var(--amber)':'var(--red)')+'">'+taux+'%</strong></span>'
-          +'</div>'
-        +'</div>'
-        +'<div style="overflow-x:auto"><table>'
-          +'<thead><tr>'
-            +'<th style="font-size:11px">Zone</th>'
-            +'<th style="font-size:11px">Locataire</th>'
-            +'<th style="font-size:11px">Type</th>'
-            +'<th style="font-size:11px;text-align:right">Réf.</th>'
-            +MONTHS.map(function(m){return '<th style="font-size:10px;padding:4px 3px">'+m.slice(0,3)+'</th>';}).join('')
-            +'<th style="font-size:11px">Total</th>'
-          +'</tr></thead>'
-          +'<tbody>'+rows+totalRow+'</tbody>'
-        +'</table></div>'
-        +'</div>';
-    }).join('');
-
-    const grandTotal=allTenants.reduce(function(s,t){return s+MONTHS.reduce(function(ss,m){return ss+tenantMonthAmounts(t,m,allPmts).recu;},0);},0);
+    // Inclut les locataires actifs, PLUS les locataires partis en cours
+    // d'annee (ex: changement de locataire en cours d'annee) : sinon leurs
+    // loyers percus avant leur depart disparaissent du total (montant total
+    // des loyers faux).
+    const allTenants=S.tenants.filter(function(t){
+      if(!(!scopeTenantIds||scopeTenantIds.includes(t.id))) return false;
+      if(t.actif!==false) return true;
+      const sortieYear=t.date_sortie?parseInt(t.date_sortie.split('-')[0]):null;
+      const entreeYear=t.date_entree?parseInt(t.date_entree.split('-')[0]):null;
+      return sortieYear!=null&&sortieYear>=year&&(entreeYear==null||entreeYear<=year);
+    });
+    const{propBlocks,grandTotal}=renderRevenusLocatifsBlocks(year,allTenants);
     return tabBar+yearBar
       +(propBlocks||'<div style="padding:20px;text-align:center;color:var(--text2)">Aucun locataire actif</div>')
       +'<div class="card" style="background:var(--bg2)">'
