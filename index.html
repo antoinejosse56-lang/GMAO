@@ -4454,8 +4454,8 @@ function renderFinances(){
       if(!selLocDep)return true;
       const tr=w.topo_ref;
       if(!tr)return false;
-      if(selLocDep.startsWith('prop_')){const p=S.topology.properties.find(x=>'prop_'+x.id===selLocDep);return p&&tr.propName===p.name;}
-      if(selLocDep.startsWith('zone_')){const zId=selLocDep.replace('zone_','');let found=false;S.topology.properties.forEach(p=>(p.zones||[]).forEach(z=>{if(z.id===zId&&tr.zoneName===z.name)found=true;}));return found;}
+      if(selLocDep.startsWith('prop_')){const p=getFilteredProperties().find(x=>'prop_'+x.id===selLocDep);return p&&tr.propName===p.name;}
+      if(selLocDep.startsWith('zone_')){const zId=selLocDep.replace('zone_','');let found=false;getFilteredProperties().forEach(p=>(p.zones||[]).forEach(z=>{if(z.id===zId&&tr.zoneName===z.name)found=true;}));return found;}
       return true;
     }).sort((a,b)=>new Date(b.date)-new Date(a.date));
     const finSub=S.finSub||'liste';
@@ -4467,7 +4467,7 @@ function renderFinances(){
       <label style="font-size:12px;color:var(--text2)">Lieu :</label>
       <select id="fin-loc-sel" style="padding:5px 10px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">
         <option value="">Tous les biens</option>
-        ${(()=>{const opts=[];S.topology.properties.forEach(p=>{opts.push(`<option value="prop_${p.id}" ${selLocDep==='prop_'+p.id?'selected':''}>🏠 ${p.name}</option>`);(p.zones||[]).forEach(z=>{opts.push(`<option value="zone_${z.id}" ${selLocDep==='zone_'+z.id?'selected':''}>&nbsp;&nbsp;📁 ${p.name} › ${z.name}</option>`);});});return opts.join('');})()}
+        ${(()=>{const opts=[];getFilteredProperties().forEach(p=>{opts.push(`<option value="prop_${p.id}" ${selLocDep==='prop_'+p.id?'selected':''}>🏠 ${p.name}</option>`);(p.zones||[]).forEach(z=>{opts.push(`<option value="zone_${z.id}" ${selLocDep==='zone_'+z.id?'selected':''}>&nbsp;&nbsp;📁 ${p.name} › ${z.name}</option>`);});});return opts.join('');})()}
       </select>
     </div>`;
     const subBar=`<div class="tab-bar" style="margin-bottom:12px">
@@ -4543,10 +4543,16 @@ function renderFinances(){
   }
 
   if(fTab==='factures'){
-    const subCpte=S.finFactCpte||'savadur';
+    // Onglet atteint via finances_savadur/finances_perso (compte impose par
+    // le menu, donc par les visible_tabs d'un utilisateur restreint) : pas de
+    // bascule a proposer, un compte precis est deja impose - le bouton
+    // "Perso" restait cliquable pour un profil dubail-only sinon, alors que
+    // son menu ne devrait meme pas donner acces aux donnees Perso.
+    const scopeLocked=isDubailProfile()||isPersoScopeView();
+    const subCpte=isDubailProfile()?'savadur':isPersoScopeView()?'perso':(S.finFactCpte||'savadur');
     const cpteLabels={'savadur':'Savadur (Dubail)','perso':'Perso'};
     const color={'savadur':'#185FA5','perso':'#1D9E75'}[subCpte];
-    const subBar='<div style="display:flex;gap:6px;margin-bottom:14px">'+['savadur','perso'].map(c=>'<button class="btn btn-sm '+(subCpte===c?'btn-p':'')+'" data-fin-cpte="'+c+'">'+cpteLabels[c]+'</button>').join('')+'</div>';
+    const subBar=scopeLocked?'':'<div style="display:flex;gap:6px;margin-bottom:14px">'+['savadur','perso'].map(c=>'<button class="btn btn-sm '+(subCpte===c?'btn-p':'')+'" data-fin-cpte="'+c+'">'+cpteLabels[c]+'</button>').join('')+'</div>';
     const facts=S.factures.filter(f=>f.compte===subCpte&&(year===0||!year||(f.date||'').startsWith(String(year))));
     // Use topology property names for grouping - match by prefix (case-insensitive)
     const tProps=S.topology.properties.map(p=>p.name);
