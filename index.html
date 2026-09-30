@@ -930,7 +930,7 @@ let S = {
   // data
   users: [], assets: [], tasks: [], tools: [], loans: [],
   workOrders: [], maintenanceTemplates: [], topology: {properties: []},
-  factures: [], facturesAValider: [], fournisseurs: [], chantiers: [], devis: [], devisAValider: [], bienDocuments: [], documentsAValider: [], releveImports: [], recurringExpenses: [], revenues: [], finTab: 'overview', reservations: [], resaYear: new Date().getFullYear(), taxeSejourTaux: 5, taxeSejourPlafond: 4.60, compteurs: [], releves: [], rangements: [], famille: [], consommables: [], crecheSaisies: [], ecoleSaisies: [], familleTab: 'membres', finFactCpte: 'savadur', familleEnfant: null, tfRegularisations: [], logementFiches: [], logementEdl: [], fieldMode: false, fieldSearch: ''
+  factures: [], facturesAValider: [], fournisseurs: [], chantiers: [], devis: [], devisAValider: [], bienDocuments: [], documentsAValider: [], releveImports: [], recurringExpenses: [], revenusGeres: [], revenues: [], finTab: 'overview', reservations: [], resaYear: new Date().getFullYear(), taxeSejourTaux: 5, taxeSejourPlafond: 4.60, compteurs: [], releves: [], rangements: [], famille: [], consommables: [], crecheSaisies: [], ecoleSaisies: [], familleTab: 'membres', finFactCpte: 'savadur', familleEnfant: null, tfRegularisations: [], logementFiches: [], logementEdl: [], fieldMode: false, fieldSearch: ''
 };
 
 async function loadAll() {
@@ -949,7 +949,7 @@ async function loadAll() {
     const test = await sb.from('users').select('count', {count:'exact',head:true});
     if (test.error) { showError(test.error.message || JSON.stringify(test.error)); return; }
 
-    const [u, a, tl, l, wo, mt, topo, rev, cpt, rel, ten, rp, rng, fam, crecheRes, ecoleRes, conso, facturesRes, resaRes, favRes, fournRes, chantiersRes, devisRes, devisAvRes, bienDocsRes, documentsAvRes, tfRegulRes, logFichesRes, logEdlRes, vehiculeRelevesRes, releveImportsRes, recurringExpensesRes] = await Promise.all([
+    const [u, a, tl, l, wo, mt, topo, rev, cpt, rel, ten, rp, rng, fam, crecheRes, ecoleRes, conso, facturesRes, resaRes, favRes, fournRes, chantiersRes, devisRes, devisAvRes, bienDocsRes, documentsAvRes, tfRegulRes, logFichesRes, logEdlRes, vehiculeRelevesRes, releveImportsRes, recurringExpensesRes, revenusGeresRes] = await Promise.all([
       sb.from('users').select('*'),
       sb.from('assets').select('*'),
       sb.from('tools').select('*'),
@@ -981,7 +981,8 @@ async function loadAll() {
       sb.from('logement_edl').select('*').order('created_at',{ascending:false}),
       sb.from('vehicule_releves').select('*').order('date',{ascending:false}),
       sb.from('releve_imports').select('*').order('created_at',{ascending:false}).limit(12),
-      sb.from('recurring_expenses').select('*').order('created_at',{ascending:false})
+      sb.from('recurring_expenses').select('*').order('created_at',{ascending:false}),
+      sb.from('revenus_geres').select('*').order('date',{ascending:false})
     ]);
 
     // Only block on critical tables
@@ -1039,6 +1040,8 @@ async function loadAll() {
     S.releveImports = releveImportsRes?.error ? [] : (releveImportsRes?.data || []);
     if (recurringExpensesRes?.error) console.warn('Table recurring_expenses non disponible:', recurringExpensesRes.error.message);
     S.recurringExpenses = recurringExpensesRes?.error ? [] : (recurringExpensesRes?.data || []);
+    if (revenusGeresRes?.error) console.warn('Table revenus_geres non disponible:', revenusGeresRes.error.message);
+    S.revenusGeres = revenusGeresRes?.error ? [] : (revenusGeresRes?.data || []);
     const loadedTopo = topo.data?.[0]?.data;
     S.topoId = topo.data?.[0]?.id;
     if(loadedTopo?.properties?.length){
@@ -4248,6 +4251,39 @@ function renderCompteurs(){
   return tabBar;
 }
 
+// Parse un export CSV de compte-rendu de gestion d'agence (Foncia...) au
+// format DATE;LABEL;DEBIT;CREDIT : le montant net recu par le proprietaire
+// un jour donne = somme des montants en colonne DEBIT ce jour-la (la colonne
+// CREDIT en face n'est que la contrepartie comptable interne de l'agence,
+// ne pas la compter en plus - voir import_revenus_geres.py pour le detail
+// et les cas reels observes sur l'historique Rue Jean Martin/Foncia).
+function parseCrgCsvText(text){
+  const MONTHS_FR=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+  const byDate={};
+  text.split(/\r?\n/).forEach(function(line){
+    if(!line.trim())return;
+    const parts=line.split(';');
+    if(parts.length<3)return;
+    const dateStr=(parts[0]||'').trim();
+    const label=(parts[1]||'').trim();
+    const debitRaw=(parts[2]||'').trim();
+    if(dateStr.toUpperCase()==='DATE')return; // en-tete
+    const m=dateStr.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if(!m||!debitRaw)return;
+    const debit=parseFloat(debitRaw.replace(/\s/g,'').replace(',','.'));
+    if(!debit)return;
+    const iso=m[3]+'-'+m[2]+'-'+m[1];
+    if(!byDate[iso])byDate[iso]={montant:0,labels:[]};
+    byDate[iso].montant+=debit;
+    if(!byDate[iso].labels.includes(label))byDate[iso].labels.push(label);
+  });
+  return Object.keys(byDate).sort().map(function(iso){
+    const info=byDate[iso];
+    const mois=MONTHS_FR[parseInt(iso.split('-')[1],10)-1];
+    return{date:iso,mois,annee:parseInt(iso.split('-')[0],10),montant:Math.round(info.montant*100)/100,libelle:info.labels.join(' + ')};
+  });
+}
+
 // Tableau "Revenus locatifs" (biens -> locataires -> mois), partage entre
 // Couts & Revenus (fTab='revenus') et Gestion locative (tab='synthese') afin
 // d'afficher exactement la meme grille (Ref. TTC + couleur rouge/orange/vert
@@ -4732,6 +4768,49 @@ function renderFinances(){
         return '<div style="margin-top:20px">'
           +'<div style="font-size:15px;font-weight:700;margin-bottom:12px;color:#9B59B6">&#127968; Location courte durée — Rue CALVIN</div>'
           +studioBlock+t2Block
+        +'</div>';
+      }())
+      +(function(){
+        // Biens geres integralement par une agence tierce (Foncia...) : pas
+        // de bail/EDL/quittance GMAO (l'agence gere la relation locataire de
+        // bout en bout), juste le virement net recu chaque mois - voir
+        // add_revenus_geres.sql. Masque sur la vue SAVADUR, comme le meublé
+        // ci-dessus : ce sont des biens perso.
+        if(isDubail)return '';
+        const biens=[...new Set((S.revenusGeres||[]).map(function(r){return r.bien;}))].sort();
+        function agenceTable(bien){
+          const items=(S.revenusGeres||[]).filter(function(r){return r.bien===bien&&r.annee===year;});
+          const gestionnaire=(S.revenusGeres||[]).find(function(r){return r.bien===bien;})?.gestionnaire||'';
+          const byMonth={};
+          items.forEach(function(r){byMonth[r.mois]=(byMonth[r.mois]||0)+parseFloat(r.montant||0);});
+          const total=items.reduce(function(s,r){return s+parseFloat(r.montant||0);},0);
+          const rows=MONTHS.map(function(m){
+            const v=byMonth[m];
+            if(v==null)return '';
+            return '<tr><td style="font-size:12px">'+m+'</td><td style="text-align:right;font-weight:500;color:var(--green)">'+fmt(v)+'</td></tr>';
+          }).join('');
+          const bienAttr=bien.replace(/"/g,'&quot;');
+          return '<div class="card" style="margin-bottom:16px">'
+            +'<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;padding-bottom:8px;margin-bottom:10px;border-bottom:2px solid #16A085">'
+              +'<div style="font-size:14px;font-weight:700;color:#16A085">&#127970; '+bien+(gestionnaire?' — géré par '+gestionnaire:'')+'</div>'
+              +'<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+                +'<span style="font-size:12px;color:var(--text2)">'+fmt(total)+' net perçu '+year+'</span>'
+                +(canEdit()?'<button class="btn btn-sm" data-add-revenu-gere="'+bienAttr+'">+ Virement</button> <button class="btn btn-sm" data-import-revenus-geres="'+bienAttr+'">📋 Importer CSV</button>':'')
+              +'</div>'
+            +'</div>'
+            +(rows?'<div style="overflow-x:auto"><table style="min-width:260px">'
+              +'<thead><tr><th style="font-size:10px">Mois</th><th style="font-size:10px;text-align:right">Net perçu</th></tr></thead>'
+              +'<tbody>'+rows+'</tbody>'
+              +'<tfoot><tr style="border-top:2px solid var(--border);font-weight:600;background:var(--bg2)"><td>Total '+year+'</td><td style="text-align:right;color:var(--green)">'+fmt(total)+'</td></tr></tfoot>'
+            +'</table></div>':'<div style="font-size:12px;color:var(--text2);padding:8px 0">Aucun virement enregistré en '+year+'.</div>')
+          +'</div>';
+        }
+        return '<div style="margin-top:20px">'
+          +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">'
+            +'<div style="font-size:15px;font-weight:700;color:#16A085">&#127970; Biens gérés par une agence</div>'
+            +(canEdit()?'<button class="btn btn-sm btn-p" data-add-revenu-gere="">+ Nouveau bien</button>':'')
+          +'</div>'
+          +(biens.length?biens.map(agenceTable).join(''):'<div style="font-size:12px;color:var(--text2);padding:8px 0">Aucun bien géré par une agence enregistré.</div>')
         +'</div>';
       }());
 
@@ -6685,6 +6764,30 @@ function renderModal(){
       <div class="form-group"><label>Montant réglé (€) *</label><input id="m-wrmontant" type="number" step="0.01" value="${m.montant||''}"></div>
     </div>
     <div class="form-group"><label>Notes</label><input id="m-wrnotes" value="Facture d'eau rétroactive — système Compteurs pas encore en place à l'époque"></div>
+    ${mf}`;
+  }
+
+  if(m.type==='add-revenu-gere'){
+    html=`${mhd('Virement reçu — bien géré par une agence')}
+    <div style="font-size:11px;color:var(--text2);margin-bottom:10px">Pour un bien dont le bail/l'état des lieux/la relation locataire sont entièrement gérés par un tiers (agence) — seul le montant net effectivement reçu est suivi ici.</div>
+    <div class="form-group"><label>Bien *</label><input id="m-rgbien" value="${(m.bien||'').replace(/"/g,'&quot;')}" placeholder="Ex: Rue Jean Martin"></div>
+    <div class="g2c">
+      <div class="form-group"><label>Date du virement *</label><input id="m-rgdate" type="date"></div>
+      <div class="form-group"><label>Montant net reçu (€) *</label><input id="m-rgmontant" type="number" step="0.01"></div>
+    </div>
+    <div class="form-group"><label>Gestionnaire</label><input id="m-rggestionnaire" value="Foncia"></div>
+    <div class="form-group"><label>Libellé / notes</label><input id="m-rglibelle" placeholder="Ex: PAIEMENT CRG JOSSE"></div>
+    ${mf}`;
+  }
+
+  if(m.type==='import-revenus-geres'){
+    html=`${mhd('Importer un compte-rendu de gestion (CSV)')}
+    <div style="font-size:11px;color:var(--text2);margin-bottom:10px">Collez le contenu du fichier CSV exporté depuis le portail propriétaire de l'agence (colonnes DATE;LABEL;DEBIT;CREDIT). Le montant net reçu chaque mois est déduit automatiquement (somme des montants en colonne DEBIT pour chaque date) — les lignes déjà importées ne sont jamais dupliquées.</div>
+    <div class="g2c">
+      <div class="form-group"><label>Bien *</label><input id="m-rgibien" value="${(m.bien||'').replace(/"/g,'&quot;')}" placeholder="Ex: Rue Jean Martin"></div>
+      <div class="form-group"><label>Gestionnaire</label><input id="m-rgigestionnaire" value="Foncia"></div>
+    </div>
+    <div class="form-group"><label>Contenu du CSV *</label><textarea id="m-rgicsv" rows="8" placeholder="DATE;LABEL;DEBIT;CREDIT&#10;23/09/2026;PAIEMENT CRG JOSSE;568,79;" style="font-family:monospace;font-size:11px"></textarea></div>
     ${mf}`;
   }
 
@@ -8981,6 +9084,36 @@ async function saveModal(){
       if(error){alert('Erreur : '+error.message);return;}
       Object.assign(m.recurring,rec);
     }
+  }
+
+  if(m.type==='add-revenu-gere'){
+    const bien=q('m-rgbien')?.value.trim();if(!bien)return alert('Bien requis');
+    const date=q('m-rgdate')?.value;if(!date)return alert('Date requise');
+    const montant=parseFloat(q('m-rgmontant')?.value);if(!montant)return alert('Montant requis');
+    const MONTHS_FR=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+    const rec={bien,gestionnaire:q('m-rggestionnaire')?.value.trim()||null,date,
+      mois:MONTHS_FR[parseInt(date.split('-')[1],10)-1],annee:parseInt(date.split('-')[0],10),
+      montant,libelle:q('m-rglibelle')?.value.trim()||null};
+    const{data,error}=await sb.from('revenus_geres').insert(rec).select().single();
+    if(error){
+      alert(error.code==='23505'?'Un virement identique (même bien, même date, même montant) est déjà enregistré.':'Erreur : '+error.message);
+      return;
+    }
+    if(data)S.revenusGeres=[data,...(S.revenusGeres||[])];
+  }
+
+  if(m.type==='import-revenus-geres'){
+    const bien=q('m-rgibien')?.value.trim();if(!bien)return alert('Bien requis');
+    const gestionnaire=q('m-rgigestionnaire')?.value.trim()||null;
+    const csvText=q('m-rgicsv')?.value||'';
+    const parsed=parseCrgCsvText(csvText);
+    if(!parsed.length)return alert("Aucune ligne exploitable trouvée dans ce CSV (colonnes attendues : DATE;LABEL;DEBIT;CREDIT).");
+    const rows=parsed.map(function(p){return{bien,gestionnaire,date:p.date,mois:p.mois,annee:p.annee,montant:p.montant,libelle:p.libelle};});
+    const{error}=await sb.from('revenus_geres').upsert(rows,{onConflict:'bien,date,montant'});
+    if(error){alert('Erreur : '+error.message);return;}
+    const{data}=await sb.from('revenus_geres').select('*').order('date',{ascending:false});
+    S.revenusGeres=data||[];
+    alert(rows.length+' virement(s) importé(s)/mis à jour pour "'+bien+'".');
   }
 
   if(m.type==='caution-refund-link'){
@@ -12060,6 +12193,8 @@ function bindAll(){
     render();
   });
   if(q('btn-add-recurring'))q('btn-add-recurring').onclick=()=>{S.modal={type:'add-recurring-expense'};render();};
+  document.querySelectorAll('[data-add-revenu-gere]').forEach(el=>el.onclick=()=>{S.modal={type:'add-revenu-gere',bien:el.dataset.addRevenuGere||''};render();});
+  document.querySelectorAll('[data-import-revenus-geres]').forEach(el=>el.onclick=()=>{S.modal={type:'import-revenus-geres',bien:el.dataset.importRevenusGeres||''};render();});
   document.querySelectorAll('[data-edit-recurring]').forEach(el=>el.onclick=()=>{
     const re=(S.recurringExpenses||[]).find(x=>x.id===el.dataset.editRecurring);
     if(re){S.modal={type:'edit-recurring-expense',recurring:re};render();}
