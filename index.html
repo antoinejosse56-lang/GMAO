@@ -4284,6 +4284,25 @@ function parseCrgCsvText(text){
   });
 }
 
+// Montant attendu/recu d'un locataire sur une annee donnee, via calcDetteLigne
+// (TVA/prorata/remise deja pris en compte) plutot que le seul booleen `paye`
+// de rent_payments (case cochee a la main, pas toujours a jour pour un
+// paiement partiel/tardif - meme raison que dans renderRevenusLocatifsBlocks).
+// calcDetteLigne ne couvre que janvier 2026 -> mois courant : en dehors de
+// cette fenetre (annees anterieures), repli sur l'ancien calcul base sur `paye`.
+function tenantAnnualAmounts(t,year){
+  try{
+    const{lignes}=calcDetteLigne(t,null,null,true);
+    const yearLignes=lignes.filter(l=>l.annee===year);
+    if(yearLignes.length){
+      return{attendu:yearLignes.reduce((s,l)=>s+l.attendu,0),recu:yearLignes.reduce((s,l)=>s+l.recu,0)};
+    }
+  }catch(e){}
+  const pmts=S.rentPayments.filter(p=>p.tenant_id===t.id&&p.annee===year);
+  const loyerTTC=(parseFloat(t.loyer_ref||0)+parseFloat(t.charges||0))*(t.type_bail==='commercial'?1.2:1);
+  return{attendu:loyerTTC*12,recu:pmts.filter(p=>p.paye).reduce((s,p)=>s+(p.loyer||0),0)};
+}
+
 // Tableau "Revenus locatifs" (biens -> locataires -> mois), partage entre
 // Couts & Revenus (fTab='revenus') et Gestion locative (tab='synthese') afin
 // d'afficher exactement la meme grille (Ref. TTC + couleur rouge/orange/vert
@@ -4405,34 +4424,63 @@ function renderFinances(){
   const fmt = n => new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR',maximumFractionDigits:0}).format(n||0);
   const year = S.finYear||2026;
 
-  // === COSTS: from work_orders only ===
   const isDubail=isDubailProfile();
   const isPerso=isPersoScopeView();
-  function getAllCosts(){
-    return getFilteredWOs().filter(w=>{
-      if(!(w.cost>0&&w.date&&w.date.startsWith(String(year))))return false;
-      // getFilteredWOs already handles dubail asset filtering
-      return true;
-    });
+  const subCpte=isDubail?'savadur':isPerso?'perso':(S.finFactCpte||'savadur');
+  const cpteLabels={'savadur':'Savadur (Dubail)','perso':'Perso'};
+
+  // Localisation d'une facture (bien/zone, ou vehicule si la facture n'a pas
+  // de `bien` mais un `asset_id` direct) - partage entre Vue d'ensemble,
+  // Dépenses et Factures, pour toujours afficher le même regroupement.
+  const tProps=S.topology.properties.map(p=>p.name);
+  function matchProp(bien){
+    if(!bien)return 'Non classé';
+    if(tProps.find(p=>p.toLowerCase()===bien.toLowerCase()))return tProps.find(p=>p.toLowerCase()===bien.toLowerCase());
+    const matched=tProps.find(p=>bien.toLowerCase().startsWith(p.toLowerCase()));
+    if(matched)return matched;
+    const sep=bien.includes(' — ')?' — ':bien.includes(' - ')?' - ':null;
+    if(sep){const prefix=bien.split(sep)[0].trim();const m2=tProps.find(p=>p.toLowerCase()===prefix.toLowerCase());if(m2)return m2;}
+    return bien.split(' - ')[0].split(' — ')[0].trim()||'Non classé';
   }
+  function extractZone(bien,prop){
+    if(!bien||!prop)return '';
+    const lc=bien.toLowerCase();const lp=prop.toLowerCase();
+    if(lc===lp)return '';
+    let rest=bien;
+    if(lc.startsWith(lp))rest=bien.slice(prop.length).trim();
+    if(rest.startsWith(' — '))rest=rest.slice(3).trim();
+    else if(rest.startsWith(' - '))rest=rest.slice(3).trim();
+    else if(rest.startsWith('-'))rest=rest.slice(1).trim();
+    return rest;
+  }
+  function factureLieu(f){
+    if(f.bien)return matchProp(f.bien);
+    if(f.asset_id){const a=S.assets.find(x=>x.id===f.asset_id);if(a)return a.name;}
+    return 'Non classé';
+  }
+
+  // === DÉPENSES : depuis les factures, seule vraie source de coûts utilisée
+  // au quotidien (le champ "coût" d'un bon de travaux n'est presque jamais
+  // rempli - 9 BT sur toute l'appli contre 300+ factures) ===
+  const finFacts=S.factures.filter(f=>f.compte===subCpte&&(year===0||!year||(f.date||'').startsWith(String(year))));
+  const totalCosts=finFacts.reduce((s,f)=>s+parseFloat(f.montant_ttc||0),0);
   function getCostsByType(){
     const res={};
-    getAllCosts().forEach(w=>{
-      const cat=w.category||'Autre';
-      res[cat]=(res[cat]||0)+parseFloat(w.cost||0);
-    });
+    finFacts.forEach(f=>{const cat=f.categorie||'Non catégorisé';res[cat]=(res[cat]||0)+parseFloat(f.montant_ttc||0);});
     return res;
   }
-  const totalCosts = getAllCosts().reduce((s,w)=>s+parseFloat(w.cost||0),0);
 
-  // === REVENUES: from rent_payments ===
+  // === REVENUS : depuis rent_payments, via tenantAnnualAmounts (calcDetteLigne)
+  // plutôt que le seul booléen `paye` - même principe que Revenus locatifs/Synthèse.
   const scopeTenantIds=isDubail?S.tenants.filter(t=>dubailFilter(t.logement||'')).map(t=>t.id)
                       :isPerso?S.tenants.filter(t=>!dubailFilter(t.logement||'')).map(t=>t.id)
                       :null;
-  const yearPayments = S.rentPayments.filter(p=>p.paye&&p.annee===year&&(!scopeTenantIds||scopeTenantIds.includes(p.tenant_id)));
-  const totalRevenues = yearPayments.reduce((s,p)=>s+(p.loyer||0),0);
+  const scopedTenantsOv=S.tenants.filter(t=>!scopeTenantIds||scopeTenantIds.includes(t.id));
+  const revYears=year===0?[2024,2025,2026,2027]:[year];
+  const tenantRecu=t=>revYears.reduce((s,y)=>s+tenantAnnualAmounts(t,y).recu,0);
+  const totalRevenues=scopedTenantsOv.reduce((s,t)=>s+tenantRecu(t),0);
 
-  const typeColors={'Urgence':'#E24B4A','Réparation':'#BA7517','Amélioration':'#185FA5','Entretien':'#1D9E75','Remplacement':'#534AB7','Autre':'#888'};
+  const typeColors={'Travaux/Artisan':'#185FA5','Matériaux':'#BA7517','Énergie':'#E24B4A','Téléphone/Internet':'#534AB7','Assurance':'#1D9E75','Abonnement':'#9B59B6','Achat':'#16A085','Autre':'#888','Non catégorisé':'#aaa'};
 
   const tabBar = `<div class="tab-bar" style="margin-bottom:14px">
     <div class="tab ${fTab==='overview'?'active':''}" data-fin-tab="overview">Vue d'ensemble</div>
@@ -4452,15 +4500,15 @@ function renderFinances(){
     return `${tabBar}${yearBar}
     <div class="g4" style="margin-bottom:16px">
       <div class="stat"><div class="stat-l">Revenus locatifs ${year}</div><div class="stat-v" style="color:var(--green)">${fmt(totalRevenues)}</div></div>
-      <div class="stat"><div class="stat-l">Dépenses (BT) ${year}</div><div class="stat-v" style="color:var(--red)">${fmt(totalCosts)}</div></div>
+      <div class="stat"><div class="stat-l">Dépenses ${year}</div><div class="stat-v" style="color:var(--red)">${fmt(totalCosts)}</div></div>
       <div class="stat"><div class="stat-l">Résultat net</div><div class="stat-v" style="color:${totalRevenues-totalCosts>=0?'var(--green)':'var(--red)'}">${fmt(totalRevenues-totalCosts)}</div></div>
-      <div class="stat"><div class="stat-l">Bons de travaux</div><div class="stat-v">${S.workOrders.filter(w=>w.date&&w.date.startsWith(String(year))).length}</div></div>
+      <div class="stat"><div class="stat-l">Bons de travaux</div><div class="stat-v">${getFilteredWOs().filter(w=>w.date&&(year===0||w.date.startsWith(String(year)))).length}</div></div>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
       <div class="card">
         <div class="sec">Revenus par locataire — ${year}</div>
-        ${S.tenants.filter(t=>t.actif!==false).map(t=>{
-          const rev=yearPayments.filter(p=>p.tenant_id===t.id).reduce((s,p)=>s+(p.loyer||0),0);
+        ${scopedTenantsOv.map(t=>{
+          const rev=tenantRecu(t);
           if(!rev) return '';
           return `<div class="row"><div class="fg"><div class="fgs" style="font-size:12px">${t.nom}</div><div class="fgsub">${t.logement||''}</div></div><span style="font-weight:500;color:var(--green)">${fmt(rev)}</span></div>`;
         }).join('')}
@@ -4491,80 +4539,54 @@ function renderFinances(){
   }
 
   if(fTab==='depenses'){
-    const selLocDep=S.finLoc||'';
-    const showPaidOnly=S.finPaidOnly!==false;
-    const allWos=getFilteredWOs().filter(w=>{
-      if(showPaidOnly&&!w.paid)return false;
-      if(!w.cost>0)return false;
-      if(year&&w.date&&!w.date.startsWith(String(year)))return false;
-      if(!selLocDep)return true;
-      const tr=w.topo_ref;
-      if(!tr)return false;
-      if(selLocDep.startsWith('prop_')){const p=getFilteredProperties().find(x=>'prop_'+x.id===selLocDep);return p&&tr.propName===p.name;}
-      if(selLocDep.startsWith('zone_')){const zId=selLocDep.replace('zone_','');let found=false;getFilteredProperties().forEach(p=>(p.zones||[]).forEach(z=>{if(z.id===zId&&tr.zoneName===z.name)found=true;}));return found;}
-      return true;
-    }).sort((a,b)=>new Date(b.date)-new Date(a.date));
+    // Depuis cette session, basé sur les factures (déjà toutes associées à
+    // un bien ou, pour un véhicule, un asset_id) et non plus sur le champ
+    // "coût" des bons de travaux, presque jamais renseigné en pratique.
     const finSub=S.finSub||'liste';
-    const locBarDep=`<div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;flex-wrap:wrap">
-      <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;background:var(--bg2);padding:5px 10px;border-radius:var(--radius)">
-        <input type="checkbox" id="fin-paid-only" ${showPaidOnly?'checked':''}>
-        💰 Réglées uniquement
-      </label>
-      <label style="font-size:12px;color:var(--text2)">Lieu :</label>
-      <select id="fin-loc-sel" style="padding:5px 10px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">
-        <option value="">Tous les biens</option>
-        ${(()=>{const opts=[];getFilteredProperties().forEach(p=>{opts.push(`<option value="prop_${p.id}" ${selLocDep==='prop_'+p.id?'selected':''}>🏠 ${p.name}</option>`);(p.zones||[]).forEach(z=>{opts.push(`<option value="zone_${z.id}" ${selLocDep==='zone_'+z.id?'selected':''}>&nbsp;&nbsp;📁 ${p.name} › ${z.name}</option>`);});});return opts.join('');})()}
-      </select>
-    </div>`;
     const subBar=`<div class="tab-bar" style="margin-bottom:12px">
       <div class="tab ${finSub==='liste'?'active':''}" data-fin-sub="liste">Liste détaillée</div>
-      <div class="tab ${finSub==='bien'?'active':''}" data-fin-sub="bien">Par bien</div>
+      <div class="tab ${finSub==='bien'?'active':''}" data-fin-sub="bien">Par bien / véhicule</div>
       <div class="tab ${finSub==='zone'?'active':''}" data-fin-sub="zone">Par zone</div>
-      <div class="tab ${finSub==='equipement'?'active':''}" data-fin-sub="equipement">Par équipement</div>
       <div class="tab ${finSub==='categorie'?'active':''}" data-fin-sub="categorie">Par catégorie</div>
     </div>`;
-    const totalDep=allWos.reduce((s,w)=>s+parseFloat(w.cost||0),0);
+    const sortedFacts=[...finFacts].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
 
     if(finSub==='liste'){
-      return `${tabBar}${yearBar}${locBarDep}${subBar}
+      return `${tabBar}${yearBar}${subBar}
       <div class="card"><div style="overflow-x:auto"><table>
-        <thead><tr><th>Bon de travaux</th><th>Bien / Zone</th><th>Équipement</th><th>Date</th><th>Cat.</th><th>Coût</th></tr></thead>
+        <thead><tr><th>Date</th><th>Fournisseur</th><th>Bien / véhicule</th><th>Description</th><th>Cat.</th><th>TTC</th></tr></thead>
         <tbody>
-        ${allWos.map(w=>{
-          const asset=S.assets.find(a=>a.id===w.asset_id);
-          const tr=w.topo_ref;
-          const bien=tr?.propName||'—';
-          const zone=tr?[tr.zoneName,tr.subName].filter(Boolean).join(' › '):'';
+        ${sortedFacts.map(f=>{
           return `<tr>
-            <td style="font-weight:500;font-size:13px">${w.title}</td>
-            <td style="font-size:11px;color:var(--text2)">${bien}${zone?'<br><span style="color:var(--text3)">'+zone+'</span>':''}</td>
-            <td style="font-size:11px;color:var(--text2)">${asset?.name||'—'}</td>
-            <td style="font-size:11px">${dateLabel(w.date)}</td>
-            <td><span class="badge ${w.category==='Urgence'?'bred':w.category==='Réparation'?'bamber':'bblue'}" style="font-size:10px">${w.category||'—'}</span></td>
-            <td style="font-weight:600;color:var(--red);white-space:nowrap">${fmt(w.cost)}</td>
+            <td style="font-size:11px;white-space:nowrap">${dateLabel(f.date)}</td>
+            <td style="font-size:12px">${f.fournisseur||''}</td>
+            <td style="font-size:11px;color:var(--text2)">${factureLieu(f)}</td>
+            <td style="font-size:11px;color:var(--text2)">${f.description||''}</td>
+            <td><span class="badge bgray" style="font-size:9px">${f.categorie||'—'}</span></td>
+            <td style="font-weight:600;color:var(--red);white-space:nowrap">${fmt(f.montant_ttc)}</td>
           </tr>`;
         }).join('')}
-        ${allWos.length===0?'<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text2)">Aucune dépense enregistrée.</td></tr>':''}
+        ${sortedFacts.length===0?'<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text2)">Aucune dépense enregistrée.</td></tr>':''}
         </tbody>
       </table></div>
-      <div style="display:flex;justify-content:flex-end;padding:10px 0;border-top:0.5px solid var(--border);font-weight:600">Total : <span style="color:var(--red);margin-left:8px">${fmt(totalDep)}</span></div></div>`;
+      <div style="display:flex;justify-content:flex-end;padding:10px 0;border-top:0.5px solid var(--border);font-weight:600">Total : <span style="color:var(--red);margin-left:8px">${fmt(totalCosts)}</span></div></div>`;
     }
 
     // Grouping function
     const groupBy=(fn,label)=>{
       const groups={};
-      allWos.forEach(w=>{const k=fn(w);if(!groups[k])groups[k]=[];groups[k].push(w);});
-      const sorted=Object.entries(groups).sort((a,b)=>b[1].reduce((s,w)=>s+parseFloat(w.cost||0),0)-a[1].reduce((s,w)=>s+parseFloat(w.cost||0),0));
-      return `${tabBar}${yearBar}${locBarDep}${subBar}
+      finFacts.forEach(f=>{const k=fn(f)||'Non défini';if(!groups[k])groups[k]=[];groups[k].push(f);});
+      const sorted=Object.entries(groups).sort((a,b)=>b[1].reduce((s,f)=>s+parseFloat(f.montant_ttc||0),0)-a[1].reduce((s,f)=>s+parseFloat(f.montant_ttc||0),0));
+      return `${tabBar}${yearBar}${subBar}
       <div class="card"><div style="overflow-x:auto"><table>
-        <thead><tr><th>${label}</th><th>Nb BT</th><th>Total dépenses</th><th>% du total</th></tr></thead>
+        <thead><tr><th>${label}</th><th>Nb factures</th><th>Total dépenses</th><th>% du total</th></tr></thead>
         <tbody>
-        ${sorted.map(([k,ws])=>{
-          const tot=ws.reduce((s,w)=>s+parseFloat(w.cost||0),0);
-          const pct=totalDep>0?Math.round(tot/totalDep*100):0;
+        ${sorted.map(([k,fs])=>{
+          const tot=fs.reduce((s,f)=>s+parseFloat(f.montant_ttc||0),0);
+          const pct=totalCosts>0?Math.round(tot/totalCosts*100):0;
           return `<tr>
-            <td style="font-weight:500">${k||'Non défini'}</td>
-            <td style="text-align:center">${ws.length}</td>
+            <td style="font-weight:500">${k}</td>
+            <td style="text-align:center">${fs.length}</td>
             <td style="font-weight:600;color:var(--red)">${fmt(tot)}</td>
             <td>
               <div style="display:flex;align-items:center;gap:6px">
@@ -4578,13 +4600,12 @@ function renderFinances(){
         }).join('')}
         </tbody>
       </table></div>
-      <div style="display:flex;justify-content:flex-end;padding:10px 0;font-weight:600">Total : <span style="color:var(--red);margin-left:8px">${fmt(totalDep)}</span></div>`;
+      <div style="display:flex;justify-content:flex-end;padding:10px 0;font-weight:600">Total : <span style="color:var(--red);margin-left:8px">${fmt(totalCosts)}</span></div>`;
     };
 
-    if(finSub==='bien') return groupBy(w=>{const tr=w.topo_ref;const a=S.assets.find(x=>x.id===w.asset_id);return tr?.propName||a?.name||'—';},'Bien immobilier');
-    if(finSub==='zone') return groupBy(w=>{const tr=w.topo_ref;return tr?([tr.propName,tr.zoneName,tr.subName].filter(Boolean).join(' › ')):S.assets.find(a=>a.id===w.asset_id)?.name||'—';},'Zone / Sous-zone');
-    if(finSub==='equipement') return groupBy(w=>S.assets.find(a=>a.id===w.asset_id)?.name||'—','Équipement');
-    if(finSub==='categorie') return groupBy(w=>w.category||'—','Catégorie');
+    if(finSub==='bien') return groupBy(f=>factureLieu(f),'Bien / véhicule');
+    if(finSub==='zone') return groupBy(f=>{const prop=factureLieu(f);const zone=extractZone(f.bien,prop);return zone?prop+' › '+zone:prop;},'Zone / Sous-zone');
+    if(finSub==='categorie') return groupBy(f=>f.categorie||'Non catégorisé','Catégorie');
     return '';
   }
 
@@ -4595,39 +4616,10 @@ function renderFinances(){
     // "Perso" restait cliquable pour un profil dubail-only sinon, alors que
     // son menu ne devrait meme pas donner acces aux donnees Perso.
     const scopeLocked=isDubailProfile()||isPersoScopeView();
-    const subCpte=isDubailProfile()?'savadur':isPersoScopeView()?'perso':(S.finFactCpte||'savadur');
-    const cpteLabels={'savadur':'Savadur (Dubail)','perso':'Perso'};
     const color={'savadur':'#185FA5','perso':'#1D9E75'}[subCpte];
     const subBar=scopeLocked?'':'<div style="display:flex;gap:6px;margin-bottom:14px">'+['savadur','perso'].map(c=>'<button class="btn btn-sm '+(subCpte===c?'btn-p':'')+'" data-fin-cpte="'+c+'">'+cpteLabels[c]+'</button>').join('')+'</div>';
-    const facts=S.factures.filter(f=>f.compte===subCpte&&(year===0||!year||(f.date||'').startsWith(String(year))));
-    // Use topology property names for grouping - match by prefix (case-insensitive)
-    const tProps=S.topology.properties.map(p=>p.name);
-    function matchProp(bien){
-      if(!bien)return 'Non class\u00e9';
-      // Try exact match first
-      if(tProps.find(p=>p.toLowerCase()===bien.toLowerCase()))return tProps.find(p=>p.toLowerCase()===bien.toLowerCase());
-      // Try prefix match (bien starts with prop name)
-      const matched=tProps.find(p=>bien.toLowerCase().startsWith(p.toLowerCase()));
-      if(matched)return matched;
-      // Extract before separator
-      const sep=bien.includes(' \u2014 ')?' \u2014 ':bien.includes(' - ')?' - ':null;
-      if(sep){const prefix=bien.split(sep)[0].trim();const m2=tProps.find(p=>p.toLowerCase()===prefix.toLowerCase());if(m2)return m2;}
-      return bien.split(' - ')[0].split(' \u2014 ')[0].trim()||'Non class\u00e9';
-    }
-    function extractZone(bien,prop){
-      if(!bien||!prop)return '';
-      const lc=bien.toLowerCase();const lp=prop.toLowerCase();
-      if(lc===lp)return '';
-      // Remove property prefix
-      let rest=bien;
-      if(lc.startsWith(lp))rest=bien.slice(prop.length).trim();
-      // Remove leading separator
-      if(rest.startsWith(' \u2014 '))rest=rest.slice(3).trim();
-      else if(rest.startsWith(' - '))rest=rest.slice(3).trim();
-      else if(rest.startsWith('-'))rest=rest.slice(1).trim();
-      return rest;
-    }
-    // Group by topology property then zone
+    const facts=finFacts;
+    // Group by topology property then zone (matchProp/extractZone/tProps hoist\u00e9s en haut de renderFinances)
     const propMap={};
     facts.forEach(function(f){
       const prop=matchProp(f.bien);
@@ -12264,9 +12256,7 @@ function bindAll(){
   const btnExpBilan=document.getElementById('btn-export-bilan-savadur');
   if(btnExpBilan)btnExpBilan.onclick=()=>exportBilanExcel();
 
-  document.querySelectorAll('[data-fin-tab]').forEach(el=>el.onclick=()=>{S.finTab=el.dataset.finTab;S.finSub='liste';S.finLoc='';render();});
-  const elPaidOnly=document.getElementById('fin-paid-only');
-  if(elPaidOnly)elPaidOnly.onchange=()=>{S.finPaidOnly=elPaidOnly.checked;render();};
+  document.querySelectorAll('[data-fin-tab]').forEach(el=>el.onclick=()=>{S.finTab=el.dataset.finTab;S.finSub='liste';render();});
   document.querySelectorAll('[data-print-releve]').forEach(el=>el.onclick=()=>{
     const r=S.releves.find(x=>x.id===el.dataset.printReleve);
     if(!r)return;
@@ -12340,8 +12330,6 @@ function bindAll(){
     S.rentPayments=S.rentPayments.filter(p=>p.id!==id);
     render();
   });
-  const finLocSel=document.getElementById('fin-loc-sel');
-  if(finLocSel)finLocSel.onchange=()=>{S.finLoc=finLocSel.value;render();};
   document.querySelectorAll('[data-fin-sub]').forEach(el=>el.onclick=()=>{S.finSub=el.dataset.finSub;render();});
   document.querySelectorAll('[data-fin-year]').forEach(el=>el.onclick=()=>{S.finYear=parseInt(el.dataset.finYear);render();});
   const btnRev=document.getElementById('btn-add-revenue');
