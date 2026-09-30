@@ -4478,7 +4478,30 @@ function renderFinances(){
   const scopedTenantsOv=S.tenants.filter(t=>!scopeTenantIds||scopeTenantIds.includes(t.id));
   const revYears=year===0?[2024,2025,2026,2027]:[year];
   const tenantRecu=t=>revYears.reduce((s,y)=>s+tenantAnnualAmounts(t,y).recu,0);
-  const totalRevenues=scopedTenantsOv.reduce((s,t)=>s+tenantRecu(t),0);
+
+  // Revenu locatif total d'un bien, toutes sources confondues : locataire(s)
+  // classique(s) GMAO (bail/quittances), location meublée courte durée (Rue
+  // CALVIN uniquement pour l'instant - même mapping Studio/T2 que meubleTable
+  // plus bas) et bien géré par une agence tierce (revenus_geres). Un bien
+  // sans aucune de ces 3 sources (ex: 17 rue fleuriot de langle, pas encore
+  // suivi) affiche honnêtement 0€ plutôt qu'une estimation.
+  function bienRevenue(prop){
+    let total=scopedTenantsOv.filter(t=>(t.logement||'').toLowerCase().startsWith(prop.name.toLowerCase())).reduce((s,t)=>s+tenantRecu(t),0);
+    if(!isDubail&&prop.name==='Rue CALVIN'){
+      const resas=(S.reservations||[]).filter(r=>r.statut!=='ferme'&&r.montant_total&&(r.room==='Studio'||r.room==='T2')&&revYears.some(y=>(r.date_arrivee||'').startsWith(String(y))));
+      resas.forEach(r=>{
+        const src=r.source||'lodgify';
+        const net=src==='airbnb'?(r.montant_total||0)-(r.frais_menage||0)
+          :src==='booking'?(r.montant_total||0)-(r.taxe_sejour||0)-(r.frais_resa||0)-(r.frais_menage||0)
+          :(r.montant_nuits||0);
+        total+=net+(r.menage_prestataire!==false?(r.frais_menage||0):0);
+      });
+    }
+    total+=(S.revenusGeres||[]).filter(r=>r.bien===prop.name&&revYears.includes(r.annee)).reduce((s,r)=>s+parseFloat(r.montant||0),0);
+    return total;
+  }
+  const revProps=getFilteredProperties();
+  const totalRevenues=revProps.reduce((s,p)=>s+bienRevenue(p),0);
 
   const typeColors={'Travaux/Artisan':'#185FA5','Matériaux':'#BA7517','Énergie':'#E24B4A','Téléphone/Internet':'#534AB7','Assurance':'#1D9E75','Abonnement':'#9B59B6','Achat':'#16A085','Autre':'#888','Non catégorisé':'#aaa'};
 
@@ -4506,14 +4529,14 @@ function renderFinances(){
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
       <div class="card">
-        <div class="sec">Revenus par locataire — ${year}</div>
-        ${scopedTenantsOv.map(t=>{
-          const rev=tenantRecu(t);
-          if(!rev) return '';
-          return `<div class="row"><div class="fg"><div class="fgs" style="font-size:12px">${t.nom}</div><div class="fgsub">${t.logement||''}</div></div><span style="font-weight:500;color:var(--green)">${fmt(rev)}</span></div>`;
+        <div class="sec">Revenus locatifs par bien — ${year}</div>
+        ${revProps.map(p=>{
+          const rev=bienRevenue(p);
+          return `<div class="row"><div class="fg"><div class="fgs" style="font-size:12px">${p.name}</div></div><span style="font-weight:500;color:${rev?'var(--green)':'var(--text3)'}">${fmt(rev)}</span></div>`;
         }).join('')}
+        ${revProps.length===0?'<div style="font-size:12px;color:var(--text2)">Aucun bien dans la Topologie.</div>':''}
         <div style="display:flex;justify-content:space-between;padding-top:10px;border-top:0.5px solid var(--border);font-weight:500;margin-top:4px">
-          <span>Total</span><span style="color:var(--green)">${fmt(totalRevenues)}</span>
+          <span>Total (${revProps.length} bien${revProps.length>1?'s':''})</span><span style="color:var(--green)">${fmt(totalRevenues)}</span>
         </div>
       </div>
       <div class="card">
