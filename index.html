@@ -4479,29 +4479,51 @@ function renderFinances(){
   const revYears=year===0?[2024,2025,2026,2027]:[year];
   const tenantRecu=t=>revYears.reduce((s,y)=>s+tenantAnnualAmounts(t,y).recu,0);
 
-  // Revenu locatif total d'un bien, toutes sources confondues : locataire(s)
-  // classique(s) GMAO (bail/quittances), location meublée courte durée (Rue
-  // CALVIN uniquement pour l'instant - même mapping Studio/T2 que meubleTable
-  // plus bas), bien géré par une agence tierce (revenus_geres) et estimation
-  // manuelle (table `revenues`, bouton "+ Revenu locatif" - pas de dimension
-  // annee sur cette table : le montant saisi est une estimation annuelle
-  // "courante", comptée telle quelle quelle que soit l'année sélectionnée,
-  // y compris "Tout" - jamais multipliée par le nombre d'années).
+  // Revenu net d'une unité meublée (Studio/T2, Rue CALVIN) - même calcul que
+  // meubleTable plus bas, factorisé pour être réutilisé bien/ligne par bien/ligne.
+  function meubleNetRevenue(room){
+    const resas=(S.reservations||[]).filter(r=>r.statut!=='ferme'&&r.montant_total&&r.room===room&&revYears.some(y=>(r.date_arrivee||'').startsWith(String(y))));
+    return resas.reduce((total,r)=>{
+      const src=r.source||'lodgify';
+      const net=src==='airbnb'?(r.montant_total||0)-(r.frais_menage||0)
+        :src==='booking'?(r.montant_total||0)-(r.taxe_sejour||0)-(r.frais_resa||0)-(r.frais_menage||0)
+        :(r.montant_nuits||0);
+      return total+net+(r.menage_prestataire!==false?(r.frais_menage||0):0);
+    },0);
+  }
+  // Revenu géré par une agence pour un bien (revenus_geres.bien est un texte
+  // libre saisi/importé séparément du nom de la Topologie - comparaison
+  // insensible à la casse pour ne pas rater un bien à cause d'un accent/casse
+  // différent, ex. "Rue Jean Martin" importé vs "RUE JEAN MARTIN" en Topologie).
+  function agenceRevenue(prop){
+    return (S.revenusGeres||[]).filter(r=>(r.bien||'').trim().toLowerCase()===prop.name.trim().toLowerCase()&&revYears.includes(r.annee)).reduce((s,r)=>s+parseFloat(r.montant||0),0);
+  }
+  // Estimation manuelle (table `revenues`, bouton "+ Revenu locatif" - pas de
+  // dimension annee : le montant saisi est une estimation annuelle "courante",
+  // comptée telle quelle quelle que soit l'année sélectionnée, y compris
+  // "Tout" - jamais multipliée par le nombre d'années).
+  function manualRevenue(prop){
+    return (S.revenues||[]).filter(r=>r.prop_id===prop.id).reduce((s,r)=>s+parseFloat(r.amount||0),0);
+  }
+  // Revenu locatif total d'un bien, toutes sources confondues.
   function bienRevenue(prop){
     let total=scopedTenantsOv.filter(t=>(t.logement||'').toLowerCase().startsWith(prop.name.toLowerCase())).reduce((s,t)=>s+tenantRecu(t),0);
-    if(!isDubail&&prop.name==='Rue CALVIN'){
-      const resas=(S.reservations||[]).filter(r=>r.statut!=='ferme'&&r.montant_total&&(r.room==='Studio'||r.room==='T2')&&revYears.some(y=>(r.date_arrivee||'').startsWith(String(y))));
-      resas.forEach(r=>{
-        const src=r.source||'lodgify';
-        const net=src==='airbnb'?(r.montant_total||0)-(r.frais_menage||0)
-          :src==='booking'?(r.montant_total||0)-(r.taxe_sejour||0)-(r.frais_resa||0)-(r.frais_menage||0)
-          :(r.montant_nuits||0);
-        total+=net+(r.menage_prestataire!==false?(r.frais_menage||0):0);
-      });
-    }
-    total+=(S.revenusGeres||[]).filter(r=>r.bien===prop.name&&revYears.includes(r.annee)).reduce((s,r)=>s+parseFloat(r.montant||0),0);
-    total+=(S.revenues||[]).filter(r=>r.prop_id===prop.id).reduce((s,r)=>s+parseFloat(r.amount||0),0);
+    if(!isDubail&&prop.name==='Rue CALVIN')total+=meubleNetRevenue('Studio')+meubleNetRevenue('T2');
+    total+=agenceRevenue(prop)+manualRevenue(prop);
     return total;
+  }
+  // Comme bienRevenue, mais éclate Rue CALVIN en lignes Studio/T2 distinctes
+  // (2 unités indépendantes) plutôt qu'un seul total mélangé - pour la carte
+  // "Revenus locatifs par bien" de Vue d'ensemble.
+  function bienRevenueLines(prop){
+    if(!isDubail&&prop.name==='Rue CALVIN'){
+      const lines=['Studio','T2'].map(room=>({label:prop.name+' — '+room,amount:meubleNetRevenue(room)}));
+      const reste=scopedTenantsOv.filter(t=>(t.logement||'').toLowerCase().startsWith(prop.name.toLowerCase())).reduce((s,t)=>s+tenantRecu(t),0)
+        +agenceRevenue(prop)+manualRevenue(prop);
+      if(reste>0.01)lines.push({label:prop.name+' — autre',amount:reste});
+      return lines;
+    }
+    return[{label:prop.name,amount:bienRevenue(prop)}];
   }
   const revProps=getFilteredProperties();
   const totalRevenues=revProps.reduce((s,p)=>s+bienRevenue(p),0);
@@ -4533,9 +4555,8 @@ function renderFinances(){
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
       <div class="card">
         <div class="sec">Revenus locatifs par bien — ${year}</div>
-        ${revProps.map(p=>{
-          const rev=bienRevenue(p);
-          return `<div class="row"><div class="fg"><div class="fgs" style="font-size:12px">${p.name}</div></div><span style="font-weight:500;color:${rev?'var(--green)':'var(--text3)'}">${fmt(rev)}</span></div>`;
+        ${revProps.flatMap(p=>bienRevenueLines(p)).map(l=>{
+          return `<div class="row"><div class="fg"><div class="fgs" style="font-size:12px">${l.label}</div></div><span style="font-weight:500;color:${l.amount?'var(--green)':'var(--text3)'}">${fmt(l.amount)}</span></div>`;
         }).join('')}
         ${revProps.length===0?'<div style="font-size:12px;color:var(--text2)">Aucun bien dans la Topologie.</div>':''}
         <div style="display:flex;justify-content:space-between;padding-top:10px;border-top:0.5px solid var(--border);font-weight:500;margin-top:4px">
