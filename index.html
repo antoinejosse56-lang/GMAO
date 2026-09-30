@@ -4777,6 +4777,7 @@ function renderFinances(){
         // add_revenus_geres.sql. Masque sur la vue SAVADUR, comme le meublé
         // ci-dessus : ce sont des biens perso.
         if(isDubail)return '';
+        const MONTHS=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
         const biens=[...new Set((S.revenusGeres||[]).map(function(r){return r.bien;}))].sort();
         function agenceTable(bien){
           const items=(S.revenusGeres||[]).filter(function(r){return r.bien===bien&&r.annee===year;});
