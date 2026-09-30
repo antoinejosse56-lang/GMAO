@@ -4482,9 +4482,11 @@ function renderFinances(){
   // Revenu locatif total d'un bien, toutes sources confondues : locataire(s)
   // classique(s) GMAO (bail/quittances), location meublée courte durée (Rue
   // CALVIN uniquement pour l'instant - même mapping Studio/T2 que meubleTable
-  // plus bas) et bien géré par une agence tierce (revenus_geres). Un bien
-  // sans aucune de ces 3 sources (ex: 17 rue fleuriot de langle, pas encore
-  // suivi) affiche honnêtement 0€ plutôt qu'une estimation.
+  // plus bas), bien géré par une agence tierce (revenus_geres) et estimation
+  // manuelle (table `revenues`, bouton "+ Revenu locatif" - pas de dimension
+  // annee sur cette table : le montant saisi est une estimation annuelle
+  // "courante", comptée telle quelle quelle que soit l'année sélectionnée,
+  // y compris "Tout" - jamais multipliée par le nombre d'années).
   function bienRevenue(prop){
     let total=scopedTenantsOv.filter(t=>(t.logement||'').toLowerCase().startsWith(prop.name.toLowerCase())).reduce((s,t)=>s+tenantRecu(t),0);
     if(!isDubail&&prop.name==='Rue CALVIN'){
@@ -4498,6 +4500,7 @@ function renderFinances(){
       });
     }
     total+=(S.revenusGeres||[]).filter(r=>r.bien===prop.name&&revYears.includes(r.annee)).reduce((s,r)=>s+parseFloat(r.montant||0),0);
+    total+=(S.revenues||[]).filter(r=>r.prop_id===prop.id).reduce((s,r)=>s+parseFloat(r.amount||0),0);
     return total;
   }
   const revProps=getFilteredProperties();
@@ -4827,6 +4830,42 @@ function renderFinances(){
             +(canEdit()?'<button class="btn btn-sm btn-p" data-add-revenu-gere="">+ Nouveau bien</button>':'')
           +'</div>'
           +(biens.length?biens.map(agenceTable).join(''):'<div style="font-size:12px;color:var(--text2);padding:8px 0">Aucun bien géré par une agence enregistré.</div>')
+        +'</div>';
+      }())
+      +(function(){
+        // Estimations manuelles (table `revenues`, bouton "+ Revenu locatif"
+        // en haut de la page Vue d'ensemble) : pour un bien sans locataire
+        // GMAO, sans location meublée et sans agence (ex: 17 rue Fleuriot de
+        // Langle), le seul moyen de faire apparaître un revenu dans les
+        // totaux. Pas de dimension annee sur cette table (voir bienRevenue).
+        const relevant=(S.revenues||[]).filter(r=>{
+          if(isDubail)return dubailFilter(r.prop_name||'');
+          if(isPerso)return !dubailFilter(r.prop_name||'');
+          return true;
+        });
+        if(!relevant.length&&!canEdit())return '';
+        const rows=relevant.map(function(r){
+          const p=S.topology.properties.find(x=>x.id===r.prop_id);
+          const zone=p?.zones?.find(z=>z.id===r.zone_id);
+          const sub=zone?.subZones?.find(s=>s.id===r.sub_id);
+          const lieu=[r.prop_name,zone?.name,sub?.name].filter(Boolean).join(' › ');
+          return '<div class="row" style="align-items:flex-start">'
+            +'<div class="fg">'
+              +'<div class="fgs" style="font-size:12px">'+lieu+' <span class="badge bgray" style="font-size:9px">'+(r.type||'')+'</span></div>'
+              +(r.notes?'<div class="fgsub">'+r.notes+'</div>':'')
+            +'</div>'
+            +'<div style="text-align:right">'
+              +'<div style="font-weight:600;color:var(--green)">'+fmt(r.amount||0)+'/an</div>'
+              +(r.charges?'<div style="font-size:11px;color:var(--text2)">dont '+fmt(r.charges)+' charges</div>':'')
+              +(canEdit()?'<button class="btn btn-sm btn-d" data-del-revenue="'+r.id+'" style="margin-top:4px">✕</button>':'')
+            +'</div>'
+          +'</div>';
+        }).join('');
+        return '<div style="margin-top:20px">'
+          +'<div style="font-size:15px;font-weight:700;color:var(--text2);margin-bottom:12px">📝 Revenus locatifs estimés manuellement <span style="font-size:11px;font-weight:400">(bouton "+ Revenu locatif" en haut de page)</span></div>'
+          +'<div class="card">'
+            +(rows||'<div style="font-size:12px;color:var(--text2);padding:4px 0">Aucune estimation manuelle — utile pour un bien sans locataire GMAO, sans location meublée et sans agence.</div>')
+          +'</div>'
         +'</div>';
       }());
 
@@ -8683,10 +8722,17 @@ async function saveModal(){
   }
 
   if(m.type==='add-revenue'){
+    const propId=q('m-rev-prop')?.value;if(!propId)return alert('Bien requis');
+    const amount=parseFloat(q('m-rev-amount')?.value);if(!amount)return alert('Revenus annuels requis');
+    const prop=S.topology.properties.find(p=>p.id===propId);
+    const zoneId=q('m-rev-zone')?.value||null;
+    const subId=q('m-rev-sub')?.value||null;
     const rec={
-      description:q('m-revdesc')?.value||'',montant:parseFloat(q('m-revmnt')?.value)||0,
-      date:q('m-revdate')?.value||null,categorie:q('m-revcat')?.value||'Loyer',
-      bien:q('m-revbien')?.value||''
+      prop_id:propId,prop_name:prop?.name||'',
+      zone_id:zoneId,sub_id:subId,
+      type:q('m-rev-type')?.value||'Longue durée',
+      amount,charges:parseFloat(q('m-rev-charges')?.value)||0,
+      notes:q('m-rev-notes')?.value.trim()||null
     };
     const {data,error}=await sb.from('revenues').insert(rec).select().single();
     if(error){alert('Erreur : '+error.message);return;}
@@ -9587,6 +9633,46 @@ function updateTenantZonesFull(existingZone,existingSub){
 // Alias pour compatibilité avec les appels existants
 function updateTenantZones(existingZoneName){
   updateTenantZonesFull(existingZoneName,'');
+}
+
+// Cascade prop -> zone -> sous-zone du modal "add-revenue" (mêmes ids que
+// prop_id/zone_id/sub_id de la table revenues, contrairement à updateTenant*
+// ci-dessus qui travaille par nom).
+function revUpdateZone(){
+  const sel=document.getElementById('m-rev-prop');
+  const wrap=document.getElementById('m-rev-zone-wrap');
+  const zsel=document.getElementById('m-rev-zone');
+  const swrap=document.getElementById('m-rev-sub-wrap');
+  const ssel=document.getElementById('m-rev-sub');
+  if(!sel||!wrap||!zsel)return;
+  if(swrap)swrap.style.display='none';
+  if(ssel)ssel.innerHTML='';
+  const p=S.topology.properties.find(x=>x.id===sel.value);
+  const zones=p?(p.zones||[]):[];
+  if(zones.length){
+    zsel.innerHTML='<option value="">— Bien entier —</option>'+zones.map(z=>'<option value="'+z.id+'">'+z.name+'</option>').join('');
+    wrap.style.display='';
+  }else{
+    wrap.style.display='none';
+    zsel.innerHTML='';
+  }
+}
+function revUpdateSub(){
+  const psel=document.getElementById('m-rev-prop');
+  const zsel=document.getElementById('m-rev-zone');
+  const swrap=document.getElementById('m-rev-sub-wrap');
+  const ssel=document.getElementById('m-rev-sub');
+  if(!psel||!zsel||!swrap||!ssel)return;
+  const p=S.topology.properties.find(x=>x.id===psel.value);
+  const z=p?.zones?.find(x=>x.id===zsel.value);
+  const subs=z?(z.subZones||[]):[];
+  if(subs.length){
+    ssel.innerHTML='<option value="">— Zone entière —</option>'+subs.map(s=>'<option value="'+s.id+'">'+s.name+'</option>').join('');
+    swrap.style.display='';
+  }else{
+    swrap.style.display='none';
+    ssel.innerHTML='';
+  }
 }
 
 
