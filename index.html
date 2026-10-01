@@ -247,6 +247,38 @@ function tfRegulStatus(tenant){
 // Categories de facture, utilisees pour le filtre de la liste et le formulaire
 // manuel - une seule liste partagee pour eviter les deux copies divergentes.
 const CATS_FACTURE=['Travaux/Artisan','Matériaux','Énergie','Téléphone/Internet','Assurance','Abonnement','Achat','Autre'];
+
+// Onglet Salaire (Famille, admin uniquement) : les fiches sont chiffrées
+// AES-256-GCM côté navigateur avant d'être stockées dans Supabase - même
+// avec la clé anon partagée de toute l'appli, le contenu reste illisible
+// sans la passphrase (jamais stockée ici ni en base, seulement sur le NAS
+// par Antoine). Le sel PBKDF2 ci-dessous N'EST PAS secret (il accompagne
+// toujours la passphrase) : il sert juste à dériver une clé AES à partir du
+// mot de passe, une seule fois par session plutôt qu'à chaque fiche.
+const SALAIRE_PBKDF2_SALT_B64='amAgAqvi/ZBhfhgN/4PeDw==';
+const SALAIRE_PBKDF2_ITERATIONS=210000;
+function b64ToBytes(b64){return Uint8Array.from(atob(b64),c=>c.charCodeAt(0));}
+function bytesToB64(bytes){let s='';bytes.forEach(b=>s+=String.fromCharCode(b));return btoa(s);}
+async function deriveSalaireKey(passphrase){
+  const enc=new TextEncoder();
+  const baseKey=await crypto.subtle.importKey('raw',enc.encode(passphrase),'PBKDF2',false,['deriveKey']);
+  return crypto.subtle.deriveKey(
+    {name:'PBKDF2',salt:b64ToBytes(SALAIRE_PBKDF2_SALT_B64),iterations:SALAIRE_PBKDF2_ITERATIONS,hash:'SHA-256'},
+    baseKey,{name:'AES-GCM',length:256},false,['encrypt','decrypt']
+  );
+}
+async function salaireEncrypt(key,obj){
+  const iv=crypto.getRandomValues(new Uint8Array(12));
+  const data=new TextEncoder().encode(JSON.stringify(obj));
+  const ct=await crypto.subtle.encrypt({name:'AES-GCM',iv},key,data);
+  return{iv:bytesToB64(iv),ciphertext:bytesToB64(new Uint8Array(ct))};
+}
+async function salaireDecrypt(key,row){
+  const iv=b64ToBytes(row.iv);
+  const ct=b64ToBytes(row.ciphertext);
+  const pt=await crypto.subtle.decrypt({name:'AES-GCM',iv},key,ct);
+  return JSON.parse(new TextDecoder().decode(pt));
+}
 // Types de document (bien_documents.type) - partagee entre le formulaire
 // "add-bien-document" et l'ecran de classification "Documents a valider"
 // (import_documents.py).
@@ -930,7 +962,7 @@ let S = {
   // data
   users: [], assets: [], tasks: [], tools: [], loans: [],
   workOrders: [], maintenanceTemplates: [], topology: {properties: []},
-  factures: [], facturesAValider: [], fournisseurs: [], chantiers: [], devis: [], devisAValider: [], bienDocuments: [], documentsAValider: [], releveImports: [], recurringExpenses: [], revenusGeres: [], revenues: [], finTab: 'overview', reservations: [], resaYear: new Date().getFullYear(), taxeSejourTaux: 5, taxeSejourPlafond: 4.60, compteurs: [], releves: [], rangements: [], famille: [], consommables: [], crecheSaisies: [], ecoleSaisies: [], familleTab: 'membres', finFactCpte: 'savadur', familleEnfant: null, tfRegularisations: [], logementFiches: [], logementEdl: [], fieldMode: false, fieldSearch: ''
+  factures: [], facturesAValider: [], fournisseurs: [], chantiers: [], devis: [], devisAValider: [], bienDocuments: [], documentsAValider: [], releveImports: [], recurringExpenses: [], revenusGeres: [], revenues: [], finTab: 'overview', reservations: [], resaYear: new Date().getFullYear(), taxeSejourTaux: 5, taxeSejourPlafond: 4.60, compteurs: [], releves: [], rangements: [], famille: [], consommables: [], crecheSaisies: [], ecoleSaisies: [], familleTab: 'membres', finFactCpte: 'savadur', familleEnfant: null, tfRegularisations: [], logementFiches: [], logementEdl: [], fieldMode: false, fieldSearch: '', salaireRaw: [], salaireFiches: [], salaireKey: null
 };
 
 async function loadAll() {
@@ -949,7 +981,7 @@ async function loadAll() {
     const test = await sb.from('users').select('count', {count:'exact',head:true});
     if (test.error) { showError(test.error.message || JSON.stringify(test.error)); return; }
 
-    const [u, a, tl, l, wo, mt, topo, rev, cpt, rel, ten, rp, rng, fam, crecheRes, ecoleRes, conso, facturesRes, resaRes, favRes, fournRes, chantiersRes, devisRes, devisAvRes, bienDocsRes, documentsAvRes, tfRegulRes, logFichesRes, logEdlRes, vehiculeRelevesRes, releveImportsRes, recurringExpensesRes, revenusGeresRes] = await Promise.all([
+    const [u, a, tl, l, wo, mt, topo, rev, cpt, rel, ten, rp, rng, fam, crecheRes, ecoleRes, conso, facturesRes, resaRes, favRes, fournRes, chantiersRes, devisRes, devisAvRes, bienDocsRes, documentsAvRes, tfRegulRes, logFichesRes, logEdlRes, vehiculeRelevesRes, releveImportsRes, recurringExpensesRes, revenusGeresRes, fichesPaieRes] = await Promise.all([
       sb.from('users').select('*'),
       sb.from('assets').select('*'),
       sb.from('tools').select('*'),
@@ -982,7 +1014,8 @@ async function loadAll() {
       sb.from('vehicule_releves').select('*').order('date',{ascending:false}),
       sb.from('releve_imports').select('*').order('created_at',{ascending:false}).limit(12),
       sb.from('recurring_expenses').select('*').order('created_at',{ascending:false}),
-      sb.from('revenus_geres').select('*').order('date',{ascending:false})
+      sb.from('revenus_geres').select('*').order('date',{ascending:false}),
+      sb.from('fiches_paie_chiffrees').select('*').order('periode',{ascending:false})
     ]);
 
     // Only block on critical tables
@@ -1042,6 +1075,8 @@ async function loadAll() {
     S.recurringExpenses = recurringExpensesRes?.error ? [] : (recurringExpensesRes?.data || []);
     if (revenusGeresRes?.error) console.warn('Table revenus_geres non disponible:', revenusGeresRes.error.message);
     S.revenusGeres = revenusGeresRes?.error ? [] : (revenusGeresRes?.data || []);
+    if (fichesPaieRes?.error) console.warn('Table fiches_paie_chiffrees non disponible:', fichesPaieRes.error.message);
+    S.salaireRaw = fichesPaieRes?.error ? [] : (fichesPaieRes?.data || []);
     const loadedTopo = topo.data?.[0]?.data;
     S.topoId = topo.data?.[0]?.id;
     if(loadedTopo?.properties?.length){
@@ -5006,18 +5041,123 @@ function renderFinances(){
   return '';
 }
 
+// Onglet "Salaire" (Famille, admin uniquement) - fiches chiffrées AES-GCM,
+// jamais stockées en clair ailleurs que sur le NAS d'Antoine. S.salaireKey
+// (CryptoKey) ne vit qu'en mémoire JS le temps de la session, jamais
+// persisté (ni localStorage ni Supabase) - revérrouillé à chaque rechargement.
+function renderSalaireTab(tabBar){
+  const fmtE=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR',minimumFractionDigits:2}).format(n||0);
+  if(!S.salaireKey){
+    return tabBar+`<div class="card" style="max-width:380px;margin:40px auto;text-align:center">
+      <div style="font-size:32px;margin-bottom:10px">🔒</div>
+      <div style="font-weight:600;margin-bottom:4px">Fiches de salaire chiffrées</div>
+      <div style="font-size:12px;color:var(--text2);margin-bottom:16px">Mot de passe disponible sur le NAS (Famille/Salaire/_cle_dechiffrement.txt)</div>
+      <input type="password" id="salaire-passphrase" placeholder="Mot de passe" style="width:100%;padding:10px;margin-bottom:10px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);box-sizing:border-box">
+      <button class="btn btn-p" id="btn-salaire-unlock" style="width:100%">🔓 Déverrouiller</button>
+      <div id="salaire-unlock-error" style="color:var(--red);font-size:12px;margin-top:8px"></div>
+    </div>`;
+  }
+  const year=S.salaireYear||new Date().getFullYear();
+  const allFiches=(S.salaireFiches||[]);
+  const bulletins=allFiches.filter(f=>f.type==='bulletin');
+  const yearsAvail=[...new Set(bulletins.map(f=>f.periode.slice(0,4)))].sort().reverse();
+  const yearBar=yearsAvail.length?'<div style="display:flex;gap:6px;margin-bottom:14px">'
+    +yearsAvail.map(y=>'<span class="pill '+(String(year)===y?'active':'')+'" data-salaire-year="'+y+'">'+y+'</span>').join('')+'</div>':'';
+  const fiches=bulletins.filter(f=>f.periode.startsWith(String(year))).sort((a,b)=>b.periode.localeCompare(a.periode));
+  const recup=allFiches.find(f=>f.type==='compte_recup');
+  const selId=S.salaireSelected;
+  const sel=fiches.find(f=>f.id===selId)||fiches[0];
+
+  const listHtml=fiches.map(f=>{
+    const d=f.data||{};
+    const isSel=sel&&f.id===sel.id;
+    return '<div class="tree-row '+(isSel?'selected':'')+'" data-salaire-open="'+f.id+'" style="cursor:pointer;padding:9px 10px">'
+      +'<div style="flex:1"><div style="font-size:13px;font-weight:600">'+f.periode+'</div>'
+      +'<div style="font-size:11px;color:var(--text2)">Brut '+fmtE(d.salaire_brut)+' · Net '+fmtE(d.net_paye)+'</div></div>'
+      +'</div>';
+  }).join('')||'<div style="padding:16px;text-align:center;color:var(--text2);font-size:12px">Aucune fiche pour '+year+'.</div>';
+
+  return tabBar+yearBar+
+    '<div style="display:grid;grid-template-columns:240px 1fr;gap:14px;align-items:start">'
+      +'<div class="card" style="padding:6px">'+listHtml+'</div>'
+      +'<div>'+(sel?renderSalaireDetail(sel.data,fmtE):'<div class="card" style="padding:30px;text-align:center;color:var(--text2)">Sélectionne une fiche à gauche.</div>')
+        +(recup?renderCompteRecupCard(recup.data,fmtE):'')
+      +'</div>'
+    +'</div>';
+}
+
+function renderSalaireLigneRows(lignes,fmtE){
+  if(!lignes||!lignes.length)return '';
+  return lignes.map(function(l){
+    const baseTaux=(l.base!=null&&l.taux!=null)?'<span style="color:var(--text3)">'+l.base+' × '+l.taux+'</span>':'';
+    const montant=l.montant!=null?fmtE(l.montant):(l.jours!=null?(l.jours>0?'+':'')+l.jours+' j':'—');
+    return '<tr><td style="font-size:12px">'+l.libelle+'</td><td style="font-size:10px;text-align:right">'+baseTaux+'</td>'
+      +'<td style="font-size:12px;font-weight:500;text-align:right;white-space:nowrap">'+montant+'</td></tr>';
+  }).join('');
+}
+
+function renderSalaireDetail(d,fmtE){
+  if(!d)return '<div class="card" style="padding:20px;text-align:center;color:var(--text2)">Données illisibles.</div>';
+  function section(title,lignes,color){
+    if(!lignes||!lignes.length)return '';
+    return '<div class="card" style="margin-bottom:12px">'
+      +'<div style="font-size:12px;font-weight:600;color:'+(color||'var(--text2)')+';margin-bottom:8px">'+title+'</div>'
+      +'<div style="overflow-x:auto"><table><tbody>'+renderSalaireLigneRows(lignes,fmtE)+'</tbody></table></div>'
+    +'</div>';
+  }
+  const verif=d.verification||{};
+  return '<div class="card" style="margin-bottom:12px;background:var(--bg2)">'
+      +'<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px">'
+        +'<div><div style="font-weight:700;font-size:15px">'+(d.periode||'')+'</div>'
+          +(d.ligne_de_service?'<div style="font-size:11px;color:var(--text2)">'+(d.ligne_de_service.genre_navigation||'')+' · '+(d.ligne_de_service.fonction||'')+'</div>':'')
+        +'</div>'
+        +'<div style="text-align:right">'
+          +'<div style="font-size:11px;color:var(--text2)">Brut</div><div style="font-weight:600">'+fmtE(d.salaire_brut)+'</div>'
+        +'</div>'
+        +'<div style="text-align:right">'
+          +'<div style="font-size:11px;color:var(--text2)">Net payé</div><div style="font-weight:700;color:var(--green)">'+fmtE(d.net_paye)+'</div>'
+          +(d.paiement?.date?'<div style="font-size:10px;color:var(--text2)">'+dateLabel(d.paiement.date)+'</div>':'')
+        +'</div>'
+      +'</div>'
+      +(verif.note?'<div style="font-size:11px;color:var(--amber);margin-top:8px;padding-top:8px;border-top:1px dashed var(--border)">⚠ '+verif.note+'</div>':'')
+    +'</div>'
+    +section('💰 GAINS',d.gains,'var(--green)')
+    +section('➖ COTISATIONS SALARIALES',d.cotisations_salariales,'var(--red)')
+    +section('🏢 CHARGES EMPLOYEUR',d.charges_patronales,'var(--text2)')
+    +section('🧾 INDEMNITÉS NON SOUMISES',d.indemnites_non_soumises,'var(--blue)');
+}
+
+function renderCompteRecupCard(d,fmtE){
+  if(!d)return '';
+  const cycle=d.cycle_tour_de_service||{};
+  const mouvements=(d.mouvements_2026||d.mouvements||[]).slice(-8).reverse();
+  return '<div class="card" style="margin-top:4px">'
+    +'<div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:8px">🗓 Compte récupération'+(cycle.description?' — '+cycle.duree_jours_chacun+'j '+(cycle.statuts||[]).join('/'):'')+'</div>'
+    +'<div style="overflow-x:auto"><table><thead><tr><th style="font-size:10px">Période</th><th style="font-size:10px;text-align:right">Total</th></tr></thead><tbody>'
+    +mouvements.map(function(m){
+      return '<tr><td style="font-size:11px">'+m.periode+'</td><td style="font-size:11px;text-align:right;font-weight:600;color:'+(m.total<0?'var(--red)':'var(--green)')+'">'+(m.total>0?'+':'')+m.total+' j</td></tr>';
+    }).join('')
+    +'</tbody></table></div>'
+  +'</div>';
+}
+
 function renderFamille(){
   const membres=S.famille||[];
   const fTab=S.familleTab||'membres';
   const today=new Date();
   const fmt2=(n)=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR',minimumFractionDigits:2}).format(n||0);
 
-  // Tab bar
+  // Tab bar - "Salaire" uniquement pour l'admin (donn\u00e9es chiffr\u00e9es, voir
+  // renderSalaireTab) : jamais propos\u00e9 \u00e0 Pauline/Jeremie, m\u00eame le libell\u00e9
+  // de l'onglet reste cach\u00e9 pour eux.
   const tabBar='<div class="tab-bar" style="margin-bottom:14px">'
     +'<div class="tab '+(fTab==='membres'?'active':'')+'" data-ftab="membres">&#128100; Membres</div>'
     +'<div class="tab '+(fTab==='creche'?'active':'')+'" data-ftab="creche">&#128118; Cr\u00e8che</div>'
     +'<div class="tab '+(fTab==='ecole'?'active':'')+'" data-ftab="ecole">&#127979; \u00c9cole</div>'
+    +(isAdmin()?'<div class="tab '+(fTab==='salaire'?'active':'')+'" data-ftab="salaire">&#128176; Salaire</div>':'')
     +'</div>';
+
+  if(fTab==='salaire'&&isAdmin()) return renderSalaireTab(tabBar);
 
   // ===== MEMBRES =====
   if(fTab==='membres'){
@@ -12873,6 +13013,31 @@ function bindAll(){
   // FAMILLE
   // ============================================================
   document.querySelectorAll('[data-ftab]').forEach(el=>el.onclick=()=>{S.familleTab=el.dataset.ftab;render();});
+  const btnSalaireUnlock=document.getElementById('btn-salaire-unlock');
+  if(btnSalaireUnlock)btnSalaireUnlock.onclick=async()=>{
+    const pass=document.getElementById('salaire-passphrase')?.value||'';
+    const errEl=document.getElementById('salaire-unlock-error');
+    if(!pass)return;
+    try{
+      const key=await deriveSalaireKey(pass);
+      const decoded=[];
+      for(const row of (S.salaireRaw||[])){
+        try{
+          const data=await salaireDecrypt(key,row);
+          decoded.push({id:row.id,periode:row.periode,type:row.type,data});
+        }catch(e){throw new Error('mauvais mot de passe');}
+      }
+      S.salaireKey=key;
+      S.salaireFiches=decoded;
+      render();
+    }catch(e){
+      if(errEl)errEl.textContent='Mot de passe incorrect.';
+    }
+  };
+  const salairePassInput=document.getElementById('salaire-passphrase');
+  if(salairePassInput)salairePassInput.onkeydown=(e)=>{if(e.key==='Enter')btnSalaireUnlock?.click();};
+  document.querySelectorAll('[data-salaire-year]').forEach(el=>el.onclick=()=>{S.salaireYear=parseInt(el.dataset.salaireYear);S.salaireSelected=null;render();});
+  document.querySelectorAll('[data-salaire-open]').forEach(el=>el.onclick=()=>{S.salaireSelected=el.dataset.salaireOpen;render();});
   const btnAddEnfant=document.getElementById('btn-add-enfant');
   if(btnAddEnfant)btnAddEnfant.onclick=()=>{S.modal={type:'add-membre'};render();};
   document.querySelectorAll('[data-sel-enfant]').forEach(el=>el.onclick=()=>{
