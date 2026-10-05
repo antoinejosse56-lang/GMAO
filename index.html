@@ -4098,6 +4098,7 @@ function renderFactures(){
               <select class="fav-motif" data-fav-id="${f.id}" style="width:110px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px;margin-bottom:3px">${motifOptsFor(MOTIFS.includes(f.motif)?f.motif:'')}</select>
               <input class="fav-motif-autre" data-fav-id="${f.id}" value="${(f.motif&&!MOTIFS.includes(f.motif))?f.motif.replace(/"/g,'&quot;'):''}" placeholder="Autre motif..." style="width:110px;padding:4px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:11px;margin-bottom:3px">
               <input type="number" step="1" class="fav-conso-eau" data-fav-id="${f.id}" value="${f.consommation_m3||''}" placeholder="Conso eau (m³)" title="Si c'est une facture d'eau : consommation totale indiquée sur la facture, pour calculer le tarif moyen au m³" style="width:110px;padding:4px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:11px">
+              <div class="fav-eau-ecart" data-fav-id="${f.id}" style="font-size:10px;color:var(--text2);margin-top:3px;max-width:190px;line-height:1.35">${(f.motif==='Eau'||f.consommation_m3)&&dateRef?eauEcartText(dateRef,f.consommation_m3):''}</div>
             </td>
             <td style="vertical-align:top"><select class="fav-compte" data-fav-id="${f.id}" style="width:110px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">${compteOptsFor(compteGuess(f))}</select></td>
             <td style="vertical-align:top"><input type="date" class="fav-date-paiement" data-fav-id="${f.id}" style="width:130px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px"></td>
@@ -4214,33 +4215,111 @@ function renderFactures(){
   }).join('')}`;
 }
 
+// ---- Compteurs d'eau : regroupement par bien/logement, ecart facture vs releves, graphiques ----
+// Un compteur est nomme "<Bien> › <Logement> — Compteur eau (<occupant>)" : plusieurs compteurs
+// (un par locataire successif) peuvent donc concerner le meme logement - on regroupe sur la
+// partie avant " — " pour retrouver l'historique complet d'un logement quel que soit l'occupant.
+function cptUnit(c){
+  const base=((c&&c.name)||'').split(' — ')[0];
+  const parts=base.split(' › ');
+  return{bien:parts[0]||'—',zone:parts.slice(1).join(' › ')||base,key:base};
+}
+function cptUnitOrder(u){
+  const p=((S.topology&&S.topology.properties)||[]).find(x=>(x.name||'').toLowerCase()===(u.bien||'').toLowerCase());
+  const idx=p?(p.zones||[]).findIndex(z=>(z.name||'').toLowerCase()===(u.zone||'').toLowerCase()):-1;
+  return idx<0?999:idx;
+}
+function cptUnitSort(a,b){
+  return (a.bien||'').localeCompare(b.bien||'','fr')||(cptUnitOrder(a)-cptUnitOrder(b))||(a.zone||'').localeCompare(b.zone||'','fr');
+}
+// Releve "retroactif" (0 -> 1 avec prix = montant paye) : sert seulement a enregistrer un
+// montant deja regle sans index reel - a ne jamais compter comme une consommation.
+function releveEstRetro(r){return /r[ée]troactive?/i.test(r.notes||'');}
+function releveConso(r){return Math.round((parseFloat(r.nouvel_index||0)-parseFloat(r.ancien_index||0))*1000)/1000;}
+// Somme des consommations relevees chez les locataires sur les 12 mois precedant `dateIso`
+// (periode typique d'une facture d'eau annuelle), compteurs du perimetre fourni.
+function eauRelevesPeriode(dateIso,compteurIds){
+  if(!dateIso)return null;
+  const to=dateIso.slice(0,10);
+  const from=(parseInt(to.slice(0,4),10)-1)+to.slice(4);
+  const cptById=new Map((S.compteurs||[]).map(c=>[c.id,c]));
+  let m3=0,eur=0,n=0;
+  const unitsAvecReleve=new Set();
+  (S.releves||[]).forEach(function(r){
+    if(compteurIds&&!compteurIds.has(r.compteur_id))return;
+    if(releveEstRetro(r)||!r.date||r.date<=from||r.date>to)return;
+    const c=cptById.get(r.compteur_id)||{};
+    const conso=releveConso(r);
+    m3+=conso;eur+=conso*(parseFloat(r.prix_unitaire||c.prix_unitaire||0));n++;
+    unitsAvecReleve.add(cptUnit(c).key);
+  });
+  return{from,to,m3:Math.round(m3*100)/100,eur:Math.round(eur*100)/100,n,unitsAvecReleve};
+}
+function eauEcartText(dateIso,billedM3){
+  const p=eauRelevesPeriode(dateIso,null);
+  if(!p)return '';
+  const b=parseFloat(billedM3);
+  const base='Relevés locataires du '+dateLabel(p.from)+' au '+dateLabel(p.to)+' : <b>'+p.m3.toLocaleString('fr-FR')+' m³</b> ('+p.n+' relevé'+(p.n>1?'s':'')+')';
+  if(!b)return base+' — saisir la conso facturée pour voir l\'écart';
+  const ecart=Math.round((b-p.m3)*100)/100;
+  const pct=Math.round(ecart/b*100);
+  const col=Math.abs(pct)<=15?'var(--green)':Math.abs(pct)<=30?'var(--amber)':'var(--red)';
+  return base+'<br>Écart avec la facture : <b style="color:'+col+'">'+(ecart>0?'+':'')+ecart.toLocaleString('fr-FR')+' m³ ('+(pct>0?'+':'')+pct+' %)</b>';
+}
+// Graphique en barres SVG : conso moyenne mensuelle d'un logement entre deux relevés successifs.
+function eauChartSvg(points,colorOf){
+  if(!points.length)return '';
+  const W=330,H=140,padL=30,padR=8,padT=16,padB=34;
+  const max=Math.max.apply(null,points.map(p=>p.v))||1;
+  const bw=Math.min(40,(W-padL-padR)/points.length*0.7);
+  const step=(W-padL-padR)/points.length;
+  const y=v=>padT+(H-padT-padB)*(1-v/max);
+  let svg='<svg viewBox="0 0 '+W+' '+H+'" style="width:100%;height:auto;display:block">';
+  [0,0.5,1].forEach(function(f){
+    const yy=y(max*f);
+    svg+='<line x1="'+padL+'" x2="'+(W-padR)+'" y1="'+yy+'" y2="'+yy+'" stroke="var(--border)" stroke-width="0.5"/>'
+      +'<text x="'+(padL-4)+'" y="'+(yy+3)+'" font-size="8" fill="var(--text3)" text-anchor="end">'+(Math.round(max*f*10)/10)+'</text>';
+  });
+  points.forEach(function(p,i){
+    const x=padL+step*i+(step-bw)/2;
+    const yy=y(p.v);
+    svg+='<g><title>'+p.tip.replace(/</g,'&lt;')+'</title>'
+      +'<rect x="'+x+'" y="'+yy+'" width="'+bw+'" height="'+(H-padB-yy)+'" rx="2" fill="'+colorOf(p.occupant)+'"/>'
+      +'<text x="'+(x+bw/2)+'" y="'+(yy-3)+'" font-size="8.5" fill="var(--text)" text-anchor="middle" font-weight="600">'+(Math.round(p.v*10)/10)+'</text>'
+      +'<text x="'+(x+bw/2)+'" y="'+(H-padB+11)+'" font-size="8" fill="var(--text2)" text-anchor="middle">'+p.label+'</text></g>';
+  });
+  return svg+'</svg>';
+}
 function renderCompteurs(){
   const cTab=S.cTab||'liste';
   const fmt=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(n||0);
   const isDubail=isDubailProfile();
   const isPerso=isPersoScopeView();
   const scopedCompteurs=(S.compteurs||[]).filter(c=>isDubail?dubailFilter(c.name||''):isPerso?!dubailFilter(c.name||''):true);
+  const cptById=new Map((S.compteurs||[]).map(c=>[c.id,c]));
   const tabBar='<div class="tab-bar" style="margin-bottom:14px">'
     +'<div class="tab '+(cTab==='liste'?'active':'')+'" data-ctab="liste">Compteurs</div>'
-    +'<div class="tab '+(cTab==='releves'?'active':'')+'" data-ctab="releves">Relev\u00e9s</div>'
+    +'<div class="tab '+(cTab==='releves'?'active':'')+'" data-ctab="releves">Relevés</div>'
+    +'<div class="tab '+(cTab==='analyse'?'active':'')+'" data-ctab="analyse">Conso &amp; écart</div>'
     +'</div>';
 
   if(cTab==='liste'){
-    const rows=scopedCompteurs.map(function(c){
+    const sorted=scopedCompteurs.slice().sort(function(a,b){return cptUnitSort(cptUnit(a),cptUnit(b))||(a.name||'').localeCompare(b.name||'','fr');});
+    const rows=sorted.map(function(c){
       const tenant=c.tenant_id?S.tenants.find(t=>t.id===c.tenant_id):null;
       const lastRel=(S.releves||[]).filter(r=>r.compteur_id===c.id).sort((a,b)=>new Date(b.date)-new Date(a.date))[0];
       return '<div class="card" style="margin-bottom:10px">'
         +'<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">'
           +'<div>'
             +'<div style="font-weight:600;font-size:14px">'+c.name+'</div>'
-            +'<div style="font-size:12px;color:var(--text2)">'+(c.type||'')+' \u2014 '+(c.unite||'m\u00b3')+' \u2014 '+fmt(c.prix_unitaire||0)+'/'+( c.unite||'m\u00b3')+'</div>'
-            +(tenant?'<div style="font-size:11px;color:var(--text2)">&#128100; '+(tenant.nom||'')+' \u2014 '+(tenant.logement||'')+'</div>':'')
+            +'<div style="font-size:12px;color:var(--text2)">'+(c.type||'')+' — '+(c.unite||'m³')+' — '+fmt(c.prix_unitaire||0)+'/'+( c.unite||'m³')+'</div>'
+            +(tenant?'<div style="font-size:11px;color:var(--text2)">&#128100; '+(tenant.nom||'')+(tenant.actif===false?' (parti)':'')+' — '+(tenant.logement||'')+'</div>':'')
           +'</div>'
           +'<div style="text-align:right">'
-            +(lastRel?'<div style="font-size:12px">Dernier index : <strong>'+lastRel.nouvel_index+' '+(c.unite||'m\u00b3')+'</strong></div>':'<div style="font-size:12px;color:var(--text2)">Index initial : '+(c.index_initial||0)+'</div>')
+            +(lastRel?'<div style="font-size:12px">Dernier index : <strong>'+lastRel.nouvel_index+' '+(c.unite||'m³')+'</strong></div>':'<div style="font-size:12px;color:var(--text2)">Index initial : '+(c.index_initial||0)+'</div>')
             +(lastRel?'<div style="font-size:11px;color:var(--text2)">le '+dateLabel(lastRel.date)+'</div>':'')
             +'<div style="margin-top:6px;display:flex;gap:4px;justify-content:flex-end">'
-              +(canEdit()?'<button class="btn btn-sm btn-p" data-add-releve="'+c.id+'">+ Relev\u00e9</button>':'')
+              +(canEdit()?'<button class="btn btn-sm btn-p" data-add-releve="'+c.id+'">+ Relevé</button>':'')
               +(isAdmin()?'<button class="btn btn-sm" data-edit-cpt="'+c.id+'">&#9998;</button>':'')
               +(isAdmin()?'<button class="btn btn-d btn-sm" data-del-cpt="'+c.id+'">&#10005;</button>':'')
             +'</div>'
@@ -4252,35 +4331,125 @@ function renderCompteurs(){
       +'<div style="display:flex;justify-content:flex-end;margin-bottom:12px">'
         +(isAdmin()?'<button class="btn btn-p" id="btn-add-cpt">+ Compteur</button>':'')
       +'</div>'
-      +(rows||'<div style="text-align:center;padding:24px;color:var(--text2)">Aucun compteur configur\u00e9.</div>');
+      +(rows||'<div style="text-align:center;padding:24px;color:var(--text2)">Aucun compteur configuré.</div>');
   }
 
   if(cTab==='releves'){
+    // Regroupes par bien puis par logement (tous occupants confondus), puis du plus recent au plus ancien
     const scopedIds=new Set(scopedCompteurs.map(c=>c.id));
-    const allReleves=(S.releves||[]).filter(r=>scopedIds.has(r.compteur_id)).sort((a,b)=>new Date(b.date)-new Date(a.date));
-    const rows=allReleves.map(function(r){
-      const cpt=(S.compteurs||[]).find(c=>c.id===r.compteur_id)||{};
-      const tenant=cpt.tenant_id?S.tenants.find(t=>t.id===cpt.tenant_id):null;
-      const conso=Math.round((r.nouvel_index-r.ancien_index)*1000)/1000;
-      const montant=Math.round(conso*(r.prix_unitaire||cpt.prix_unitaire||0)*100)/100;
-      const st=r.paye?'bgreen':r.facture_envoyee?'bblue':'bgray';
-      const sl=r.paye?'✓ Acquittée':r.facture_envoyee?'&#128438; Facturée':'● En attente';
+    const groups=new Map();
+    (S.releves||[]).filter(r=>scopedIds.has(r.compteur_id)).forEach(function(r){
+      const u=cptUnit(cptById.get(r.compteur_id)||{});
+      if(!groups.has(u.key))groups.set(u.key,{u,rels:[]});
+      groups.get(u.key).rels.push(r);
+    });
+    const ordered=[...groups.values()].sort((a,b)=>cptUnitSort(a.u,b.u));
+    let lastBien=null;
+    const html=ordered.map(function(g){
+      const rels=g.rels.sort((a,b)=>new Date(b.date)-new Date(a.date));
+      const totConso=rels.filter(r=>!releveEstRetro(r)).reduce((s,r)=>s+releveConso(r),0);
+      const totMontant=rels.reduce((s,r)=>{const c=cptById.get(r.compteur_id)||{};return s+releveConso(r)*(parseFloat(r.prix_unitaire||c.prix_unitaire||0));},0);
+      const bienHdr=g.u.bien!==lastBien?'<div style="font-size:13px;font-weight:700;color:var(--text2);margin:16px 0 6px;text-transform:uppercase;letter-spacing:.04em">&#127970; '+g.u.bien+'</div>':'';
+      lastBien=g.u.bien;
+      const rows=rels.map(function(r){
+        const cpt=cptById.get(r.compteur_id)||{};
+        const tenant=cpt.tenant_id?S.tenants.find(t=>t.id===cpt.tenant_id):null;
+        const retro=releveEstRetro(r);
+        const conso=releveConso(r);
+        const montant=Math.round(conso*(r.prix_unitaire||cpt.prix_unitaire||0)*100)/100;
+        const st=r.paye?'bgreen':r.facture_envoyee?'bblue':'bgray';
+        const sl=r.paye?'✓ Acquittée':r.facture_envoyee?'&#128438; Facturée':'● En attente';
+        return '<tr>'
+          +'<td style="font-size:11px;white-space:nowrap">'+dateLabel(r.date)+'</td>'
+          +'<td style="font-size:11px;color:var(--text2)">'+(tenant?.nom||'—')+(tenant&&tenant.actif===false?' <span style="font-size:9px">(parti)</span>':'')+'</td>'
+          +'<td style="text-align:right;font-size:11px">'+(retro?'—':(r.ancien_index||0))+'</td>'
+          +'<td style="text-align:right;font-size:11px;font-weight:500">'+(retro?'—':r.nouvel_index)+'</td>'
+          +'<td style="text-align:right;font-size:11px">'+(retro?'<span title="Montant réglé sans index de compteur">—</span>':conso+' '+(cpt.unite||'m³'))+'</td>'
+          +'<td style="text-align:right;font-size:11px">'+fmt(montant)+'</td>'
+          +'<td style="text-align:center"><span class="badge '+st+'" data-releve-status="'+r.id+'" style="cursor:pointer">'+sl+'</span></td>'
+          +'</tr>';
+      }).join('');
+      return bienHdr
+        +'<div class="card" style="margin-bottom:12px">'
+          +'<div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:6px;margin-bottom:8px">'
+            +'<div style="font-weight:600;font-size:14px">'+g.u.zone+'</div>'
+            +'<div style="font-size:11px;color:var(--text2)">'+rels.length+' relevé'+(rels.length>1?'s':'')+' · '+(Math.round(totConso*100)/100)+' m³ · '+fmt(totMontant)+'</div>'
+          +'</div>'
+          +'<div style="overflow-x:auto"><table>'
+          +'<thead><tr><th style="font-size:11px">Date</th><th style="font-size:11px">Locataire</th><th style="font-size:11px;text-align:right">Ancien idx</th><th style="font-size:11px;text-align:right">Nouvel idx</th><th style="font-size:11px;text-align:right">Conso</th><th style="font-size:11px;text-align:right">Montant</th><th style="font-size:11px">Statut</th></tr></thead>'
+          +'<tbody>'+rows+'</tbody></table></div>'
+        +'</div>';
+    }).join('');
+    return tabBar+(html||'<div class="card" style="text-align:center;padding:20px;color:var(--text2)">Aucun relevé</div>');
+  }
+
+  if(cTab==='analyse'){
+    const scopedIds=new Set(scopedCompteurs.map(c=>c.id));
+    const allUnits=new Map();
+    scopedCompteurs.forEach(c=>{const u=cptUnit(c);if(!allUnits.has(u.key))allUnits.set(u.key,u);});
+    // --- 1) Facture d'eau reelle vs somme des releves locataires (12 mois avant la facture)
+    const factsEau=(S.factures||[]).filter(f=>f.motif==='Eau'&&(isDubail?dubailFilter(f.bien||''):isPerso?!dubailFilter(f.bien||''):true))
+      .sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+    const ecartRows=factsEau.map(function(f){
+      const p=eauRelevesPeriode(f.date,scopedIds);
+      if(!p)return '';
+      const b=parseFloat(f.consommation_m3)||0;
+      const ecart=b?Math.round((b-p.m3)*100)/100:null;
+      const pct=b?Math.round(ecart/b*100):null;
+      const col=pct==null?'var(--text2)':Math.abs(pct)<=15?'var(--green)':Math.abs(pct)<=30?'var(--amber)':'var(--red)';
+      const sans=[...allUnits.values()].filter(u=>!p.unitsAvecReleve.has(u.key)).sort(cptUnitSort).map(u=>u.zone);
+      const ecartEur=Math.round((f.montant_ttc-p.eur)*100)/100;
       return '<tr>'
-        +'<td style="font-size:11px">'+dateLabel(r.date)+'</td>'
-        +'<td style="font-size:12px">'+cpt.name+'</td>'
-        +'<td style="font-size:11px;color:var(--text2)">'+(tenant?.nom||'—')+'</td>'
-        +'<td style="text-align:right;font-size:11px">'+(r.ancien_index||0)+'</td>'
-        +'<td style="text-align:right;font-size:11px;font-weight:500">'+r.nouvel_index+'</td>'
-        +'<td style="text-align:right;font-size:11px">'+conso+' '+(cpt.unite||'m³')+'</td>'
-        +'<td style="text-align:right;font-size:11px">'+fmt(montant)+'</td>'
-        +'<td style="text-align:center"><span class="badge '+st+'" data-releve-status="'+r.id+'" style="cursor:pointer">'+sl+'</span></td>'
+        +'<td style="font-size:12px;white-space:nowrap">'+dateLabel(f.date)+'<div style="font-size:10px;color:var(--text3)">'+(f.fournisseur||'')+'</div></td>'
+        +'<td style="text-align:right;font-size:12px">'+(b?b.toLocaleString('fr-FR')+' m³':'<span style="color:var(--text3)" title="Consommation non renseignée sur la facture">—</span>')+'</td>'
+        +'<td style="text-align:right;font-size:12px">'+fmt(f.montant_ttc)+'</td>'
+        +'<td style="text-align:right;font-size:12px">'+p.m3.toLocaleString('fr-FR')+' m³<div style="font-size:10px;color:var(--text3)">'+p.n+' relevé'+(p.n>1?'s':'')+' · '+fmt(p.eur)+'</div></td>'
+        +'<td style="text-align:right;font-size:12px;font-weight:700;color:'+col+'">'+(ecart==null?'—':(ecart>0?'+':'')+ecart.toLocaleString('fr-FR')+' m³<div style="font-size:10px;font-weight:400">'+(pct>0?'+':'')+pct+' %</div>')+'</td>'
+        +'<td style="text-align:right;font-size:12px;color:'+(ecartEur>0?'var(--red)':'var(--green)')+'">'+(ecartEur>0?'+':'')+fmt(ecartEur)+'<div style="font-size:10px;color:var(--text3)">non refacturé</div></td>'
+        +'<td style="font-size:10px;color:var(--text2)">'+(sans.length?'Sans relevé sur la période : '+sans.join(', '):'Tous les logements relevés')+'</td>'
         +'</tr>';
-    }).join('');;
-    return tabBar
-      +'<div class="card"><div style="overflow-x:auto"><table>'
-        +'<thead><tr><th style="font-size:11px">Date</th><th style="font-size:11px">Compteur</th><th style="font-size:11px">Locataire</th><th style="font-size:11px;text-align:right">Ancien idx</th><th style="font-size:11px;text-align:right">Nouvel idx</th><th style="font-size:11px;text-align:right">Conso</th><th style="font-size:11px;text-align:right">Montant</th><th style="font-size:11px">Statut</th></tr></thead>'
-        +'<tbody>'+(rows||'<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--text2)">Aucun relev\u00e9</td></tr>')+'</tbody>'
-      +'</table></div></div>';
+    }).join('');
+    const ecartCard='<div class="card" style="margin-bottom:16px">'
+      +'<div class="sec">Facture d\'eau vs relevés des locataires</div>'
+      +'<div style="font-size:11px;color:var(--text2);margin-bottom:8px">Pour chaque facture d\'eau : consommation facturée (m³ saisis à la validation de la facture) comparée à la somme des relevés datés dans les 12 mois précédant la facture (relevés rétroactifs sans index exclus). Indicatif : les relevés ne sont pas tous pris le même jour, et les parties communes/fuites ne sont pas relevées.</div>'
+      +(ecartRows?'<div style="overflow-x:auto"><table><thead><tr><th style="font-size:11px">Facture</th><th style="font-size:11px;text-align:right">Facturé</th><th style="font-size:11px;text-align:right">Montant TTC</th><th style="font-size:11px;text-align:right">Relevés locataires</th><th style="font-size:11px;text-align:right">Écart m³</th><th style="font-size:11px;text-align:right">Écart €</th><th style="font-size:11px">Remarque</th></tr></thead><tbody>'+ecartRows+'</tbody></table></div>':'<div style="font-size:12px;color:var(--text2);padding:8px 0">Aucune facture d\'eau enregistrée.</div>')
+      +'</div>';
+    // --- 2) Graphiques de conso par logement
+    const palette=['#185FA5','#1D9E75','#E67E22','#9B59B6','#E74C3C','#16A085','#F39C12','#3498DB'];
+    const occColor=new Map();
+    const colorOf=o=>{if(!occColor.has(o))occColor.set(o,palette[occColor.size%palette.length]);return occColor.get(o);};
+    const byUnit=new Map();
+    (S.releves||[]).filter(r=>scopedIds.has(r.compteur_id)&&!releveEstRetro(r)&&r.date).forEach(function(r){
+      const c=cptById.get(r.compteur_id)||{};
+      const u=cptUnit(c);
+      if(!byUnit.has(u.key))byUnit.set(u.key,{u,rels:[]});
+      const t=c.tenant_id?S.tenants.find(x=>x.id===c.tenant_id):null;
+      byUnit.get(u.key).rels.push({date:r.date,conso:releveConso(r),occupant:(t&&t.nom)||'—'});
+    });
+    let lastBienC=null;
+    const charts=[...byUnit.values()].sort((a,b)=>cptUnitSort(a.u,b.u)).map(function(g){
+      const rels=g.rels.sort((a,b)=>a.date.localeCompare(b.date));
+      const pts=[];
+      for(let i=1;i<rels.length;i++){
+        const days=Math.round((new Date(rels[i].date)-new Date(rels[i-1].date))/86400000);
+        if(days<=0||rels[i].conso<0)continue;
+        const perMonth=rels[i].conso/days*30.4375;
+        pts.push({v:perMonth,label:rels[i].date.slice(5,7)+'/'+rels[i].date.slice(2,4),occupant:rels[i].occupant,
+          tip:dateLabel(rels[i-1].date)+' → '+dateLabel(rels[i].date)+' ('+days+' j) : '+rels[i].conso+' m³ soit '+(Math.round(perMonth*10)/10)+' m³/mois — '+rels[i].occupant});
+      }
+      const occs=[...new Set(pts.map(p=>p.occupant))];
+      const hdr=g.u.bien!==lastBienC?'<div style="grid-column:1/-1;font-size:13px;font-weight:700;color:var(--text2);margin-top:6px;text-transform:uppercase;letter-spacing:.04em">&#127970; '+g.u.bien+'</div>':'';
+      lastBienC=g.u.bien;
+      return hdr+'<div class="card" style="padding:12px">'
+        +'<div style="font-weight:600;font-size:13px;margin-bottom:2px">'+g.u.zone+'</div>'
+        +(pts.length?'<div style="font-size:10px;color:var(--text2);margin-bottom:6px">m³ par mois, moyenne entre deux relevés</div>'+eauChartSvg(pts,colorOf)
+          +'<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:4px;font-size:10px;color:var(--text2)">'+occs.map(o=>'<span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:'+colorOf(o)+';margin-right:3px"></span>'+o+'</span>').join('')+'</div>'
+          :'<div style="font-size:11px;color:var(--text3);padding:14px 0">Au moins deux relevés datés sont nécessaires pour tracer l\'évolution.</div>')
+        +'</div>';
+    }).join('');
+    return tabBar+ecartCard
+      +'<div style="font-size:15px;font-weight:700;margin:4px 0 10px">&#128167; Consommation par logement</div>'
+      +(charts?'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px">'+charts+'</div>':'<div class="card" style="text-align:center;padding:20px;color:var(--text2)">Aucun relevé</div>');
   }
 
   return tabBar;
@@ -11861,6 +12030,20 @@ function bindAll(){
   document.querySelectorAll('[data-fact-year]').forEach(el=>el.onclick=()=>{S.factYear=parseInt(el.dataset.factYear)||0;render();});
   document.querySelectorAll('[data-releve-year]').forEach(el=>el.onclick=()=>{S.releveBancaireYear=el.dataset.releveYear;render();});
   if(q('fact-bien-filter'))q('fact-bien-filter').onchange=e=>{S.factBienFilter=e.target.value;render();};
+  // Facture d'eau en cours de validation : comparaison live conso facturee vs releves locataires
+  (function(){
+    function refreshEauEcart(id){
+      const box=document.querySelector('.fav-eau-ecart[data-fav-id="'+id+'"]');if(!box)return;
+      const d=document.querySelector('.fav-date[data-fav-id="'+id+'"]')?.value||'';
+      const conso=document.querySelector('.fav-conso-eau[data-fav-id="'+id+'"]')?.value||'';
+      const motif=document.querySelector('.fav-motif[data-fav-id="'+id+'"]')?.value||'';
+      box.innerHTML=(motif==='Eau'||conso)&&d?eauEcartText(d,conso):'';
+    }
+    document.querySelectorAll('.fav-conso-eau,.fav-date,.fav-motif').forEach(el=>{
+      const handler=()=>refreshEauEcart(el.dataset.favId);
+      el.addEventListener('input',handler);el.addEventListener('change',handler);
+    });
+  })();
   document.querySelectorAll('[data-fav-valider]').forEach(el=>el.onclick=async()=>{
     const id=el.dataset.favValider;
     const fav=(S.facturesAValider||[]).find(x=>x.id===id);
