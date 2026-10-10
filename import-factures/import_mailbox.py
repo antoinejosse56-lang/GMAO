@@ -202,6 +202,14 @@ def process_account(user: str, password: str, seen: set) -> int:
         msg = email.message_from_bytes(raw)
         message_id = msg.get("Message-ID", uid.decode())
         if message_id in seen:
+            # Deja importe par un passage precedent mais le libelle est reste (retrait
+            # echoue a l'epoque, connexion coupee...) : on le retire maintenant pour que
+            # "A importer" ne contienne que les mails reellement en attente.
+            try:
+                mail.uid("store", uid, "-X-GM-LABELS", f'("{GMAIL_LABEL}")')
+                log(f"  libelle retire d'un mail deja importe : {decode_mime_words(msg.get('Subject', ''))}")
+            except imaplib.IMAP4.error as e:
+                log(f"  ATTENTION : retrait du libelle echoue pour {message_id} : {e}")
             continue
 
         subject = decode_mime_words(msg.get("Subject", ""))
