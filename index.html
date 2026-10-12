@@ -1888,6 +1888,7 @@ function renderAssetDetail(a){
         return `<div class="row" style="font-size:12px"><span style="color:var(--text2)">${icon} ${dateLabel(v.date)}</span><span>${new Intl.NumberFormat('fr-FR').format(v.valeur)} ${v.unite}${v.montant?' — '+new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(v.montant):''}${v.photo_url?' <a href="'+v.photo_url+'" target="_blank">📷</a>':''}</span></div>`;
       }).join(''):'<div style="font-size:12px;color:var(--text2)">Aucun relevé enregistré.</div>'}
     </div>`:''}
+    ${isVehicleOrBoat?vehConsoCardHtml(releves):''}
   </div>`:''}
   ${S.subTab==='cg'&&isVehicle?`<div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
@@ -4295,6 +4296,98 @@ function eauEcartText(dateIso,billedM3){
   return base+'<br>Écart avec la facture : <b style="color:'+col+'">'+(ecart>0?'+':'')+ecart.toLocaleString('fr-FR')+' m³ ('+(pct>0?'+':'')+pct+' %)</b>';
 }
 // Graphique en barres SVG : conso moyenne mensuelle d'un logement entre deux relevés successifs.
+// ---- Consommation moyenne d'un vehicule, calculee de plein en plein ----
+// Methode "plein a plein" : la consommation entre deux pleins COMPLETS = litres ajoutes
+// depuis le plein complet precedent (appoints inclus, plein complet courant inclus) divise par
+// la distance parcourue entre ces deux pleins. Un plein decoche "Plein complet" est un appoint :
+// ses litres sont comptes dans le plein complet suivant au lieu de former un point.
+function vehConsoCompute(allReleves){
+  const pl=(allReleves||[]).filter(v=>v.type==='plein'&&parseFloat(v.litres)>0&&v.valeur!=null)
+    .sort((a,b)=>(a.date||'').localeCompare(b.date||'')||(parseFloat(a.valeur)-parseFloat(b.valeur)));
+  const unite=pl.length?(pl[pl.length-1].unite||'km'):'km';
+  const par100=unite==='km';
+  const points=[];let prev=null,acc=0,accCout=0,accN=0;
+  pl.filter(v=>(v.unite||'km')===unite).forEach(function(v){
+    const litres=parseFloat(v.litres)||0;
+    const cout=parseFloat(v.montant)||(litres*(parseFloat(v.prix_litre)||0))||0;
+    const full=v.plein_complet!==false;
+    if(prev){acc+=litres;accCout+=cout;accN++;}
+    if(full){
+      if(prev){
+        const dist=parseFloat(v.valeur)-parseFloat(prev.valeur);
+        if(dist>0&&acc>0){
+          points.push({date:v.date,dist:dist,litres:acc,cout:accCout,pleins:accN,
+            conso:par100?acc/dist*100:acc/dist,coutDist:par100?accCout/dist*100:accCout/dist});
+        }
+      }
+      prev=v;acc=0;accCout=0;accN=0;
+    }
+  });
+  const tL=points.reduce((t,p)=>t+p.litres,0),tD=points.reduce((t,p)=>t+p.dist,0),tC=points.reduce((t,p)=>t+p.cout,0);
+  return{unite:unite,par100:par100,points:points,
+    moyenne:tD>0?(par100?tL/tD*100:tL/tD):null,
+    coutMoyen:tD>0&&tC>0?(par100?tC/tD*100:tC/tD):null,
+    prixLitre:tL>0&&tC>0?tC/tL:null,totalL:tL,totalDist:tD,nPleins:pl.length};
+}
+function vehConsoChartSvg(points,moyenne,uLabel){
+  if(!points.length)return '';
+  const W=640,H=190,padL=36,padR=10,padT=20,padB=36;
+  const max=Math.max.apply(null,points.map(p=>p.conso).concat([moyenne||0]))*1.15||1;
+  const step=(W-padL-padR)/points.length;
+  const bw=Math.min(46,step*0.7);
+  const y=v=>padT+(H-padT-padB)*(1-v/max);
+  const f1=v=>(Math.round(v*10)/10).toLocaleString('fr-FR');
+  let svg='<svg viewBox="0 0 '+W+' '+H+'" style="width:100%;height:auto;display:block">';
+  [0,0.5,1].forEach(function(f){
+    const yy=y(max*f);
+    svg+='<line x1="'+padL+'" x2="'+(W-padR)+'" y1="'+yy+'" y2="'+yy+'" stroke="var(--border)" stroke-width="0.5"/>'
+      +'<text x="'+(padL-4)+'" y="'+(yy+3)+'" font-size="9" fill="var(--text3)" text-anchor="end">'+f1(max*f)+'</text>';
+  });
+  points.forEach(function(p,i){
+    const x=padL+step*i+(step-bw)/2,yy=y(p.conso);
+    const d=(p.date||'').slice(8,10)+'/'+(p.date||'').slice(5,7);
+    const tip=dateLabel(p.date)+' : '+f1(p.conso)+' '+uLabel+' sur '+Math.round(p.dist).toLocaleString('fr-FR')+' '+(uLabel.indexOf('100')>=0?'km':'h')
+      +' ('+f1(p.litres)+' L'+(p.pleins>1?', '+p.pleins+' pleins':'')+')';
+    svg+='<g><title>'+tip.replace(/</g,'&lt;')+'</title>'
+      +'<rect x="'+x+'" y="'+yy+'" width="'+bw+'" height="'+Math.max(0,H-padB-yy)+'" rx="2" fill="#185FA5"/>'
+      +'<text x="'+(x+bw/2)+'" y="'+(yy-4)+'" font-size="10" fill="var(--text)" text-anchor="middle" font-weight="600">'+f1(p.conso)+'</text>'
+      +'<text x="'+(x+bw/2)+'" y="'+(H-padB+12)+'" font-size="9" fill="var(--text2)" text-anchor="middle">'+d+'</text></g>';
+  });
+  if(moyenne){
+    const ym=y(moyenne);
+    svg+='<line x1="'+padL+'" x2="'+(W-padR)+'" y1="'+ym+'" y2="'+ym+'" stroke="#E67E22" stroke-width="1.2" stroke-dasharray="5 3"/>'
+      +'<text x="'+(W-padR)+'" y="'+(ym-4)+'" font-size="9.5" fill="#E67E22" text-anchor="end" font-weight="600">moyenne '+f1(moyenne)+'</text>';
+  }
+  return svg+'</svg>';
+}
+function vehConsoCardHtml(allReleves){
+  const c=vehConsoCompute(allReleves);
+  const uLabel=c.par100?'L/100 km':'L/h';
+  const f1=v=>(Math.round(v*10)/10).toLocaleString('fr-FR');
+  const eur=v=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(v||0);
+  const head='<div class="sec" style="margin:0 0 6px">&#9981; Consommation moyenne (plein à plein)</div>';
+  if(!c.points.length){
+    return '<div class="card" style="grid-column:1/-1">'+head
+      +'<div style="font-size:12px;color:var(--text2)">'+(c.nPleins<2
+        ?'Il faut au moins 2 pleins complets avec le compteur et les litres pour calculer la consommation ('+c.nPleins+' plein enregistré). Ajoutez-les avec « + Relevé » (type « Plein de carburant »).'
+        :'Aucune consommation calculable : vérifiez que le compteur augmente d\'un plein à l\'autre.')+'</div></div>';
+  }
+  const last=c.points[c.points.length-1];
+  const mini=c.points.reduce((m,p)=>Math.min(m,p.conso),Infinity),maxi=c.points.reduce((m,p)=>Math.max(m,p.conso),0);
+  const stat=(label,val,sub)=>'<div style="flex:1;min-width:110px"><div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.04em">'+label+'</div>'
+    +'<div style="font-size:18px;font-weight:700">'+val+'</div>'+(sub?'<div style="font-size:10px;color:var(--text3)">'+sub+'</div>':'')+'</div>';
+  const shown=c.points.slice(-24);
+  return '<div class="card" style="grid-column:1/-1">'+head
+    +'<div style="display:flex;gap:14px;flex-wrap:wrap;margin:8px 0 12px">'
+      +stat('Moyenne',f1(c.moyenne)+' <span style="font-size:11px;font-weight:500">'+uLabel+'</span>',c.points.length+' intervalle'+(c.points.length>1?'s':'')+' · '+Math.round(c.totalDist).toLocaleString('fr-FR')+(c.par100?' km':' h'))
+      +stat('Dernier plein',f1(last.conso)+' <span style="font-size:11px;font-weight:500">'+uLabel+'</span>',dateLabel(last.date))
+      +stat('Mini / maxi',f1(mini)+' – '+f1(maxi),uLabel)
+      +(c.coutMoyen?stat('Coût moyen',eur(c.coutMoyen),(c.par100?'aux 100 km':'par heure')+(c.prixLitre?' · '+(Math.round(c.prixLitre*1000)/1000).toLocaleString('fr-FR')+' €/L':'')):'')
+    +'</div>'
+    +vehConsoChartSvg(shown,c.moyenne,uLabel)
+    +'<div style="font-size:10px;color:var(--text3);margin-top:6px">Chaque barre = un plein complet, calculé depuis le plein complet précédent (les appoints décochés « plein complet » sont ajoutés au plein suivant). Survolez une barre pour le détail.</div>'
+    +'</div>';
+}
 function eauChartSvg(points,colorOf){
   if(!points.length)return '';
   const W=330,H=140,padL=30,padR=8,padT=16,padB=34;
@@ -8633,7 +8726,10 @@ function renderModal(){
       <div class="form-group"><label>Litres</label><input id="vr-litres" type="number" step="0.01" oninput="(function(){const l=parseFloat(document.getElementById('vr-litres').value)||0;const p=parseFloat(document.getElementById('vr-prix').value)||0;document.getElementById('vr-montant').value=Math.round(l*p*100)/100;})()"></div>
       <div class="form-group"><label>Prix / litre (€)</label><input id="vr-prix" type="number" step="0.001" oninput="(function(){const l=parseFloat(document.getElementById('vr-litres').value)||0;const p=parseFloat(document.getElementById('vr-prix').value)||0;document.getElementById('vr-montant').value=Math.round(l*p*100)/100;})()"></div>
     </div>
-    <div class="form-group" id="vr-plein-montant-wrap" style="display:${defaultType==='plein'?'block':'none'}"><label>Montant (€)</label><input id="vr-montant" type="number" step="0.01" value="0"></div>
+    <div class="form-group" id="vr-plein-montant-wrap" style="display:${defaultType==='plein'?'block':'none'}"><label>Montant (€)</label><input id="vr-montant" type="number" step="0.01" value="0">
+      <label style="display:flex;align-items:center;gap:6px;margin-top:8px;font-weight:500;cursor:pointer"><input type="checkbox" id="vr-complet" checked style="width:auto"> Plein complet (réservoir rempli à ras)</label>
+      <div style="font-size:11px;color:var(--text2);margin-top:2px">Décochez pour un appoint : ses litres seront comptés dans le prochain plein complet pour le calcul de la consommation.</div>
+    </div>
     <div class="form-group" id="vr-wo-wrap" style="display:none"><label>Bon de travaux lié</label>
       <select id="vr-wo">
         <option value="">— Aucun —</option>
@@ -9329,6 +9425,8 @@ async function saveModal(){
       photo_url:q('vr-photo-url')?.value||null,
       notes:q('vr-notes')?.value||null,
     };
+    // Colonne plein_complet (add_vehicule_plein_complet.sql) : renseignee seulement pour un appoint
+    if(type==='plein'&&q('vr-complet')&&!q('vr-complet').checked)rec.plein_complet=false;
     const{data,error}=await sb.from('vehicule_releves').insert(rec).select().single();
     if(error){alert('Erreur : '+error.message);return;}
     S.vehiculeReleves=[data,...(S.vehiculeReleves||[])];
