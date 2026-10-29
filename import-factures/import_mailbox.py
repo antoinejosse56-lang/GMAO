@@ -70,7 +70,7 @@ def log(msg):
 
 
 def connect_nas_share(unc_path):
-    if not unc_path:
+    if os.name != "nt" or not unc_path:  # Windows seulement : sur le NAS (Linux) les partages sont des dossiers locaux
         return
     result = subprocess.run(
         ["net", "use", unc_path, NAS_PASSWORD, f"/user:{NAS_USER}"],

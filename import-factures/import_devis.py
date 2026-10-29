@@ -82,7 +82,7 @@ def connect_nas_share(unc_path):
     """Meme mecanisme que dans import_factures.py/backup_to_nas.py (duplique,
     scripts independants) : authentifie la session Windows sur le partage NAS
     avant tout acces fichier."""
-    if not unc_path:
+    if os.name != "nt" or not unc_path:  # Windows seulement : sur le NAS (Linux) les partages sont des dossiers locaux
         return
     result = subprocess.run(
         ["net", "use", unc_path, NAS_PASSWORD, f"/user:{NAS_USER}"],

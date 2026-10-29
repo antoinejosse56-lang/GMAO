@@ -87,7 +87,7 @@ def connect_nas_share(unc_path):
     accessible en lecture/ecriture depuis Python. Tolere le cas "deja
     connecte" (relance du script, tache planifiee toutes les 15 min). Meme
     mecanisme que backup_to_nas.py, duplique ici (scripts independants)."""
-    if not unc_path:
+    if os.name != "nt" or not unc_path:  # Windows seulement : sur le NAS (Linux) les partages sont des dossiers locaux
         return
     result = subprocess.run(
         ["net", "use", unc_path, NAS_PASSWORD, f"/user:{NAS_USER}"],
