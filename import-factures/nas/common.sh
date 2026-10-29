@@ -26,6 +26,10 @@ else
   if [ -z "$PY" ]; then
     PY="$(ls /var/packages/Python3*/target/bin/python3 2>/dev/null | tail -1)"
   fi
+  if [ -z "$PY" ]; then
+    echo "[$(date '+%F %T')] ERREUR : Python 3 introuvable (installer le paquet Python 3.x dans le Centre de paquets)" >> "$APP_DIR/logs/erreurs.log"
+    exit 1
+  fi
   # installation "sans venv" (dossier lib/) si le venv n'a pas pu etre cree
   [ -d "$APP_DIR/lib" ] && export PYTHONPATH="$APP_DIR/lib:${PYTHONPATH:-}"
 fi
@@ -33,7 +37,15 @@ fi
 export NAS_SAVADUR_PATH="$(find_share 'Documents GMAO Savadur')"
 export NAS_PERSO_PATH="$(find_share 'Documents GMAO Perso')"
 if [ -z "$NAS_SAVADUR_PATH" ] || [ -z "$NAS_PERSO_PATH" ]; then
-  echo "[nas] ERREUR : partages 'Documents GMAO Savadur' / 'Documents GMAO Perso' introuvables sous /volumeN" >&2
+  {
+    echo "[$(date '+%F %T')] ERREUR : partages 'Documents GMAO Savadur' / 'Documents GMAO Perso' introuvables"
+    echo "  utilisateur : $(whoami) | dossier du script : $APP_DIR"
+    echo "  contenu de / : $(ls -d /volume* 2>/dev/null | tr '
+' ' ')"
+    for v in /volume1 /volume2; do [ -d "$v" ] && echo "  contenu de $v : $(ls "$v" 2>/dev/null | tr '
+' '|')"; done
+  } >> "$APP_DIR/logs/erreurs.log" 2>&1
+  echo "[nas] ERREUR : partages introuvables - voir logs/erreurs.log" >&2
   exit 1
 fi
 # Dossiers de depot surveilles (les factures recues par mail arrivent dans "Factures a traiter")

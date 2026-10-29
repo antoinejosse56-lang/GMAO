@@ -2,7 +2,10 @@
 # Installation unique : cree l'environnement Python et installe les dependances.
 # A lancer UNE FOIS depuis le Planificateur de taches DSM (tache "script defini par l'utilisateur",
 # utilisateur root, cocher "Envoyer les details de l'execution par e-mail" si vous voulez le resultat).
-source "$(dirname "$0")/common.sh"
+HERE="$(cd "$(dirname "$0")" && pwd)"
+mkdir -p "$HERE/logs"
+echo "[$(date '+%F %T')] setup_nas.sh demarre (utilisateur: $(whoami), dossier: $HERE)" >> "$HERE/logs/setup_nas.log"
+source "$HERE/common.sh"
 OUT="$APP_DIR/logs/setup_nas.log"
 {
   echo "=== $(date '+%F %T') installation ==="
