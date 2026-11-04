@@ -54,6 +54,7 @@ fi
 export WATCH_DIR="$NAS_PERSO_PATH/_En_cours/Factures a traiter"
 export DEVIS_WATCH_DIR="$NAS_PERSO_PATH/_En_cours/Devis a traiter"
 export DOCUMENTS_WATCH_DIR="$NAS_PERSO_PATH/_En_cours/Documents a importer"
-mkdir -p "$WATCH_DIR" "$DEVIS_WATCH_DIR" "$DOCUMENTS_WATCH_DIR"
+export DEXT_COPY_DIR="$NAS_PERSO_PATH/_En_cours/A mettre dans Dext"   # copie des factures recues par mail, pour alimenter Dext a la main
+mkdir -p "$WATCH_DIR" "$DEVIS_WATCH_DIR" "$DOCUMENTS_WATCH_DIR" "$DEXT_COPY_DIR"
 export PYTHONIOENCODING=utf-8
 export TZ="${TZ:-Europe/Paris}"

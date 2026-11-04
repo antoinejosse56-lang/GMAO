@@ -52,6 +52,9 @@ load_dotenv()
 
 WATCH_DIR = os.environ.get("WATCH_DIR", "")
 DEVIS_WATCH_DIR = os.environ.get("DEVIS_WATCH_DIR", "")
+# Optionnel : copie de chaque FACTURE recue (pas des devis) dans ce dossier, qui sert uniquement a alimenter
+# Dext a la main et n'a aucun lien avec GMAO (le NAS y depose la meme piece jointe que dans WATCH_DIR).
+DEXT_COPY_DIR = os.environ.get("DEXT_COPY_DIR", "")
 GMAIL_LABEL = os.environ.get("GMAIL_LABEL", "A importer")
 ALLOWED_EXTENSIONS = {".pdf", ".jpg", ".jpeg", ".png", ".doc", ".docx", ".odt"}
 SEEN_PATH = Path(__file__).with_name("mailbox_seen.json")
@@ -250,6 +253,13 @@ def process_account(user: str, password: str, seen: set) -> int:
                 continue
             dest.write_bytes(payload)
             log(f"  -> {dest.name} ({'devis' if is_devis else 'facture'})")
+            if DEXT_COPY_DIR and not is_devis:
+                try:
+                    dext_dir = Path(DEXT_COPY_DIR)
+                    dext_dir.mkdir(parents=True, exist_ok=True)
+                    unique_dest(dext_dir, new_name).write_bytes(payload)
+                except OSError as e:
+                    log(f"  ATTENTION : copie pour Dext impossible ({e})")
             saved_any = True
             imported += 1
 
