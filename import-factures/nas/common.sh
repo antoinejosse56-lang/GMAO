@@ -15,22 +15,24 @@ find_share() {
   return 1
 }
 
-# Python du paquet "Python 3.x" de Synology (venv cree par setup_nas.sh en priorite)
+# Python : on prefere le paquet "Python 3.x" de Synology (3.12 -> 3.9) au Python 3.8 du systeme DSM
+BASE_PY=""
+for c in python3.12 python3.11 python3.10 python3.9 /usr/local/bin/python3.12 /usr/local/bin/python3.11 /usr/local/bin/python3.10 /usr/local/bin/python3.9; do
+  if command -v "$c" >/dev/null 2>&1; then BASE_PY="$(command -v "$c")"; break; fi
+done
+if [ -z "$BASE_PY" ]; then
+  BASE_PY="$(ls /var/packages/Python3*/target/bin/python3 2>/dev/null | tail -1)"
+fi
+if [ -z "$BASE_PY" ] && command -v python3 >/dev/null 2>&1; then BASE_PY="$(command -v python3)"; fi
+if [ -z "$BASE_PY" ]; then
+  echo "[$(date '+%F %T')] ERREUR : Python 3 introuvable (installer le paquet Python 3.x dans le Centre de paquets)" >> "$APP_DIR/logs/erreurs.log"
+  exit 1
+fi
+# Environnement virtuel cree par setup_nas.sh s'il existe, sinon le Python de base (+ dossier lib/ eventuel)
 if [ -x "$APP_DIR/venv/bin/python" ]; then
   PY="$APP_DIR/venv/bin/python"
 else
-  PY=""
-  for c in python3 python3.12 python3.11 python3.10 python3.9; do
-    if command -v "$c" >/dev/null 2>&1; then PY="$(command -v "$c")"; break; fi
-  done
-  if [ -z "$PY" ]; then
-    PY="$(ls /var/packages/Python3*/target/bin/python3 2>/dev/null | tail -1)"
-  fi
-  if [ -z "$PY" ]; then
-    echo "[$(date '+%F %T')] ERREUR : Python 3 introuvable (installer le paquet Python 3.x dans le Centre de paquets)" >> "$APP_DIR/logs/erreurs.log"
-    exit 1
-  fi
-  # installation "sans venv" (dossier lib/) si le venv n'a pas pu etre cree
+  PY="$BASE_PY"
   [ -d "$APP_DIR/lib" ] && export PYTHONPATH="$APP_DIR/lib:${PYTHONPATH:-}"
 fi
 
