@@ -10,7 +10,7 @@ OUT="$APP_DIR/logs/setup_nas.log"
 {
   echo "=== $(date '+%F %T') installation ==="
   echo "Python de base : $BASE_PY ($("$BASE_PY" --version 2>&1))"
-  MODULES="import requests, pdfplumber, dotenv, docx"
+  MODULES="import requests, pdfplumber, dotenv"   # python-docx est optionnel (lecture des .docx) : voir plus bas
   PYV() { "$1" -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null; }
   if [ -x "$APP_DIR/venv/bin/python" ]; then
     if [ "$(PYV "$APP_DIR/venv/bin/python")" != "$(PYV "$BASE_PY")" ] || ! "$APP_DIR/venv/bin/python" -c "$MODULES" 2>/dev/null; then
@@ -25,9 +25,11 @@ OUT="$APP_DIR/logs/setup_nas.log"
     TEST="$APP_DIR/venv/bin/python"
     "$TEST" -m pip install --upgrade pip
     "$TEST" -m pip install --prefer-binary -r "$APP_DIR/requirements-nas.txt"
+    "$TEST" -m pip install --prefer-binary "python-docx>=1.1" || echo "python-docx non installe (optionnel : texte des fichiers Word) - sans consequence"
   else
     TEST="$BASE_PY"
     "$TEST" -m pip install --upgrade --target "$APP_DIR/lib" -r "$APP_DIR/requirements-nas.txt"
+    "$TEST" -m pip install --upgrade --target "$APP_DIR/lib" "python-docx>=1.1" || echo "python-docx non installe (optionnel)"
     export PYTHONPATH="$APP_DIR/lib:${PYTHONPATH:-}"
   fi
   echo "--- verification des modules (Python $(PYV "$TEST")) ---"
