@@ -23,7 +23,7 @@ PY_FILES = [
     "import_mailbox.py", "import_factures.py", "import_devis.py", "import_documents.py",
     "import_releve.py", "backup_to_nas.py", "sync_gamme_calendar.py", "nas_naming.py",
 ]
-SH_FILES = ["common.sh", "run_all.sh", "run_backup.sh", "setup_nas.sh"]
+SH_FILES = ["common.sh", "run_all.sh", "run_backup.sh", "setup_nas.sh", "diagnostic.sh"]
 DROP_ENV = {"NAS_USER", "NAS_PASSWORD", "NAS_SALAIRE_PASSPHRASE", "WATCH_DIR", "DEVIS_WATCH_DIR",
             "DOCUMENTS_WATCH_DIR", "NAS_SAVADUR_PATH", "NAS_PERSO_PATH"}
 
@@ -33,9 +33,9 @@ def write_lf(src: Path, dst: Path):
 
 
 def main():
-    if DIST.exists():
-        shutil.rmtree(DIST)
-    DIST.mkdir(parents=True)
+    DIST.mkdir(parents=True, exist_ok=True)
+    for child in DIST.iterdir():  # on vide le contenu sans supprimer le dossier (Windows peut le verrouiller)
+        shutil.rmtree(child) if child.is_dir() else child.unlink()
     for name in PY_FILES:
         write_lf(SRC / name, DIST / name)
     for name in SH_FILES:
