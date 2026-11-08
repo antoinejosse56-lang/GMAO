@@ -908,6 +908,46 @@ const REPARATIONS_CLAUSE_PARAS=[
   "Le principe à retenir : ce n'est pas l'objet qui compte, mais la cause. Une usure liée au temps ne peut pas être facturée au locataire ; une dégradation liée à un défaut d'entretien ou une mauvaise utilisation reste à sa charge, quel que soit l'équipement concerné.",
   "Cette répartition sert notamment de référence pour apprécier l'état du logement lors de l'état des lieux de sortie, en comparant avec l'état des lieux d'entrée.",
 ];
+// Releve d'eau pris a l'etat des lieux (entree ou sortie) : enregistre comme releve
+// du compteur d'eau froide du locataire, a la date de l'EDL (idempotent : marqueur [EDL id]).
+// Entree = index de depart (consommation nulle, rien a facturer) ; sortie = consommation
+// depuis le dernier releve (ou depuis l'EDL d'entree), laissee a facturer.
+async function syncEdlWaterReleve(edl,t){
+  const idx=parseFloat(edl?.compteurs?.eau_froide);
+  if(isNaN(idx)||!edl?.date||!t)return null;
+  let cpt=(S.compteurs||[]).find(c=>c.tenant_id===t.id&&c.type==='Eau froide');
+  if(!cpt){
+    const sp=splitLogement(t.logement||'');
+    const prop=((S.topology&&S.topology.properties)||[]).find(x=>normOrd(x.name)===normOrd(sp.bien));
+    const zone=prop?(prop.zones||[]).find(z=>normOrd(z.name)===normOrd(sp.zone)):null;
+    const cRec={name:(prop?prop.name:sp.bien)+(sp.zone?' › '+sp.zone:'')+' — Compteur eau ('+(t.nom||'')+')',
+      tenant_id:t.id,type:'Eau froide',unite:'m³',prix_unitaire:0,index_initial:idx,topo_id:zone?.id||null,
+      notes:"Créé automatiquement à l'état des lieux."};
+    const{data,error}=await sb.from('compteurs').insert(cRec).select().single();
+    if(error){console.warn('Compteur eau non créé:',error.message);return null;}
+    cpt=data;S.compteurs.push(cpt);
+  }
+  const marker='[EDL '+edl.id+']';
+  if((S.releves||[]).some(r=>r.compteur_id===cpt.id&&(r.notes||'').includes(marker)))return null;
+  const isEntree=edl.type==='entree';
+  const label=isEntree?"état des lieux d'entrée":"état des lieux de sortie";
+  let ancien=idx;
+  if(!isEntree){
+    const prev=(S.releves||[]).filter(r=>r.compteur_id===cpt.id).sort((a,b)=>new Date(b.date)-new Date(a.date))[0];
+    const ent=findLogementEdlEntree(t.logement,t.id);
+    const entIdx=parseFloat(ent?.compteurs?.eau_froide);
+    ancien=prev?.nouvel_index??(!isNaN(entIdx)?entIdx:(cpt.index_initial||idx));
+    if(ancien>idx)ancien=idx;
+  }
+  const tarif=lastTarifEau();
+  const rec={compteur_id:cpt.id,date:edl.date,ancien_index:ancien,nouvel_index:idx,
+    prix_unitaire:tarif?tarif.tarif:(cpt.prix_unitaire||0),
+    notes:'Relevé '+label+' '+marker,paye:isEntree,facture_envoyee:isEntree};
+  const{data,error}=await sb.from('releves').insert(rec).select().single();
+  if(error){console.warn('Relevé EDL non créé:',error.message);return null;}
+  S.releves.unshift(data);
+  return data;
+}
 function findLogementEdlEntree(bien,tenantId){
   const norm=normBienSep(bien);
   return (S.logementEdl||[]).filter(e=>e.type==='entree'&&e.tenant_id===tenantId&&normBienSep(e.bien)===norm)
@@ -11952,6 +11992,7 @@ function bindAll(){
         const{data:inserted,error}=await sb.from('logement_edl').insert(rec).select().single();
         if(error){alert('État des lieux généré mais erreur enregistrement : '+error.message);return;}
         S.logementEdl.unshift(inserted);
+        try{await syncEdlWaterReleve(inserted,t);}catch(e){console.warn('Relevé EDL:',e);}
         const tenantSync={edl_url:freshUrl};
         const{error:tErr}=await sb.from('tenants').update(tenantSync).eq('id',t.id);
         if(tErr){alert('État des lieux enregistré mais erreur mise à jour fiche locataire : '+tErr.message);return;}
