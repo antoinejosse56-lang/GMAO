@@ -4296,7 +4296,9 @@ function cptUnit(c){
 function cptUnitOrder(u){
   const p=((S.topology&&S.topology.properties)||[]).find(x=>(x.name||'').toLowerCase()===(u.bien||'').toLowerCase());
   const idx=p?(p.zones||[]).findIndex(z=>(z.name||'').toLowerCase()===(u.zone||'').toLowerCase()):-1;
-  return idx<0?999:idx;
+  if(idx>=0)return idx;
+  const r=zoneRank(u.bien,u.zone);   // ordre de secours BAAM > Resto > Julie > 1er gauche > ...
+  return r<0?999:r;
 }
 function cptUnitSort(a,b){
   return (a.bien||'').localeCompare(b.bien||'','fr')||(cptUnitOrder(a)-cptUnitOrder(b))||(a.zone||'').localeCompare(b.zone||'','fr');
@@ -4485,10 +4487,12 @@ function renderCompteurs(){
 
   if(cTab==='liste'){
     const sorted=scopedCompteurs.slice().sort(function(a,b){return cptUnitSort(cptUnit(a),cptUnit(b))||(a.name||'').localeCompare(b.name||'','fr');});
-    const rows=sorted.map(function(c){
+    const cptParti=function(c){const t=c.tenant_id?S.tenants.find(x=>x.id===c.tenant_id):null;return !!t&&t.actif===false;};
+    const cardHtml=function(c){
       const tenant=c.tenant_id?S.tenants.find(t=>t.id===c.tenant_id):null;
       const lastRel=(S.releves||[]).filter(r=>r.compteur_id===c.id).sort((a,b)=>new Date(b.date)-new Date(a.date))[0];
-      return '<div class="card" style="margin-bottom:10px">'
+      const parti=cptParti(c);
+      return '<div class="card" style="margin-bottom:10px'+(parti?';background:var(--amber-bg);border-color:var(--amber)':'')+'">'
         +'<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">'
           +'<div>'
             +'<div style="font-weight:600;font-size:14px">'+c.name+'</div>'
@@ -4506,12 +4510,15 @@ function renderCompteurs(){
           +'</div>'
         +'</div>'
         +'</div>';
-    }).join('');
+    };
+    const rows=sorted.filter(c=>!cptParti(c)).map(cardHtml).join('');
+    const rowsPartis=sorted.filter(cptParti).map(cardHtml).join('');
     return tabBar
       +'<div style="display:flex;justify-content:flex-end;margin-bottom:12px">'
         +(isAdmin()?'<button class="btn btn-p" id="btn-add-cpt">+ Compteur</button>':'')
       +'</div>'
-      +(rows||'<div style="text-align:center;padding:24px;color:var(--text2)">Aucun compteur configuré.</div>');
+      +(rows||'<div style="text-align:center;padding:24px;color:var(--text2)">Aucun compteur configuré.</div>')
+      +(rowsPartis?'<div style="font-size:13px;font-weight:700;color:var(--amber);margin:22px 0 8px;text-transform:uppercase;letter-spacing:.04em">&#128100; Anciens locataires — compteurs inactifs</div>'+rowsPartis:'');
   }
 
   if(cTab==='releves'){
@@ -4539,7 +4546,7 @@ function renderCompteurs(){
         const montant=Math.round(conso*(r.prix_unitaire||cpt.prix_unitaire||0)*100)/100;
         const st=r.paye?'bgreen':r.facture_envoyee?'bblue':'bgray';
         const sl=r.paye?'✓ Acquittée':r.facture_envoyee?'&#128438; Facturée':'● En attente';
-        return '<tr>'
+        return '<tr'+(tenant&&tenant.actif===false?' style="background:var(--amber-bg)"':'')+'>'
           +'<td style="font-size:11px;white-space:nowrap">'+dateLabel(r.date)+'</td>'
           +'<td style="font-size:11px;color:var(--text2)">'+(tenant?.nom||'—')+(tenant&&tenant.actif===false?' <span style="font-size:9px">(parti)</span>':'')+'</td>'
           +'<td style="text-align:right;font-size:11px">'+(retro?'—':(r.ancien_index||0))+'</td>'
