@@ -912,6 +912,29 @@ const REPARATIONS_CLAUSE_PARAS=[
 // du compteur d'eau froide du locataire, a la date de l'EDL (idempotent : marqueur [EDL id]).
 // Entree = index de depart (consommation nulle, rien a facturer) ; sortie = consommation
 // depuis le dernier releve (ou depuis l'EDL d'entree), laissee a facturer.
+// Le Resto n'a pas de compteur d'eau : aucun releve exige a l'etat des lieux.
+function logementSansCompteurEau(logement){return /resto/i.test(normOrd(splitLogement(logement||'').zone));}
+// Dernier releve d'eau froide (index reel) enregistre sur les compteurs de ce logement, tous
+// occupants confondus (typiquement celui du locataire parti) - sert de reprise a l'EDL d'entree.
+function dernierReleveEauLogement(logement){
+  const sp=splitLogement(logement||'');
+  const ids=new Map();
+  (S.compteurs||[]).forEach(c=>{
+    if(c.type!=='Eau froide')return;
+    const u=cptUnit(c);
+    if(normOrd(u.bien)===normOrd(sp.bien)&&normOrd(u.zone)===normOrd(sp.zone))ids.set(c.id,c);
+  });
+  const rel=(S.releves||[]).filter(r=>ids.has(r.compteur_id)&&!releveEstRetro(r)&&r.nouvel_index!=null&&r.date)
+    .sort((a,b)=>new Date(b.date)-new Date(a.date)||new Date(b.created_at||0)-new Date(a.created_at||0))[0];
+  if(!rel)return null;
+  const c=ids.get(rel.compteur_id);
+  const ten=c.tenant_id?(S.tenants||[]).find(x=>x.id===c.tenant_id):null;
+  return{idx:rel.nouvel_index,date:rel.date,nom:ten?.nom||''};
+}
+function edlEauFroideManquante(t){
+  if(logementSansCompteurEau(t?.logement))return false;
+  return isNaN(parseFloat(document.getElementById('edl-eau-froide')?.value));
+}
 async function syncEdlWaterReleve(edl,t){
   const idx=parseFloat(edl?.compteurs?.eau_froide);
   if(isNaN(idx)||!edl?.date||!t)return null;
@@ -7839,6 +7862,9 @@ function renderModal(){
     const isSortie=m.edlType==='sortie';
     const entreeRef=edl.linkedEntree||null;
     const logFicheE=t.logement?findLogementFiche(t.logement):null;
+    const sansCptEau=logementSansCompteurEau(t.logement);
+    const eauRepris=(!isSortie&&!sansCptEau&&(edl.compteurs?.eau_froide===undefined||edl.compteurs?.eau_froide===''||edl.compteurs?.eau_froide==null))?dernierReleveEauLogement(t.logement):null;
+    const eauFroideVal=edl.compteurs?.eau_froide||(eauRepris?eauRepris.idx:'');
     // Assurance habitation : bloque la signature (comme les diagnostics sur
     // le bail) tant qu'aucune attestation n'est enregistree pour ce
     // locataire, avec le meme mecanisme de contournement volontaire
@@ -7915,9 +7941,12 @@ function renderModal(){
       <div class="form-group"><label>Gaz — Relevé</label><input id="edl-gaz-releve" value="${edl.compteurs?.gaz_releve||''}"></div>
     </div>`:''}
     <div class="g2c">
-      <div class="form-group"><label>Eau — Relevé froide (m³)</label><input id="edl-eau-froide" type="number" step="0.001" value="${edl.compteurs?.eau_froide||''}"></div>
+      <div class="form-group"><label>Eau — Relevé froide (m³)</label><input id="edl-eau-froide" type="number" step="0.001" value="${eauFroideVal}" ${sansCptEau?'disabled placeholder="Pas de compteur"':''}></div>
       <div class="form-group"><label>Eau — Relevé chaude (m³)</label><input id="edl-eau-chaude" type="number" step="0.001" value="${edl.compteurs?.eau_chaude||''}" ${logFicheE?.eau_chaude==='Collective'?'disabled placeholder="Collective"':''}></div>
     </div>
+    ${sansCptEau?'<div style="font-size:11px;color:var(--text2);margin-top:-6px;margin-bottom:10px">Ce logement n\'a pas de compteur d\'eau : aucun relevé requis.</div>'
+      :eauRepris?`<div style="font-size:11px;background:#e8f5e9;color:var(--text2);padding:6px 10px;border-radius:var(--radius);margin-top:-6px;margin-bottom:10px">📋 Pré-rempli avec le dernier relevé du logement : <b>${eauRepris.idx} m³</b> (${dateLabel(eauRepris.date)}${eauRepris.nom?' — '+eauRepris.nom:''}). À corriger si le relevé fait ce jour est différent.</div>`
+      :'<div style="font-size:11px;color:var(--red);margin-top:-6px;margin-bottom:10px">Relevé du compteur d\'eau froide obligatoire pour enregistrer l\'état des lieux.</div>'}
     <div style="font-size:11px;color:var(--text2);margin-top:-6px;margin-bottom:10px">Chauffage ${logFicheE?.chauffage||'—'} · Eau chaude ${logFicheE?.eau_chaude||'—'} (depuis la fiche du logement)</div>
 
     <div class="sec" style="margin:10px 0 6px">🔑 Clés et accès</div>
@@ -11953,6 +11982,7 @@ function bindAll(){
       const tChkA=S.modal.tenant||{};
       const assuranceOkChk=S.modal.edl?._assuranceOverride&&(S.modal.edl?._assuranceOverrideReason||'').trim();
       if(!tChkA.assurance_url&&!assuranceOkChk){alert("Assurance habitation non enregistrée pour ce locataire (ou motif de contournement manquant).");return;}
+      if(edlEauFroideManquante(tChkA)){alert("Relevé du compteur d'eau froide obligatoire pour générer l'état des lieux.");return;}
       if(!sigDataUrl('edl-paraphe-bailleur')||!sigDataUrl('edl-paraphe-locataire')){
         if(!confirm('Le paraphe du bailleur ou du locataire est vide. Continuer quand même ?'))return;
       }
@@ -11971,6 +12001,7 @@ function bindAll(){
       if(!t){alert('Locataire introuvable');return;}
       const assuranceOkSave=S.modal.edl?._assuranceOverride&&(S.modal.edl?._assuranceOverrideReason||'').trim();
       if(!t.assurance_url&&!assuranceOkSave){alert("Assurance habitation non enregistrée pour ce locataire (ou motif de contournement manquant).");return;}
+      if(edlEauFroideManquante(t)){alert("Relevé du compteur d'eau froide obligatoire pour enregistrer l'état des lieux.");return;}
       if(!sigDataUrl('edl-sig-bailleur')||!sigDataUrl('edl-sig-locataire')){
         alert('Les 2 signatures (bailleur et locataire) sont requises avant enregistrement.');return;
       }
