@@ -4818,7 +4818,7 @@ function renderRevenusLocatifsBlocks(year,tenantsList){
           +'<th style="font-size:11px">Locataire</th>'
           +'<th style="font-size:11px">Type</th>'
           +'<th style="font-size:11px;text-align:right">Réf.</th>'
-          +MONTHS.map(function(m){return '<th style="font-size:10px;padding:4px 3px">'+m.slice(0,3)+'</th>';}).join('')
+          +MONTHS.map(function(m,mi){return '<th style="font-size:10px;padding:4px 3px;text-align:right;min-width:34px">'+['Jan','Fév','Mar','Avr','Mai','Juin','Juil','Aoû','Sep','Oct','Nov','Déc'][mi]+'</th>';}).join('')
           +'<th style="font-size:11px">Total</th>'
         +'</tr></thead>'
         +'<tbody>'+rows+totalRow+'</tbody>'
