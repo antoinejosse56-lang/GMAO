@@ -968,6 +968,8 @@ async function syncEdlWaterReleve(edl,t){
   S.releves.unshift(data);
   return data;
 }
+// Reservation courte duree inactive : fermee a la main ('ferme') ou annulee, detectee a la synchro iCal ('annule').
+function resaInactive(r){return r.statut==='ferme'||r.statut==='annule';}
 function findLogementEdlEntree(bien,tenantId){
   const norm=normBienSep(bien);
   return (S.logementEdl||[]).filter(e=>e.type==='entree'&&e.tenant_id===tenantId&&normBienSep(e.bien)===norm)
@@ -3276,10 +3278,10 @@ function renderVehicles(){
     :s==="booking"?'<span class="badge" style="background:#003580;color:#fff;font-size:9px">Booking</span>'
     :'<span class="badge" style="background:#00B4D8;color:#fff;font-size:9px">Lodgify</span>';
   function roomTable(items,room){
-    const total=items.reduce((s,r)=>s+(r.montant_total||0),0);
-    const nuits=items.reduce((s,r)=>s+(r.nb_nuits||0),0);
+    const total=items.reduce((s,r)=>s+(resaInactive(r)?0:(r.montant_total||0)),0);
+    const nuits=items.reduce((s,r)=>s+(resaInactive(r)?0:(r.nb_nuits||0)),0);
     const rows=items.map(function(r){
-      const isFerme=r.statut==='ferme';
+      const isFerme=resaInactive(r);
       const incomplete=!isFerme&&!r.montant_total;
       const isEstime=!isFerme&&!!r.montant_total&&r.montant_estime===true;
       const menagePresta=r.menage_prestataire!==false;
@@ -3323,7 +3325,7 @@ function renderVehicles(){
       +'</div>';
   }
   // Taxe séjour section - Lodgify direct only
-  const resasLodgify=(S.reservations||[]).filter(r=>r.source==='lodgify'&&(S.resaYear===0||(r.date_arrivee||'').startsWith(String(S.resaYear||new Date().getFullYear()))));
+  const resasLodgify=(S.reservations||[]).filter(r=>r.source==='lodgify'&&r.statut!=='annule'&&(S.resaYear===0||(r.date_arrivee||'').startsWith(String(S.resaYear||new Date().getFullYear()))));
   function taxeAuto(r){const t=S.taxeSejourTaux||5;const p=S.taxeSejourPlafond||4.60;const pn=r.montant_nuits&&r.nb_nuits?r.montant_nuits/r.nb_nuits:0;return Math.round(Math.min(pn*t/100,p)*(r.nb_adultes||1)*(r.nb_nuits||1)*100)/100;}
   const rooms=['Studio','T2'];
   const taxeTable=rooms.map(function(room){
@@ -3364,7 +3366,7 @@ function renderVehicles(){
 
 // Tableau ménage
   const menageTable=rooms.map(function(room2){
-    const allForRoom=(S.reservations||[]).filter(r=>(S.resaYear===0||(r.date_arrivee||'').startsWith(String(S.resaYear||year)))&&r.room===room2);
+    const allForRoom=(S.reservations||[]).filter(r=>r.statut!=='annule'&&(S.resaYear===0||(r.date_arrivee||'').startsWith(String(S.resaYear||year)))&&r.room===room2);
     if(!allForRoom.length)return '';
     const byMoM={};
     allForRoom.forEach(function(r){
@@ -4893,7 +4895,7 @@ function renderFinances(){
   // Revenu net d'une unité meublée (Studio/T2, Rue CALVIN) - même calcul que
   // meubleTable plus bas, factorisé pour être réutilisé bien/ligne par bien/ligne.
   function meubleNetRevenue(room){
-    const resas=(S.reservations||[]).filter(r=>r.statut!=='ferme'&&r.montant_total&&r.room===room&&revYears.some(y=>(r.date_arrivee||'').startsWith(String(y))));
+    const resas=(S.reservations||[]).filter(r=>!resaInactive(r)&&r.montant_total&&r.room===room&&revYears.some(y=>(r.date_arrivee||'').startsWith(String(y))));
     return resas.reduce((total,r)=>{
       const src=r.source||'lodgify';
       const net=src==='airbnb'?(r.montant_total||0)-(r.frais_menage||0)
@@ -5154,7 +5156,7 @@ function renderFinances(){
         // Loc courte durée only visible for non-dubail users
         if(isDubail)return '';
         const resas=(S.reservations||[]).filter(function(r){
-          return r.statut!=='ferme'&&r.montant_total&&(year===0||(r.date_arrivee||'').startsWith(String(year)));
+          return !resaInactive(r)&&r.montant_total&&(year===0||(r.date_arrivee||'').startsWith(String(year)));
         });
         function revenusNets(r){
           const src=r.source||'lodgify';
@@ -11451,7 +11453,7 @@ function bindAll(){
     try{
       const r=await fetch('https://jbiphusmneoccarwkucq.supabase.co/functions/v1/lodgify-sync',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
       const d=await r.json();
-      if(d.ok){await loadAll();render();alert('\u2713 '+d.inserted+' r\u00e9servations sync\u00e9es !');}
+      if(d.ok){await loadAll();render();alert('\u2713 '+d.inserted+' r\u00e9servations sync\u00e9es !'+(d.annulees?'\n'+d.annulees+' r\u00e9servation(s) annul\u00e9e(s) chez Lodgify, marqu\u00e9e(s) annul\u00e9e(s) ici.':''));}
       else alert('Erreur : '+d.error);
     }catch(e){alert('Erreur : '+e.message);}
     btnSync.textContent='\uD83D\uDD04 Sync Lodgify';
@@ -11479,7 +11481,7 @@ function bindAll(){
   document.querySelectorAll('[data-toggle-ferme]').forEach(el=>el.onclick=async()=>{
     const r=S.reservations.find(x=>x.id===el.dataset.toggleFerme);
     if(!r)return;
-    const newStatut=r.statut==='ferme'?'confirmed':'ferme';
+    const newStatut=resaInactive(r)?'confirmed':'ferme';
     const{error}=await sb.from('reservations').update({statut:newStatut}).eq('id',r.id);
     if(error){alert('Erreur : '+error.message);return;}
     r.statut=newStatut;render();
