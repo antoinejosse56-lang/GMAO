@@ -970,6 +970,28 @@ async function syncEdlWaterReleve(edl,t){
 }
 // Reservation courte duree inactive : fermee a la main ('ferme') ou annulee, detectee a la synchro iCal ('annule').
 function resaInactive(r){return r.statut==='ferme'||r.statut==='annule';}
+// Pastille de suivi du menage Turno pour une reservation (missions lues dans Turno -> table menage_missions).
+// Rien n'est affiche si c'est vous qui faites le menage, pour un sejour termine ou une periode bloquee.
+function menageTurnoBadge(r){
+  const today=new Date().toISOString().slice(0,10);
+  if(r.menage_prestataire===false||!r.date_depart||r.date_depart<today||resaInactive(r))return '';
+  const nom=(r.guest_name||'').toLowerCase();
+  if(!nom||nom.includes('closed period'))return '';
+  const ms=(S.menageMissions||[]).filter(m=>m.reservation_id===r.id&&m.statut!=='annulee');
+  const mp=ms.find(m=>!m.doublon_de)||ms[0];
+  const doublons=ms.filter(m=>m.doublon_de).length;
+  const st='font-size:10px;padding:1px 6px;border-radius:8px;display:inline-block;margin-top:3px;white-space:nowrap';
+  let b;
+  if(!mp)b='<span style="'+st+';background:var(--amber-bg);color:var(--amber)" title="Aucune mission de ménage Turno pour ce départ : à créer dans Turno ou à faire vous-même">⚠ pas de mission</span>';
+  else if(mp.statut==='assignee')b='<span style="'+st+';background:var(--green-bg);color:var(--green-text)" title="Mission Turno #'+mp.turno_id+' assignée à '+(mp.agent||'')+'">✓ '+(mp.agent||'assignée')+'</span>';
+  else{
+    const j=Math.round((new Date(r.date_depart)-new Date(today))/86400000);
+    const urgent=j<=3;
+    b='<span style="'+st+';background:'+(urgent?'var(--red-bg)':'var(--amber-bg)')+';color:'+(urgent?'var(--red-text)':'var(--amber)')+'" title="Mission Turno #'+mp.turno_id+' : aucun agent assigné ('+(j<=0?'départ aujourd\'hui':'départ dans '+j+' j')+')">'+(urgent?'🔴':'⏳')+' non assignée</span>';
+  }
+  if(doublons)b+=' <span style="'+st+';background:var(--amber-bg);color:var(--amber)" title="'+(doublons+1)+' missions Turno pour ce même départ : vérifiez que l\'agent ne facture qu\'un seul ménage">⚠ doublon</span>';
+  return '<div>'+b+'</div>';
+}
 function findLogementEdlEntree(bien,tenantId){
   const norm=normBienSep(bien);
   return (S.logementEdl||[]).filter(e=>e.type==='entree'&&e.tenant_id===tenantId&&normBienSep(e.bien)===norm)
@@ -1075,7 +1097,7 @@ async function loadAll() {
     const test = await sb.from('users').select('count', {count:'exact',head:true});
     if (test.error) { showError(test.error.message || JSON.stringify(test.error)); return; }
 
-    const [u, a, tl, l, wo, mt, topo, rev, cpt, rel, ten, rp, rng, fam, crecheRes, ecoleRes, conso, facturesRes, resaRes, favRes, fournRes, chantiersRes, devisRes, devisAvRes, bienDocsRes, documentsAvRes, tfRegulRes, logFichesRes, logEdlRes, vehiculeRelevesRes, releveImportsRes, recurringExpensesRes, revenusGeresRes, fichesPaieRes] = await Promise.all([
+    const [u, a, tl, l, wo, mt, topo, rev, cpt, rel, ten, rp, rng, fam, crecheRes, ecoleRes, conso, facturesRes, resaRes, favRes, fournRes, chantiersRes, devisRes, devisAvRes, bienDocsRes, documentsAvRes, tfRegulRes, logFichesRes, logEdlRes, vehiculeRelevesRes, releveImportsRes, recurringExpensesRes, revenusGeresRes, fichesPaieRes, menageMissionsRes] = await Promise.all([
       sb.from('users').select('*'),
       sb.from('assets').select('*'),
       sb.from('tools').select('*'),
@@ -1109,7 +1131,8 @@ async function loadAll() {
       sb.from('releve_imports').select('*').order('created_at',{ascending:false}).limit(12),
       sb.from('recurring_expenses').select('*').order('created_at',{ascending:false}),
       sb.from('revenus_geres').select('*').order('date',{ascending:false}),
-      sb.from('fiches_paie_chiffrees').select('*').order('periode',{ascending:false})
+      sb.from('fiches_paie_chiffrees').select('*').order('periode',{ascending:false}),
+      sb.from('menage_missions').select('*').order('date_mission')
     ]);
 
     // Only block on critical tables
@@ -1153,6 +1176,7 @@ async function loadAll() {
     S.devisAValider = devisAvRes?.error ? [] : (devisAvRes?.data || []);
     if (bienDocsRes?.error) console.warn('Table bien_documents non disponible:', bienDocsRes.error.message);
     S.bienDocuments = bienDocsRes?.error ? [] : (bienDocsRes?.data || []);
+    S.menageMissions = menageMissionsRes?.error ? [] : (menageMissionsRes?.data || []);
     if (documentsAvRes?.error) console.warn('Table documents_a_valider non disponible:', documentsAvRes.error.message);
     S.documentsAValider = documentsAvRes?.error ? [] : (documentsAvRes?.data || []);
     if (tfRegulRes?.error) console.warn('Table tf_regularisations non disponible:', tfRegulRes.error.message);
@@ -3298,6 +3322,7 @@ function renderVehicles(){
             +'title="'+(menagePresta?'Prestataire — cliquer si vous faites vous-même':'Vous — cliquer si prestataire')+'">'
             +(menagePresta?'🧹 Presta':'🙋 Moi')
           +'</button>'
+          +menageTurnoBadge(r)
         +'</td>'
         +'<td style="text-align:right;font-weight:600">'+( r.montant_total?(isEstime?'<span style="color:#1D9E75" title="Estimé — commission '+(r.source==='airbnb'?'Airbnb':'Booking')+' moyenne ('+(r.source==='airbnb'?AIRBNB_COMMISSION_TAUX:BOOKING_COMMISSION_TAUX)+'%), à vérifier">≈ '+fmt(r.montant_total)+'</span>':fmt(r.montant_total)):'<span style="color:var(--amber)">⚠ à compléter</span>')+'</td>'
         +'<td>'+srcBadge(r.source)+'</td>'
