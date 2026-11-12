@@ -90,7 +90,8 @@ def reservations_a_rappeler():
     r.raise_for_status()
     out = []
     for x in r.json():
-        if (x.get("statut") or "confirmed").lower() in ("cancelled", "canceled", "annule", "annulee"):
+        # annulee / fermee a la main dans GMAO / refusee : pas de rappel (et on retire celui deja cree)
+        if any(k in (x.get("statut") or "").lower() for k in ("annul", "cancel", "declin", "refus", "ferme", "closed")):
             continue
         if est_bloque(x) or not x.get("date_depart"):
             continue
