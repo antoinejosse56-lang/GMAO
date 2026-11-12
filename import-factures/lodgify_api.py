@@ -33,24 +33,29 @@ def api_key():
     return k
 
 
-def all_bookings():
-    """Toutes les reservations (hors passees anciennes selon l'API) ; leve une exception si l'API repond mal."""
+def all_bookings(stay_filters=("Current", "Upcoming")):
+    """Reservations en cours ET a venir (une seule fois chacune) ; leve une exception si l'API repond mal."""
     h = {"X-ApiKey": api_key(), "Accept": "application/json"}
-    out, page = [], 1
-    while True:
-        r = requests.get(
-            f"{BASE}/v2/reservations/bookings",
-            headers=h,
-            params={"page": page, "size": 50, "includeCount": "true", "stayFilter": "Upcoming"},
-            timeout=30,
-        )
-        r.raise_for_status()
-        j = r.json()
-        items = j.get("items") or []
-        out += items
-        if not items or len(out) >= (j.get("count") or 0):
-            return out
-        page += 1
+    par_id = {}
+    for stay in stay_filters:
+        page, n = 1, 0
+        while True:
+            r = requests.get(
+                f"{BASE}/v2/reservations/bookings",
+                headers=h,
+                params={"page": page, "size": 50, "includeCount": "true", "stayFilter": stay},
+                timeout=30,
+            )
+            r.raise_for_status()
+            j = r.json()
+            items = j.get("items") or []
+            for b in items:
+                par_id[b.get("id")] = b
+            n += len(items)
+            if not items or n >= (j.get("count") or 0):
+                break
+            page += 1
+    return list(par_id.values())
 
 
 def room_of(b):
@@ -77,9 +82,10 @@ def guest_name(b):
 
 
 def gmao_reservations(from_date):
+    """Reservations GMAO pas encore terminees (sejours en cours inclus : depart >= from_date)."""
     r = requests.get(
         f"{SUPABASE_URL}/rest/v1/reservations",
-        params={"select": "*", "date_arrivee": f"gte.{from_date}", "order": "date_arrivee"},
+        params={"select": "*", "date_depart": f"gte.{from_date}", "order": "date_arrivee"},
         headers=SB,
         timeout=30,
     )

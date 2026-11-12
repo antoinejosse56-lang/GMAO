@@ -62,7 +62,7 @@ def anomalies(bookings, rows):
     today = date.today().isoformat()
     # 2 + 3. Booked chez Lodgify
     for b in bookings:
-        if b.get("status") != L.STATUS_ACTIVE or not L.room_of(b) or (b.get("arrival") or "") < today:
+        if b.get("status") != L.STATUS_ACTIVE or not L.room_of(b) or (b.get("departure") or "") < today:
             continue
         k = L.key_of(b)
         lignes = gmao_par_cle.get(k, [])

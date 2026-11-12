@@ -7,6 +7,10 @@ Synchronise les STATUTS des reservations GMAO avec l'API Lodgify (fiable, contra
 - reservation 'annule' dans GMAO redevenue 'Booked' chez Lodgify  ->  'confirmed' (jamais pour 'ferme', qui est
   une fermeture manuelle).
 - source ('lodgify' par defaut) corrigee en 'booking' / 'airbnb' quand l'API connait le vrai canal.
+- nom complet (les calendriers iCal ne donnent souvent que le prenom), et montants manquants : nuitees
+  (montant_nuits) et frais de menage repris de l'API quand la reservation n'a pas encore de montant_total ;
+  GMAO calcule ensuite tout seul le net estime (commission Airbnb / Booking), comme pour les autres.
+Les sejours EN COURS sont traites comme les sejours a venir.
 
 Les reservations absentes de l'API (calendriers Airbnb synchronises, periodes bloquees) ne sont jamais touchees.
 Garde-fous : rien n'est modifie si l'API echoue ou renvoie 0 reservation ; arret sans rien changer si plus de
@@ -43,7 +47,7 @@ def main():
 
     aujourdhui = date.today().isoformat()
     rows = L.gmao_reservations(aujourdhui)
-    a_annuler, a_rouvrir, sources = [], [], []
+    a_annuler, a_rouvrir, sources, complements = [], [], [], []
     for r in rows:
         k = (r.get("date_arrivee"), r.get("date_depart"), r.get("room"))
         bs = par_cle.get(k)
@@ -59,9 +63,25 @@ def main():
             vrai = L.canon_source(next(b for b in bs if b.get("status") == L.STATUS_ACTIVE))
             if vrai != "lodgify":
                 sources.append((r, vrai))
+        if actif:
+            ab = next(b for b in bs if b.get("status") == L.STATUS_ACTIVE)
+            patch = {}
+            nom_api, nom_gmao = L.guest_name(ab), (r.get("guest_name") or "").strip()
+            if nom_api and nom_api.lower() != nom_gmao.lower() and (
+                not nom_gmao or "*" in nom_gmao or nom_gmao == "Reservation" or nom_api.lower().startswith(nom_gmao.lower() + " ")
+            ):
+                patch["guest_name"] = nom_api
+            if r.get("montant_total") is None:
+                st = ab.get("subtotals") or {}
+                if not r.get("montant_nuits") and (st.get("stay") or 0) > 0:
+                    patch["montant_nuits"] = round(st["stay"], 2)
+                if r.get("frais_menage") is None and (st.get("fees") or 0) > 0:
+                    patch["frais_menage"] = round(st["fees"], 2)
+            if patch:
+                complements.append((r, patch))
 
     log(f"{len(bookings)} reservation(s) Lodgify, {len(rows)} reservation(s) GMAO a venir : "
-        f"{len(a_annuler)} a annuler, {len(a_rouvrir)} a reactiver, {len(sources)} source(s) a corriger.")
+        f"{len(a_annuler)} a annuler, {len(a_rouvrir)} a reactiver, {len(sources)} source(s) a corriger, {len(complements)} a completer.")
     if len(a_annuler) > MAX_ANNULATIONS:
         log(f"Plus de {MAX_ANNULATIONS} annulations d'un coup : arret par precaution, rien modifie.")
         return 1
@@ -76,6 +96,9 @@ def main():
     for r, vrai in sources:
         L.patch_reservation(r["id"], {"source": vrai})
         log(f"SOURCE : {r.get('guest_name')} {r['date_arrivee']} -> {vrai}")
+    for r, patch in complements:
+        L.patch_reservation(r["id"], patch)
+        log(f"COMPLETEE : {r.get('guest_name')} {r['date_arrivee']} -> {', '.join(f'{k}={v}' for k, v in patch.items())}")
     log("Termine.")
     return 0
 
