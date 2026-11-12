@@ -16,7 +16,7 @@ fi
 trap 'rmdir "$LOCK" 2>/dev/null' EXIT
 
 echo "[$(date '+%F %T')] debut du passage" >> "$APP_DIR/logs/run_all.log"
-for job in import_mailbox import_factures import_devis import_releve import_documents sync_gamme_calendar; do
+for job in import_mailbox import_factures import_devis import_releve import_documents sync_gamme_calendar sync_reservations_calendar; do
   echo "=== $(date '+%F %T') ===" >> "$APP_DIR/logs/$job.log"
   timeout 1500 "$PY" "$APP_DIR/$job.py" >> "$APP_DIR/logs/$job.log" 2>&1
   code=$?

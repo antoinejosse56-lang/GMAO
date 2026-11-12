@@ -21,7 +21,7 @@ DIST = HERE / "dist" / "gmao-imports"
 
 PY_FILES = [
     "import_mailbox.py", "import_factures.py", "import_devis.py", "import_documents.py",
-    "import_releve.py", "backup_to_nas.py", "sync_gamme_calendar.py", "nas_naming.py",
+    "import_releve.py", "backup_to_nas.py", "sync_gamme_calendar.py", "sync_reservations_calendar.py", "nas_naming.py",
 ]
 SH_FILES = ["common.sh", "run_all.sh", "run_backup.sh", "setup_nas.sh", "diagnostic.sh"]
 DROP_ENV = {"NAS_USER", "NAS_PASSWORD", "NAS_SALAIRE_PASSPHRASE", "WATCH_DIR", "DEVIS_WATCH_DIR",
