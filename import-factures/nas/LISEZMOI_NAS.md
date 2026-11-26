@@ -46,14 +46,23 @@ Remplacez `CHEMIN` par le chemin de l'étape 3.
   importé normalement.
 * Les journaux sont dans `gmao-imports/logs/`.
 
-## Sauvegarde de la base (tables)
+## Sauvegarde et vérification (tables et fichiers)
 
-La tâche « GMAO - sauvegarde » (02h00) lance d'abord `backup_base.py`, puis la copie des fichiers.
+La tâche « GMAO - sauvegarde » (02h00) lance d'abord `backup_base.py` (tables), puis `backup_to_nas.py` (fichiers).
+Chaque passage vérifie ce qu'il a sauvegardé :
+
+* tables : double lecture de la base, puis relecture de l'archive comparée valeur par valeur ;
+* fichiers : tous les espaces de stockage, chaque fichier comparé à l'empreinte de l'original ; un fichier
+  différent n'est jamais écrasé ni ignoré. `python backup_to_nas.py --simulation` contrôle sans rien écrire.
+
+Si l'une des deux n'est pas complète, `alerte_sauvegarde.py` envoie un mail. Essai de l'alerte :
+`python alerte_sauvegarde.py --essai`. Aucun mail n'est possible si le NAS est éteint ou sans internet.
 Chaque nuit crée `Documents GMAO Perso\_Sauvegarde base GMAO\gmao_base_AAAA-MM-JJ_HHMMSS.zip` (un fichier JSON
-par table). Rien n'est jamais écrasé ni supprimé. La base est seulement lue.
+par table). La base est seulement lue. Seules les **3 dernières sauvegardes saines** sont conservées ; en cas
+d'alerte ou de sauvegarde incomplète, plus rien n'est supprimé tant que le problème n'a pas été examiné.
 
 À contrôler dans `logs/run_all.log` : `backup_base -> code 0`. Le code 2 signale une sauvegarde incomplète ou
-une table qui a perdu plus de 10 % de ses lignes, le code 1 un échec : détail dans `logs/backup_base.log`.
+une table disparue, vidée ou ayant perdu au moins 5 lignes et 10 %, le code 1 un échec : détail dans `logs/backup_base.log`.
 
 ## 6. Une fois que tout fonctionne
 

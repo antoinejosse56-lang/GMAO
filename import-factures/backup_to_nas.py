@@ -5,11 +5,14 @@ locataires, factures-a-valider, devis-a-valider) vers le NAS, repartis dans
 tout le reste (perso) - Supabase reste le stockage principal/en ligne de
 l'application, ce script ne fait qu'une copie de sauvegarde en plus.
 
-Idempotent : un fichier deja present a destination (meme chemin) n'est
-jamais retelecharge - a relancer periodiquement (Planificateur de taches
-Windows), comme les autres scripts de ce dossier. Les fichiers ne sont
-jamais modifies une fois uploades cote appli, donc pas besoin de comparer
-les tailles/dates pour detecter un changement.
+Idempotent : un fichier dont une copie IDENTIQUE (empreinte MD5) est deja a
+destination n'est pas retelecharge. Si un AUTRE fichier occupe deja ce nom,
+la copie est faite a cote avec un suffixe : rien n'est ecrase ni ignore. Les
+noms trop longs sont raccourcis. TOUS les espaces de stockage sont copies.
+
+Verification : chaque fichier est controle (copie existante ou relue apres
+ecriture, comparee a l'empreinte de l'original). Code de sortie 2 si un seul
+fichier manque. `--simulation` : controle seulement, n'ecrit rien.
 
 La repartition SAVADUR/Dubail vs Perso est deduite des memes regles que
 l'application (champ `compte` quand il existe, sinon nom du bien/logement
@@ -34,7 +37,9 @@ Usage :
     copier .env.example en .env et remplir les valeurs NAS_* (voir commentaire)
     python backup_to_nas.py
 """
+import hashlib
 import os
+import re
 import subprocess
 import sys
 import time
@@ -43,6 +48,7 @@ from pathlib import Path
 import requests
 from dotenv import load_dotenv
 from requests.adapters import HTTPAdapter
+from requests.utils import quote
 from urllib3.util.retry import Retry
 
 from nas_naming import sanitize_filename, year_month, dest_folder, dest_filename, equipment_name_for, is_savadur_for, dubail_filter
@@ -57,7 +63,13 @@ NAS_USER = os.environ.get("NAS_USER", "")
 NAS_PASSWORD = os.environ.get("NAS_PASSWORD", "")
 
 HEADERS = {"apikey": SERVICE_KEY, "Authorization": f"Bearer {SERVICE_KEY}"}
-BUCKETS = ["documents-locataires", "factures-a-valider", "devis-a-valider"]
+# Espaces connus ; la liste reelle est demandee a Supabase a chaque passage, pour qu'un nouvel espace ne soit
+# jamais oublie.
+BUCKETS = ["documents-locataires", "factures-a-valider", "devis-a-valider", "documents-a-valider"]
+SIMULATION = "--simulation" in sys.argv
+MAX_NOM = 180       # octets par nom de fichier/dossier (limite du NAS : 255)
+META = {}           # (bucket, chemin) -> taille / empreinte annoncees par le stockage
+LISTES = {}         # dossier -> noms presents (evite de relister le meme dossier des milliers de fois)
 
 # Execution non surveillee (tache planifiee) : les blips reseau passagers (DNS,
 # Wi-Fi, NAS qui repond avec un temps de retard) ne doivent jamais faire
@@ -238,6 +250,11 @@ def build_classification():
     factures = [f for f in fetch_all("factures", "drive_url,compte") if f.get("drive_url")]
     factures_av = {f["storage_path"]: f for f in fetch_all("factures_a_valider", "storage_path,bien,statut,entreprise,description,date_facture,asset_id") if f.get("storage_path")}
     devis_av = {d["storage_path"]: d for d in fetch_all("devis_a_valider", "storage_path,bien,statut,entreprise,motif,date_devis,wo_id") if d.get("storage_path")}
+    documents_av = {}
+    for d in fetch_all("documents_a_valider", "storage_path,apercu_pdf_path,bien,statut"):
+        for k in ("storage_path", "apercu_pdf_path"):
+            if d.get(k):
+                documents_av[d[k]] = d
 
     # Cle "<owner_id>" -> ligne factures, pour ranger une photo prise depuis
     # l'appli (documents-locataires/factures/<owner_id>/...) comme une facture
@@ -306,6 +323,7 @@ def build_classification():
         "facture_photo": facture_photo_is_savadur,
         "factures_av": factures_av,
         "devis_av": devis_av,
+        "documents_av": documents_av,
         "bien_docs_by_key": bien_docs_by_key,
         "edl_by_key": edl_by_key,
         "tenants": tenants,
@@ -358,8 +376,9 @@ def list_all_objects(bucket, prefix=""):
             full_path = f"{prefix}{item['name']}" if not prefix or prefix.endswith("/") else f"{prefix}/{item['name']}"
             if item.get("id") is None and item.get("metadata") is None:
                 objects.extend(list_all_objects(bucket, full_path + "/"))
-            else:
+            elif item["name"] != ".emptyFolderPlaceholder":
                 objects.append(full_path)
+                META[(bucket, full_path)] = item.get("metadata") or {}
         if len(page) < limit:
             break
         offset += limit
@@ -367,7 +386,7 @@ def list_all_objects(bucket, prefix=""):
 
 
 def download_object(bucket, path):
-    resp = requests.get(f"{SUPABASE_URL}/storage/v1/object/{bucket}/{path}", headers=HEADERS, timeout=60)
+    resp = requests.get(f"{SUPABASE_URL}/storage/v1/object/{bucket}/{quote(path)}", headers=HEADERS, timeout=180)
     resp.raise_for_status()
     return resp.content
 
@@ -391,83 +410,183 @@ def write_with_retry(dest: Path, content: bytes, root: str, attempts=3):
     raise last_error
 
 
+def destination(bucket, path, cls):
+    """(racine, chemin lisible) ou ranger ce fichier sur le NAS."""
+    row = None
+    if bucket == "documents-locataires":
+        is_savadur = classify_documents_locataires(path, cls)
+    elif bucket == "factures-a-valider":
+        row = cls["factures_av"].get(path)
+        is_savadur = dubail_filter(row.get("bien")) if row else False
+    elif bucket == "devis-a-valider":
+        row = cls["devis_av"].get(path)
+        is_savadur = dubail_filter(row.get("bien")) if row else False
+    else:  # documents-a-valider et tout autre espace
+        row = cls["documents_av"].get(path) if bucket == "documents-a-valider" else None
+        is_savadur = dubail_filter(row.get("bien")) if row else False
+
+    # Document (diagnostic, EDL...) deja rattache a un bien dans le GMAO :
+    # verifie en priorite, quel que soit le bucket physique - certains
+    # bien_documents anciens pointent encore vers factures-a-valider
+    # (heritage du pipeline mail avant leur reclassement manuel).
+    key = f"{bucket}/{path}"
+    bien_doc = cls["bien_docs_by_key"].get(key)
+    edl_row = cls["edl_by_key"].get(key)
+    if edl_row:
+        is_savadur = dubail_filter(edl_row.get("bien"))
+        root = NAS_SAVADUR_PATH if is_savadur else NAS_PERSO_PATH
+        dest = edl_dest(root, edl_row, cls["tenants"])
+    elif bien_doc:
+        is_savadur = dubail_filter(bien_doc.get("bien"))
+        root = NAS_SAVADUR_PATH if is_savadur else NAS_PERSO_PATH
+        dest = bien_document_dest(root, bien_doc)
+    elif row and row.get("statut") == "valide" and bucket in ("factures-a-valider", "devis-a-valider"):
+        # Facture/devis deja validee dans le GMAO : rangee et renommee
+        # lisiblement (<bien>/<Factures|Devis>/<annee.mois.Entreprise.
+        # Description>.ext, ou <Vehicules>/<nom> a defaut de bien pour
+        # une depense liee a un vehicule/bateau) au lieu du mirroir brut
+        # du bucket - une fois validee, le nom d'origine issu du mail n'a
+        # plus d'interet et la noyer avec les centaines d'autres fichiers
+        # "a valider" la rendait introuvable.
+        kind = "Factures" if bucket == "factures-a-valider" else "Devis"
+        date_str = row.get("date_facture") if bucket == "factures-a-valider" else row.get("date_devis")
+        description = row.get("description") if bucket == "factures-a-valider" else row.get("motif")
+        bien = row.get("bien")
+        equipment = None if bien else equipment_name_for(
+            row.get("asset_id"), row.get("wo_id"), cls["assets"], cls["work_orders"]
+        )
+        if not bien and equipment:
+            asset_id_for_savadur = row.get("asset_id") or (cls["work_orders"].get(row.get("wo_id")) or {}).get("asset_id")
+            is_savadur = bool(cls["asset"](asset_id_for_savadur)) if asset_id_for_savadur else False
+        root = NAS_SAVADUR_PATH if is_savadur else NAS_PERSO_PATH
+        dest = dest_folder(root, kind, bien=bien, equipment=equipment) / dest_filename(
+            Path(path).suffix, date_str, row.get("entreprise"), description
+        )
+    else:
+        # Autres documents-locataires deja rattaches a un bien/locataire/
+        # equipement dans le GMAO (identite, assurance, bt, vehicules,
+        # factures-photo) : mem principe que ci-dessus. Repli sur le
+        # mirroir brut si la ligne source est introuvable (fichier
+        # orphelin - jamais rattache a rien cote appli).
+        root_resolved, resolved_dest = (
+            documents_locataires_dest(path, cls) if bucket == "documents-locataires" else (None, None)
+        )
+        if resolved_dest:
+            root, dest = root_resolved, resolved_dest
+        else:
+            root = NAS_SAVADUR_PATH if is_savadur else NAS_PERSO_PATH
+            dest = Path(root) / bucket / Path(path)
+    return root, dest
+
+
+def chemin_court(dest, root, cle):
+    """Raccourcit les noms trop longs pour le NAS, en gardant une marque unique."""
+    morceaux = []
+    for nom in dest.relative_to(root).parts:
+        if len(nom.encode("utf-8")) > MAX_NOM:
+            ext = Path(nom).suffix if len(Path(nom).suffix) <= 10 else ""
+            tige = nom[: len(nom) - len(ext)] if ext else nom
+            marque = " ~" + hashlib.md5(cle.encode("utf-8")).hexdigest()[:8]
+            while len((tige + marque + ext).encode("utf-8")) > MAX_NOM:
+                tige = tige[:-1]
+            nom = tige.rstrip(". ") + marque + ext
+        morceaux.append(nom)
+    court = Path(root).joinpath(*morceaux)
+    antislash = chr(92)
+    if os.name == "nt" and len(str(court)) > 240 and str(court).startswith(antislash * 2):
+        prefixe = antislash * 2 + "?" + antislash
+        if not str(court).startswith(prefixe):
+            court = Path(prefixe + "UNC" + antislash + str(court)[2:])
+    return court
+
+
+def empreinte(fichier):
+    h = hashlib.md5()
+    with open(fichier, "rb") as f:
+        for bloc in iter(lambda: f.read(1 << 20), b""):
+            h.update(bloc)
+    return h.hexdigest()
+
+
+def attendu(bucket, path):
+    """(taille, empreinte MD5 ou None) annoncees par le stockage pour l'original."""
+    meta = META.get((bucket, path), {})
+    etag = (meta.get("eTag") or "").strip(chr(34))
+    return meta.get("size"), etag if re.fullmatch("[0-9a-f]{32}", etag) else None
+
+
+def noms_du_dossier(dossier):
+    if dossier not in LISTES:
+        LISTES[dossier] = set(os.listdir(dossier)) if os.path.isdir(dossier) else set()
+    return LISTES[dossier]
+
+
+def deja_copie(dest, taille, md5):
+    """Fichier identique deja present sous ce nom ou une de ses variantes ("nom (2)", "nom (marque)")."""
+    for nom in sorted(noms_du_dossier(dest.parent), key=lambda n: n != dest.name):
+        if not (nom.startswith(dest.stem) and Path(nom).suffix.lower() == dest.suffix.lower()):
+            continue
+        f = dest.parent / nom
+        if not f.is_file() or (taille is not None and f.stat().st_size != taille):
+            continue
+        if md5 is not None:
+            if empreinte(f) == md5:
+                return f
+        elif taille is not None and nom == dest.name:
+            return f
+    return None
+
+
+def emplacement_libre(dest, cle):
+    """`dest` s'il est libre, sinon une variante : un fichier existant n'est jamais ecrase."""
+    pris = noms_du_dossier(dest.parent)
+    if dest.name not in pris:
+        return dest
+    marque = hashlib.md5(cle.encode("utf-8")).hexdigest()[:6]
+    n = 1
+    while True:
+        nom = f"{dest.stem} ({marque}{'' if n == 1 else ' ' + str(n)}){dest.suffix}"
+        if nom not in pris:
+            return dest.parent / nom
+        n += 1
+
+
 def backup_bucket(bucket, cls):
+    """Copie et verifie tous les fichiers d'un espace. Renvoie (verifies, copies, manquants)."""
     log(f"Listage de {bucket}...")
     paths = list_all_objects(bucket)
     log(f"  {len(paths)} fichier(s) trouve(s) dans {bucket}.")
-    copied = skipped = errors = 0
+    verifies = copies = 0
+    manquants = []
     for path in paths:
-        row = None
-        if bucket == "documents-locataires":
-            is_savadur = classify_documents_locataires(path, cls)
-        elif bucket == "factures-a-valider":
-            row = cls["factures_av"].get(path)
-            is_savadur = dubail_filter(row.get("bien")) if row else False
-        else:  # devis-a-valider
-            row = cls["devis_av"].get(path)
-            is_savadur = dubail_filter(row.get("bien")) if row else False
-
-        # Document (diagnostic, EDL...) deja rattache a un bien dans le GMAO :
-        # verifie en priorite, quel que soit le bucket physique - certains
-        # bien_documents anciens pointent encore vers factures-a-valider
-        # (heritage du pipeline mail avant leur reclassement manuel).
-        key = f"{bucket}/{path}"
-        bien_doc = cls["bien_docs_by_key"].get(key)
-        edl_row = cls["edl_by_key"].get(key)
-        if edl_row:
-            is_savadur = dubail_filter(edl_row.get("bien"))
-            root = NAS_SAVADUR_PATH if is_savadur else NAS_PERSO_PATH
-            dest = edl_dest(root, edl_row, cls["tenants"])
-        elif bien_doc:
-            is_savadur = dubail_filter(bien_doc.get("bien"))
-            root = NAS_SAVADUR_PATH if is_savadur else NAS_PERSO_PATH
-            dest = bien_document_dest(root, bien_doc)
-        elif row and row.get("statut") == "valide" and bucket in ("factures-a-valider", "devis-a-valider"):
-            # Facture/devis deja validee dans le GMAO : rangee et renommee
-            # lisiblement (<bien>/<Factures|Devis>/<annee.mois.Entreprise.
-            # Description>.ext, ou <Vehicules>/<nom> a defaut de bien pour
-            # une depense liee a un vehicule/bateau) au lieu du mirroir brut
-            # du bucket - une fois validee, le nom d'origine issu du mail n'a
-            # plus d'interet et la noyer avec les centaines d'autres fichiers
-            # "a valider" la rendait introuvable.
-            kind = "Factures" if bucket == "factures-a-valider" else "Devis"
-            date_str = row.get("date_facture") if bucket == "factures-a-valider" else row.get("date_devis")
-            description = row.get("description") if bucket == "factures-a-valider" else row.get("motif")
-            bien = row.get("bien")
-            equipment = None if bien else equipment_name_for(
-                row.get("asset_id"), row.get("wo_id"), cls["assets"], cls["work_orders"]
-            )
-            if not bien and equipment:
-                asset_id_for_savadur = row.get("asset_id") or (cls["work_orders"].get(row.get("wo_id")) or {}).get("asset_id")
-                is_savadur = bool(cls["asset"](asset_id_for_savadur)) if asset_id_for_savadur else False
-            root = NAS_SAVADUR_PATH if is_savadur else NAS_PERSO_PATH
-            dest = dest_folder(root, kind, bien=bien, equipment=equipment) / dest_filename(
-                Path(path).suffix, date_str, row.get("entreprise"), description
-            )
-        else:
-            # Autres documents-locataires deja rattaches a un bien/locataire/
-            # equipement dans le GMAO (identite, assurance, bt, vehicules,
-            # factures-photo) : mem principe que ci-dessus. Repli sur le
-            # mirroir brut si la ligne source est introuvable (fichier
-            # orphelin - jamais rattache a rien cote appli).
-            root_resolved, resolved_dest = (
-                documents_locataires_dest(path, cls) if bucket == "documents-locataires" else (None, None)
-            )
-            if resolved_dest:
-                root, dest = root_resolved, resolved_dest
-            else:
-                root = NAS_SAVADUR_PATH if is_savadur else NAS_PERSO_PATH
-                dest = Path(root) / bucket / Path(path)
-        if dest.exists():
-            skipped += 1
-            continue
+        cle = f"{bucket}/{path}"
         try:
-            write_with_retry(dest, download_object(bucket, path), root)
-            copied += 1
+            root, dest = destination(bucket, path, cls)
+            dest = chemin_court(dest, root, cle)
+            taille, md5 = attendu(bucket, path)
+            if deja_copie(dest, taille, md5):
+                verifies += 1
+                continue
+            if SIMULATION:
+                manquants.append(cle)
+                continue
+            contenu = download_object(bucket, path)
+            original = md5 or hashlib.md5(contenu).hexdigest()
+            if hashlib.md5(contenu).hexdigest() != original or (taille is not None and len(contenu) != taille):
+                raise ValueError("le telechargement differe de l'original")
+            cible = emplacement_libre(dest, cle)
+            write_with_retry(cible, contenu, root)
+            if empreinte(cible) != original:
+                raise ValueError("le fichier relu sur le NAS differe de l'original")
+            noms_du_dossier(cible.parent).add(cible.name)
+            copies += 1
+            verifies += 1
         except Exception as e:
-            errors += 1
-            log(f"  ERREUR {path} : {e}")
-    log(f"  {bucket} : {copied} copie(s), {skipped} deja present(s), {errors} erreur(s).")
+            manquants.append(cle)
+            log(f"  ERREUR {cle} : {e}")
+    log(f"  {bucket} : {verifies}/{len(paths)} verifie(s) a l'identique, dont {copies} nouvelle(s) copie(s), "
+        f"{len(manquants)} manquant(s).")
+    return verifies, copies, manquants
 
 
 def main():
@@ -482,14 +601,36 @@ def main():
     log("Chargement des tables de classification (tenants, assets, BT, EDL, factures)...")
     cls = build_classification()
 
-    for bucket in BUCKETS:
+    try:
+        reponse = requests.get(f"{SUPABASE_URL}/storage/v1/bucket", headers=HEADERS, timeout=30)
+        reponse.raise_for_status()
+        espaces = sorted({b["id"] for b in reponse.json()} | set(BUCKETS))
+        liste_ok = True
+    except Exception as e:
+        log(f"  ERREUR liste des espaces de stockage : {e}")
+        espaces, liste_ok = BUCKETS, False
+
+    verifies = copies = 0
+    echecs = 0 if liste_ok else 1
+    manquants = []
+    for bucket in espaces:
         try:
-            backup_bucket(bucket, cls)
+            v, c, m = backup_bucket(bucket, cls)
+            verifies += v
+            copies += c
+            manquants += m
         except Exception as e:
+            echecs += 1
             log(f"  ECHEC complet sur {bucket} (sera retente au prochain lancement) : {e}")
 
+    for m in manquants:
+        log(f"  MANQUANT : {m}")
+    total = verifies + len(manquants)
+    log(f"VERIFICATION : {verifies}/{total} fichiers presents a l'identique sur le NAS, {copies} copie(s) ce "
+        f"passage, {len(manquants)} manquant(s), {echecs} controle(s) en echec.")
     log("Termine.")
+    return 2 if manquants or echecs else 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
