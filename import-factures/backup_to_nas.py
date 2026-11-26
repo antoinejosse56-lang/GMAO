@@ -14,6 +14,9 @@ Verification : chaque fichier est controle (copie existante ou relue apres
 ecriture, comparee a l'empreinte de l'original). Code de sortie 2 si un seul
 fichier manque. `--simulation` : controle seulement, n'ecrit rien.
 
+Restauration : <partage Perso>/_Sauvegarde base GMAO/manifeste_fichiers.json dit, pour chaque fichier, son espace
+et son chemin d'origine, son empreinte et ou se trouve sa copie sur le NAS. Une entree n'est jamais retiree.
+
 La repartition SAVADUR/Dubail vs Perso est deduite des memes regles que
 l'application (champ `compte` quand il existe, sinon nom du bien/logement
 contenant "dubail"). Chaque fichier rattachable a un bien/locataire/equipement
@@ -38,6 +41,7 @@ Usage :
     python backup_to_nas.py
 """
 import hashlib
+import json
 import os
 import re
 import subprocess
@@ -70,6 +74,8 @@ SIMULATION = "--simulation" in sys.argv
 MAX_NOM = 180       # octets par nom de fichier/dossier (limite du NAS : 255)
 META = {}           # (bucket, chemin) -> taille / empreinte annoncees par le stockage
 LISTES = {}         # dossier -> noms presents (evite de relister le meme dossier des milliers de fois)
+MANIFESTE = {}      # "bucket/chemin" -> ou se trouve la copie verifiee
+NOM_MANIFESTE = ("_Sauvegarde base GMAO", "manifeste_fichiers.json")
 
 # Execution non surveillee (tache planifiee) : les blips reseau passagers (DNS,
 # Wi-Fi, NAS qui repond avec un temps de retard) ne doivent jamais faire
@@ -551,6 +557,38 @@ def emplacement_libre(dest, cle):
         n += 1
 
 
+def noter_manifeste(cle, fichier, taille, md5):
+    """Retient ou se trouve la copie verifiee d'un fichier (pour pouvoir le remettre a sa place)."""
+    antislash = chr(92)
+    chemin = str(fichier)
+    long_unc = antislash * 2 + "?" + antislash + "UNC" + antislash
+    if chemin.startswith(long_unc):
+        chemin = antislash * 2 + chemin[len(long_unc):]
+    for partage, racine in (("savadur", NAS_SAVADUR_PATH), ("perso", NAS_PERSO_PATH)):
+        if chemin.startswith(str(Path(racine))):
+            relatif = chemin[len(str(Path(racine))):].replace(antislash, "/").lstrip("/")
+            MANIFESTE[cle] = {"partage": partage, "chemin_nas": relatif,
+                              "taille": taille if taille is not None else fichier.stat().st_size,
+                              "md5": md5 or empreinte(fichier)}
+            return
+    raise ValueError(f"copie hors des partages NAS : {chemin}")
+
+
+def ecrire_manifeste():
+    """Fusionne avec la liste precedente : un fichier disparu de l'application garde son entree."""
+    fichier = os.path.join(NAS_PERSO_PATH, *NOM_MANIFESTE)
+    ancien = {}
+    if os.path.exists(fichier):
+        with open(fichier, encoding="utf-8") as f:
+            ancien = json.load(f)["fichiers"]
+    ancien.update(MANIFESTE)
+    os.makedirs(os.path.dirname(fichier), exist_ok=True)
+    with open(fichier + ".part", "w", encoding="utf-8") as f:
+        json.dump({"date": time.strftime("%Y-%m-%d %H:%M:%S"), "fichiers": ancien}, f, ensure_ascii=False, indent=1)
+    os.replace(fichier + ".part", fichier)
+    log(f"Manifeste de restauration : {len(ancien)} fichier(s), dont {len(MANIFESTE)} confirme(s) ce passage.")
+
+
 def backup_bucket(bucket, cls):
     """Copie et verifie tous les fichiers d'un espace. Renvoie (verifies, copies, manquants)."""
     log(f"Listage de {bucket}...")
@@ -564,7 +602,9 @@ def backup_bucket(bucket, cls):
             root, dest = destination(bucket, path, cls)
             dest = chemin_court(dest, root, cle)
             taille, md5 = attendu(bucket, path)
-            if deja_copie(dest, taille, md5):
+            present = deja_copie(dest, taille, md5)
+            if present:
+                noter_manifeste(cle, present, taille, md5)
                 verifies += 1
                 continue
             if SIMULATION:
@@ -579,6 +619,7 @@ def backup_bucket(bucket, cls):
             if empreinte(cible) != original:
                 raise ValueError("le fichier relu sur le NAS differe de l'original")
             noms_du_dossier(cible.parent).add(cible.name)
+            noter_manifeste(cle, cible, len(contenu), original)
             copies += 1
             verifies += 1
         except Exception as e:
@@ -622,6 +663,13 @@ def main():
         except Exception as e:
             echecs += 1
             log(f"  ECHEC complet sur {bucket} (sera retente au prochain lancement) : {e}")
+
+    if not SIMULATION:
+        try:
+            ecrire_manifeste()
+        except Exception as e:
+            echecs += 1
+            log(f"  ERREUR manifeste de restauration : {e}")
 
     for m in manquants:
         log(f"  MANQUANT : {m}")
