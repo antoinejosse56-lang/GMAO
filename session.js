@@ -2,6 +2,8 @@
 // - Adresse et mot de passe demandes une seule fois par appareil ; le mot de passe n'est jamais enregistre.
 // - Les appels a la base partent ensuite avec le jeton de la personne connectee (renouvele automatiquement).
 // - La base refuse tout acces sans connexion : une page non connectee demande l'adresse et le mot de passe.
+// - Les documents sont prives : les liens enregistres (« .../object/public/... ») sont remplaces au moment de
+//   l'affichage ou de l'ouverture par des liens temporaires. La base garde les liens d'origine.
 (function () {
   'use strict';
   if (window.GMAOSession) return;
@@ -77,6 +79,15 @@
 
   window.fetch = function (cible, options) {
     var adresse = typeof cible === 'string' ? cible : (cible && cible.url) || '';
+    // lecture d'un document par le code (piece jointe, annexe d'un bail) : par le chemin reserve aux connectes
+    var methode = String((options && options.method) || 'GET').toUpperCase();
+    if (fichier(adresse) && (methode === 'GET' || methode === 'HEAD')) {
+      adresse = URL_BASE + '/storage/v1/object/authenticated/' + adresse.slice(DOCUMENTS.length);
+      cible = adresse;
+      var entetes = new Headers((options && options.headers) || {});
+      entetes.set('apikey', CLE_PUBLIQUE);
+      options = Object.assign({}, options, { headers: entetes });
+    }
     if (adresse.indexOf(URL_BASE + '/rest/') !== 0 && adresse.indexOf(URL_BASE + '/storage/') !== 0) {
       return envoyer(cible, options);
     }
@@ -102,6 +113,94 @@
       });
     });
   };
+
+  // ---------------------------------------------------------------- documents prives
+  var DOCUMENTS = URL_BASE + '/storage/v1/object/public/';
+  var DUREE = 3600;      // validite d'un lien temporaire, en secondes
+  var liensSignes = {};
+
+  // « espace/chemin » d'un lien de document enregistre, sinon null
+  function fichier(url) {
+    if (typeof url !== 'string' || url.indexOf(DOCUMENTS) !== 0) return null;
+    return url.slice(DOCUMENTS.length).split(/[?#]/)[0] || null;
+  }
+
+  // Lien temporaire (promesse) ; les autres adresses sont rendues telles quelles.
+  function lien(url) {
+    var chemin = fichier(url);
+    if (!chemin) return Promise.resolve(url);
+    var connu = liensSignes[url];
+    if (connu && connu.fin > Date.now()) return connu.promesse;
+    var suite = url.indexOf('?') > 0 ? url.slice(url.indexOf('?') + 1) : '';
+    var promesse = window.fetch(URL_BASE + '/storage/v1/object/sign/' + chemin, {
+      method: 'POST',
+      headers: { apikey: CLE_PUBLIQUE, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expiresIn: DUREE })
+    }).then(function (rep) {
+      if (!rep.ok) throw new Error('document introuvable ou non autorisé');
+      return rep.json();
+    }).then(function (r) {
+      // « v=... » est conserve pour qu'un fichier remplace ne reste pas en memoire du navigateur
+      return URL_BASE + '/storage/v1' + r.signedURL + (suite ? '&' + suite : '');
+    });
+    liensSignes[url] = { fin: Date.now() + (DUREE - 300) * 1000, promesse: promesse };
+    promesse.catch(function () { delete liensSignes[url]; });
+    return promesse;
+  }
+
+  // La fenetre est ouverte tout de suite (sinon le navigateur la bloque), puis recoit le lien temporaire.
+  var ouvrirFenetre = window.open ? window.open.bind(window) : null;
+  function ouvrirDocument(url, nom, reglages) {
+    var fenetre = ouvrirFenetre ? ouvrirFenetre('', nom || '_blank', reglages) : null;
+    lien(url).then(function (temporaire) {
+      if (fenetre) fenetre.location.replace(temporaire);
+      else location.assign(temporaire);
+    }, function (e) {
+      if (fenetre) fenetre.close();
+      window.alert('Impossible d’ouvrir ce document : ' + e.message);
+    });
+    return fenetre;
+  }
+  if (ouvrirFenetre) {
+    window.open = function (url, nom, reglages) {
+      if (fichier(url)) return ouvrirDocument(url, nom, reglages);
+      return ouvrirFenetre.apply(window, arguments);
+    };
+  }
+
+  // images et apercus affiches dans la page
+  var VIDE = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+  function habiller(element) {
+    var source = element.getAttribute && element.getAttribute('src');
+    if (!fichier(source)) return;
+    element.setAttribute('src', VIDE);
+    lien(source).then(function (temporaire) {
+      if (element.getAttribute('src') === VIDE) element.setAttribute('src', temporaire);
+    }, function () { element.setAttribute('alt', 'Document non autorisé'); });
+  }
+  var AFFICHES = 'img[src],iframe[src],embed[src]';
+  function examiner(noeud) {
+    if (noeud.nodeType !== 1) return;
+    if (noeud.matches(AFFICHES)) habiller(noeud);
+    Array.prototype.forEach.call(noeud.querySelectorAll(AFFICHES), habiller);
+  }
+  if (window.MutationObserver && document.documentElement) {
+    new MutationObserver(function (changements) {
+      changements.forEach(function (c) {
+        if (c.type === 'attributes') habiller(c.target);
+        else Array.prototype.forEach.call(c.addedNodes, examiner);
+      });
+    }).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['src'] });
+  }
+  // liens « Voir », « Ouvrir »...
+  if (document.addEventListener) {
+    document.addEventListener('click', function (ev) {
+      var a = ev.target && ev.target.closest ? ev.target.closest('a[href]') : null;
+      if (!a || !fichier(a.getAttribute('href'))) return;
+      ev.preventDefault();
+      ouvrirDocument(a.getAttribute('href'), '_blank');
+    }, true);
+  }
 
   // Connexion avec adresse et mot de passe (formulaire d'une page ou de l'application).
   function connecter(adresse, motDePasse) {
@@ -197,5 +296,5 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', demarrer);
   else demarrer();
 
-  window.GMAOSession = { session: session, jeton: jeton, connecter: connecter, deconnecter: deconnecter };
+  window.GMAOSession = { session: session, jeton: jeton, connecter: connecter, deconnecter: deconnecter, lien: lien };
 })();
