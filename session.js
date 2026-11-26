@@ -12,6 +12,7 @@
   var RANGEMENT = 'gmao_session';
   var envoyer = window.fetch.bind(window);
   var renouvellement = null;
+  var ecranApplication = !!(document.currentScript && document.currentScript.getAttribute('data-ecran') === 'application');
 
   function lire() {
     try { return JSON.parse(localStorage.getItem(RANGEMENT)) || null; } catch (e) { return null; }
@@ -56,7 +57,8 @@
             var actuelle = lire();
             if (actuelle && actuelle.refresh_token !== s.refresh_token) return actuelle.access_token;
             oublier();
-            afficherConnexion('Votre session a expiré, reconnectez-vous.');
+            if (ecranApplication) location.reload();
+            else afficherConnexion('Votre session a expiré, reconnectez-vous.');
           }
           return null;
         })
@@ -64,6 +66,15 @@
         .then(function (t) { renouvellement = null; return t; });
     }
     return renouvellement;
+  }
+
+  // La base repond 401 ou 403 ; l'espace de fichiers repond souvent 400 avec le code 403 dans le message.
+  function refusee(rep, adresse) {
+    if (rep.status === 401 || rep.status === 403) return Promise.resolve(true);
+    if (rep.status !== 400 || adresse.indexOf(URL_BASE + '/storage/') !== 0) return Promise.resolve(false);
+    return rep.clone().json().then(
+      function (c) { var code = String(c && c.statusCode); return code === '401' || code === '403'; },
+      function () { return false; });
   }
 
   window.fetch = function (cible, options) {
@@ -81,18 +92,45 @@
     return jeton(false).then(function (t) {
       if (!t) return envoyer(cible, options);
       return avec(t).then(function (rep) {
-        if (rep.status !== 401 && rep.status !== 403) return rep;
-        // refuse avec ce jeton (rien n'a ete ecrit) : jeton neuf, sinon acces comme avant (transition)
-        return jeton(true).then(function (t2) {
-          return (t2 ? avec(t2) : envoyer(cible, options)).then(function (r2) {
-            if (r2.status !== 401 && r2.status !== 403) return r2;
-            console.warn('GMAO : acces refuse avec la session, nouvel essai sans connexion');
-            return envoyer(cible, options);
+        return refusee(rep, adresse).then(function (non) {
+          if (!non) return rep;
+          // refuse avec ce jeton (rien n'a ete ecrit) : jeton neuf, sinon acces comme avant (transition)
+          return jeton(true).then(function (t2) {
+            return (t2 ? avec(t2) : envoyer(cible, options)).then(function (r2) {
+              return refusee(r2, adresse).then(function (encore) {
+                if (!encore) return r2;
+                console.warn('GMAO : acces refuse avec la session, nouvel essai sans connexion');
+                return envoyer(cible, options);
+              });
+            });
           });
         });
       });
     });
   };
+
+  // Connexion avec adresse et mot de passe (formulaire d'une page ou de l'application).
+  function connecter(adresse, motDePasse) {
+    adresse = String(adresse || '').trim().toLowerCase();
+    return demanderJeton('password', { email: adresse, password: motDePasse })
+      .then(function (rep) {
+        if (!rep.ok) throw new Error(rep.status === 400 ? 'Adresse ou mot de passe incorrect.' : 'Connexion refusée (erreur ' + rep.status + ').');
+        return rep.json();
+      })
+      .then(function (r) { return enregistrer(r, adresse); })
+      .catch(function (e) { throw e instanceof TypeError ? new Error('Pas de connexion internet.') : e; });
+  }
+
+  // Ferme la session de cet appareil (et la revoque chez Supabase si le reseau le permet).
+  function deconnecter() {
+    var s = session();
+    oublier(); afficherEtat();
+    if (!s) return Promise.resolve();
+    return envoyer(URL_BASE + '/auth/v1/logout?scope=local', {
+      method: 'POST',
+      headers: { apikey: CLE_PUBLIQUE, Authorization: 'Bearer ' + s.access_token }
+    }).then(function () {}, function () {});
+  }
 
   function element(balise, style, texte) {
     var e = document.createElement(balise);
@@ -130,15 +168,10 @@
     form.onsubmit = function (ev) {
       ev.preventDefault();
       bouton.disabled = true; bouton.textContent = 'Connexion…'; erreur.textContent = '';
-      var adresse = email.value.trim().toLowerCase();
-      demanderJeton('password', { email: adresse, password: passe.value })
-        .then(function (rep) {
-          if (!rep.ok) throw new Error(rep.status === 400 ? 'Adresse ou mot de passe incorrect.' : 'Connexion refusée (erreur ' + rep.status + ').');
-          return rep.json();
-        })
-        .then(function (r) { enregistrer(r, adresse); passe.value = ''; voile.remove(); afficherEtat(); })
+      connecter(email.value, passe.value)
+        .then(function () { passe.value = ''; voile.remove(); afficherEtat(); })
         .catch(function (e) {
-          erreur.textContent = e instanceof TypeError ? 'Pas de connexion internet.' : e.message;
+          erreur.textContent = e.message;
           bouton.disabled = false; bouton.textContent = 'Se connecter';
           plusTard.style.display = 'block';
         });
@@ -167,11 +200,12 @@
   }
 
   function demarrer() {
+    if (ecranApplication) return;
     afficherEtat();
     if (!session()) afficherConnexion('');
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', demarrer);
   else demarrer();
 
-  window.GMAOSession = { session: session, jeton: jeton, deconnecter: function () { oublier(); afficherEtat(); } };
+  window.GMAOSession = { session: session, jeton: jeton, connecter: connecter, deconnecter: deconnecter };
 })();
