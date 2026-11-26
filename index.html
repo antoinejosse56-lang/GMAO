@@ -11310,11 +11310,12 @@ async function sendFactureEauRelance(tenant, releve, cpt, isRelance){
   const datePrev=prevRel?new Date(prevRel.date).toLocaleDateString("fr-FR"):"";
   const periode=datePrev?"du "+datePrev+" au "+dateStr:dateStr;
   const subject=(isRelance?"[RAPPEL] ":"")+"Facture eau/charges \u2014 "+tenant.logement+" \u2014 "+dateStr;
-  const emailHtml=`<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;font-size:13px;color:#222;max-width:600px;margin:0 auto">`
-    +`<div style="background:#185FA5;color:#fff;padding:20px 24px;margin-bottom:24px">`
+  const debutHtml=`<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;font-size:13px;color:#222;max-width:600px;margin:0 auto">`;
+  const bandeauHtml=`<div style="background:#185FA5;color:#fff;padding:20px 24px;margin-bottom:24px">`
     +`<div style="font-size:18px;font-weight:700">${FROM_NAME_L}</div>`
     +`<div style="font-size:12px;opacity:0.85">${ADR_L}</div>`
-    +"</div>"
+    +"</div>";
+  const corpsHtml=""
     +(isRelance?`<div style="background:#FFF3CD;border-left:4px solid #F39C12;padding:12px 16px;margin-bottom:16px;font-size:13px"><strong>\u26a0\ufe0f Rappel de paiement</strong><br>Sauf erreur de notre part, la facture ci-dessous est toujours en attente de r\u00e8glement.</div>`:"")
     +`<p>Madame, Monsieur <strong>${tenant.nom}</strong>,</p>`
     +(isRelance
@@ -11334,9 +11335,16 @@ async function sendFactureEauRelance(tenant, releve, cpt, isRelance){
     +`<p>Merci de proc\u00e9der au r\u00e8glement dans les meilleurs d\u00e9lais.</p>`
     +`<p>Cordialement,<br><strong>${FROM_NAME_L}</strong></p>`
     +"</body></html>";
+  const emailHtml=debutHtml+bandeauHtml+corpsHtml;
+  // En-tete du PDF joint : bandeau logo J&A SAVADUR pour le Dubail (comme les
+  // autres factures et quittances). Le corps du mail garde le bandeau texte :
+  // Gmail n'affiche pas les images integrees en base64.
+  const entetePdfHtml=isDubail
+    ?'<div style="margin:20px 0 16px"><img src="'+LOGO_SAVADUR_B64+'" style="width:100%;height:auto;display:block"></div>'
+    :bandeauHtml;
   if(!BREVO_API_KEY)BREVO_API_KEY=ensureBrevoKey();
   if(!BREVO_API_KEY)throw new Error("Cl\u00e9 Brevo manquante");
-  const pdfBlob=await htmlStringToPdfBlob(emailHtml);
+  const pdfBlob=await htmlStringToPdfBlob(debutHtml+entetePdfHtml+corpsHtml);
   const sent=await previewAndConfirmSend(pdfBlob,'Facture-eau-charges_'+dateStr.replace(/\//g,'-')+'.pdf',tenant,{
     fromEmail:FROM_EMAIL_L,fromName:FROM_NAME_L,subject,bodyHtml:emailHtml,
   });
