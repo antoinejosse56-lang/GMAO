@@ -9,21 +9,19 @@
   "orientation": "portrait",
   "icons": [
     {
-      "src": "icon.png",
+      "src": "icon-gmao.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any maskable"
     },
     {
-      "src": "icon.png",
+      "src": "icon-gmao.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
     }
   ],
   "shortcuts": [
-    {"name": "Saisie Crèche/École", "url": "/GMAO/saisie.html", "icons": [{"src": "icon.png", "sizes": "96x96"}]},
-    {"name": "Loyer & Meublé", "url": "/GMAO/gestion.html", "icons": [{"src": "icon.png", "sizes": "96x96"}]},
-    {"name": "Baux & États des lieux", "url": "/GMAO/index.html?field=1", "icons": [{"src": "icon.png", "sizes": "96x96"}]}
+    {"name": "Baux & États des lieux", "url": "/GMAO/index.html?field=1", "icons": [{"src": "icon-gmao.png", "sizes": "96x96"}]}
   ]
 }

@@ -259,7 +259,7 @@
       ev.preventDefault();
       bouton.disabled = true; bouton.textContent = 'Connexion…'; erreur.textContent = '';
       connecter(email.value, passe.value)
-        .then(function () { passe.value = ''; voile.remove(); afficherEtat(); })
+        .then(function () { passe.value = ''; voile.remove(); afficherEtat(); habillerCompte(); })
         .catch(function (e) {
           erreur.textContent = e.message;
           bouton.disabled = false; bouton.textContent = 'Se connecter';
@@ -288,10 +288,33 @@
     ecran.appendChild(ligne);
   }
 
+  // Pages mobiles : une fois connecte, le logo d'en-tete suit le compte (l'application principale gere le sien).
+  function habillerCompte() {
+    var images = document.querySelectorAll('img[data-logo-compte]');
+    if (!images.length || !session()) return;
+    var entetes = { headers: { apikey: CLE_PUBLIQUE } };
+    function lireListe(chemin) {
+      return window.fetch(URL_BASE + '/rest/v1/' + chemin, entetes).then(function (r) { return r.ok ? r.json() : []; });
+    }
+    lireListe('acces?select=utilisateur_id').then(function (a) {
+      return a.length ? lireListe('users?select=role,profile&id=eq.' + a[0].utilisateur_id) : [];
+    }).then(function (u) {
+      if (!u.length) return;
+      var logo = u[0].profile === 'dubail' ? 'logo-savadur.png'
+        : (u[0].role === 'admin' || u[0].profile === 'famille_jm') ? 'logo-pauline-antoine.png' : null;
+      if (!logo) return;
+      Array.prototype.forEach.call(images, function (i) {
+        i.style.width = 'auto'; i.style.maxWidth = '96px';
+        i.src = logo;
+      });
+    }).catch(function () { /* le logo neutre reste */ });
+  }
+
   function demarrer() {
     if (ecranApplication) return;
     afficherEtat();
     if (!session()) afficherConnexion('');
+    else habillerCompte();
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', demarrer);
   else demarrer();

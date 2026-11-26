@@ -8,6 +8,7 @@
 <meta name="theme-color" content="#185FA5">
 <title>Saisie du jour</title>
 <link rel="manifest" href="manifest-saisie.json">
+<link rel="apple-touch-icon" href="icon-gmao.png">
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f0f4f8;min-height:100vh;color:#1a1a2e}
@@ -70,7 +71,7 @@ input:checked+.toggle-slider:before{transform:translateX(22px)}
 <!-- PIN Screen -->
 <div id="pin-screen" class="screen active">
   <div class="pin-header">
-    <img src="https://l.icdbcdn.com/oh/1b1524f2-63aa-4ebe-b8b0-b0797f1c602a.png?w=400" class="pin-logo" alt="GMAO">
+    <img src="icon-gmao.png" class="pin-logo" alt="GMAO">
     <div class="pin-title">GMAO Saisie</div>
     <div class="pin-subtitle">Crèche &amp; École</div>
   </div>
@@ -100,7 +101,7 @@ input:checked+.toggle-slider:before{transform:translateX(22px)}
 <!-- Main Screen -->
 <div id="main-screen" class="screen">
   <div class="day-header">
-    <img src="https://l.icdbcdn.com/oh/1b1524f2-63aa-4ebe-b8b0-b0797f1c602a.png?w=400" class="day-logo" alt="">
+    <img src="icon-gmao.png" class="day-logo" data-logo-compte alt="">
     <div class="day-info">
       <div class="day-date" id="day-date"></div>
       <div class="day-sub" id="day-sub"></div>
@@ -203,7 +204,7 @@ input:checked+.toggle-slider:before{transform:translateX(22px)}
   </div>
 </div>
 
-<script src="session.js?v=4"></script>
+<script src="session.js?v=5"></script>
 <script>
 const SUPABASE_URL = 'https://jbiphusmneoccarwkucq.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpiaXBodXNtbmVvY2NhcndrdWNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3MTI3ODIsImV4cCI6MjA4OTI4ODc4Mn0.meNA4EocaV5J8_9RL929w3fUOwFI5exFHnXr2nKRHjM';
