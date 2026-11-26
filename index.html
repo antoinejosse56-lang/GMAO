@@ -1477,6 +1477,23 @@ function avecPerimetre(construire){
   }
 }
 
+// Un compte limite n'ouvre que les pages de son menu (et l'accueil mobile).
+const VUE_ONGLETS={compteurs:['compteurs_savadur','compteurs_perso'],locatif:['locatif_savadur','locatif_perso'],
+  finances:['finances_savadur','finances_perso'],factures:['factures_savadur','factures_perso'],topology:['bien_savadur','bien_perso']};
+function vueAutorisee(vue){
+  const onglets=getUserVisibleTabs(); // null = tout (administrateur)
+  if(!onglets||vue==='mobile_home')return true;
+  if(vue==='asset_detail'){const per=perimetreUtilisateur();return !per||per.ids.has(S.selectedAsset?.id);}
+  return onglets.includes(vue)||(VUE_ONGLETS[vue]||[]).some(v=>onglets.includes(v));
+}
+// Retire de l'ecran ce qu'un compte limite ne peut pas ouvrir.
+function appliquerDroitsPages(){
+  if(!vueAutorisee(S.view)){S.view='mobile_home';S.modal=null;}
+  if(S.fieldMode&&!vueAutorisee('locatif')){S.fieldMode=false;S.modal=null;}
+  const type=S.modal?.type;
+  if((type==='add-vehicule-releve'&&!vueAutorisee('vehicles'))||(type==='add-facture'&&!vueAutorisee('factures')))S.modal=null;
+}
+
 // Retourne les assets filtrés selon le profil
 function getFilteredAssets(){
   const u=S.currentUser;
@@ -1520,7 +1537,10 @@ function render(){
   const root = document.getElementById('root');
   if (!S.currentUser) { root.innerHTML = renderLogin(); bindLogin(); return; }
   try{if(Array.isArray(S.tenants))S.tenants.sort(compareTenantsOrdre);}catch(e){}
+  appliquerDroitsPages();
   root.innerHTML = avecPerimetre(()=>S.fieldMode ? renderFieldApp() : renderApp());
+  // raccourcis de l'accueil mobile : seulement ceux des pages autorisees
+  root.querySelectorAll('.mobile-tile[data-vue]').forEach(t=>{if(!vueAutorisee(t.dataset.vue))t.remove();});
   bindAll();
 }
 
@@ -3557,49 +3577,49 @@ function renderMobileHome(){
       +'<div style="font-size:12px;opacity:0.8">Bonjour, '+(S.currentUser?.name||"Antoine")+' 👋</div>'
     +'</div>'
     // Alerts
-    +(openWO||loanedN?'<div style="background:#FFF3CD;border-radius:12px;padding:12px;margin-bottom:16px;font-size:12px">'
+    +(openWO||(loanedN&&vueAutorisee('tools'))?'<div style="background:#FFF3CD;border-radius:12px;padding:12px;margin-bottom:16px;font-size:12px">'
       +(openWO?'<div>📋 '+openWO+' bon'+(openWO>1?"s":"")+" de travaux ouvert"+(openWO>1?"s":"")+'</div>':'')
-      +(loanedN?'<div>🔧 '+loanedN+' outil'+(loanedN>1?"s":"")+" en prêt</div>":'')
+      +(loanedN&&vueAutorisee('tools')?'<div>🔧 '+loanedN+' outil'+(loanedN>1?"s":"")+" en prêt</div>":'')
     +'</div>':'')
     // Tiles grid
     +'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:14px;margin-bottom:20px">'
-+'<div class="mobile-tile" data-nav="compteurs" style="background:#185FA5" onclick="S.view=\'compteurs\';render()">'
++'<div class="mobile-tile" data-vue="compteurs" data-nav="compteurs" style="background:#185FA5" onclick="S.view=\'compteurs\';render()">'
   +'<div style="font-size:36px;margin-bottom:8px">💧</div>'
   +'<div style="font-size:13px;font-weight:600;color:#fff">Relevé compteur</div>'
 +'</div>'
-+'<div class="mobile-tile" data-nav="locatif" style="background:#1D9E75" onclick="S.view=\'locatif\';render()">'
++'<div class="mobile-tile" data-vue="locatif" data-nav="locatif" style="background:#1D9E75" onclick="S.view=\'locatif\';render()">'
   +'<div style="font-size:36px;margin-bottom:8px">💰</div>'
   +'<div style="font-size:13px;font-weight:600;color:#fff">Saisie loyer</div>'
 +'</div>'
-+'<div class="mobile-tile" data-nav="reservations" style="background:#9B59B6" onclick="S.view=\'reservations\';render()">'
++'<div class="mobile-tile" data-vue="reservations" data-nav="reservations" style="background:#9B59B6" onclick="S.view=\'reservations\';render()">'
   +'<div style="font-size:36px;margin-bottom:8px">🏠</div>'
   +'<div style="font-size:13px;font-weight:600;color:#fff">Location meublée</div>'
 +'</div>'
-+'<div class="mobile-tile" data-nav="famille" style="background:#F39C12" onclick="S.view=\'famille\';S.familleTab=\'creche\';render()">'
++'<div class="mobile-tile" data-vue="famille" data-nav="famille" style="background:#F39C12" onclick="S.view=\'famille\';S.familleTab=\'creche\';render()">'
   +'<div style="font-size:36px;margin-bottom:8px">🍼</div>'
   +'<div style="font-size:13px;font-weight:600;color:#fff">Crèche du jour</div>'
 +'</div>'
-+'<div class="mobile-tile" data-nav="famille" style="background:#E74C3C" onclick="S.view=\'famille\';S.familleTab=\'ecole\';render()">'
++'<div class="mobile-tile" data-vue="famille" data-nav="famille" style="background:#E74C3C" onclick="S.view=\'famille\';S.familleTab=\'ecole\';render()">'
   +'<div style="font-size:36px;margin-bottom:8px">🏫</div>'
   +'<div style="font-size:13px;font-weight:600;color:#fff">École du jour</div>'
 +'</div>'
-+'<div class="mobile-tile" data-nav="workorders" style="background:#2C3E50" onclick="S.view=\'workorders\';render()">'
++'<div class="mobile-tile" data-vue="workorders" data-nav="workorders" style="background:#2C3E50" onclick="S.view=\'workorders\';render()">'
   +'<div style="font-size:36px;margin-bottom:8px">📋</div>'
   +'<div style="font-size:13px;font-weight:600;color:#fff">Bon de travaux</div>'
 +'</div>'
-+'<div class="mobile-tile" data-nav="tools" style="background:#7F8C8D" onclick="S.view=\'tools\';render()">'
++'<div class="mobile-tile" data-vue="tools" data-nav="tools" style="background:#7F8C8D" onclick="S.view=\'tools\';render()">'
   +'<div style="font-size:36px;margin-bottom:8px">🔧</div>'
   +'<div style="font-size:13px;font-weight:600;color:#fff">Prêt outil</div>'
 +'</div>'
-+'<div class="mobile-tile" style="background:#8E44AD" onclick="S.fieldMode=true;render()">'
++'<div class="mobile-tile" data-vue="locatif" style="background:#8E44AD" onclick="S.fieldMode=true;render()">'
   +'<div style="font-size:36px;margin-bottom:8px">📋</div>'
   +'<div style="font-size:13px;font-weight:600;color:#fff">Baux & États des lieux</div>'
 +'</div>'
-+'<div class="mobile-tile" style="background:#D35400" onclick="S.modal={type:\'add-facture\'};render()">'
++'<div class="mobile-tile" data-vue="factures" style="background:#D35400" onclick="S.modal={type:\'add-facture\'};render()">'
   +'<div style="font-size:36px;margin-bottom:8px">📸</div>'
   +'<div style="font-size:13px;font-weight:600;color:#fff">Facture (photo)</div>'
 +'</div>'
-+'<div class="mobile-tile" style="background:#C0392B" onclick="S.modal={type:\'add-vehicule-releve\',quickPlein:true};render()">'
++'<div class="mobile-tile" data-vue="vehicles" style="background:#C0392B" onclick="S.modal={type:\'add-vehicule-releve\',quickPlein:true};render()">'
   +'<div style="font-size:36px;margin-bottom:8px">⛽</div>'
   +'<div style="font-size:13px;font-weight:600;color:#fff">Plein carburant</div>'
 +'</div>'
