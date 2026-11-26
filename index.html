@@ -478,7 +478,7 @@ function resolveTopoRefFromBienStr(bienStr){
 // evite de proposer des BT sans rapport une fois qu'un bien/chantier est fixe.
 function computeFilteredWoOpts(bienStr, chantierId, selectedWoId, allowNew, assetId){
   const bien=(bienStr||'').trim();
-  let list=[...S.workOrders];
+  let list=[...btVisibles()];
   // Un chantier determine deja pleinement le perimetre des BT concernes -
   // filtrer EN PLUS par bien exclurait a tort les BT de chantier sans
   // topo_ref (frequent pour une construction neuve), donc le chantier prime
@@ -512,7 +512,8 @@ function renderOpts(base,sel){
 }
 function buildBienOptsBase(){
   const opts=[{v:'',l:'— Général / Non lié —'}];
-  S.topology.properties.forEach(p=>{
+  const per=perimetreUtilisateur();
+  S.topology.properties.filter(p=>!per||per.propriete(p)).forEach(p=>{
     opts.push({v:p.name,l:p.name});
     (p.zones||[]).forEach(z=>{
       opts.push({v:p.name+' - '+z.name,l:'&nbsp;&nbsp;'+p.name+' &rsaquo; '+z.name});
@@ -524,7 +525,7 @@ function buildBienOptsBase(){
   return opts;
 }
 function buildChantierOptsBase(){
-  return [{v:'',l:'— Aucun chantier —'},{v:'__new__',l:'+ Nouveau chantier…'},...[...S.chantiers].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at)).map(c=>({v:c.id,l:c.nom+(c.statut==='termine'?' (terminé)':'')}))];
+  return [{v:'',l:'— Aucun chantier —'},{v:'__new__',l:'+ Nouveau chantier…'},...[...chantiersVisibles()].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at)).map(c=>({v:c.id,l:c.nom+(c.statut==='termine'?' (terminé)':'')}))];
 }
 // Un chantier n'a pas forcement une zone/sous-zone precise : son "bien" peut
 // etre juste la propriete ("Immeuble X") ou deja une zone ("Immeuble X - 2e
@@ -542,7 +543,7 @@ function chantierMatchesBien(c,bienVal){
 function rebuildChantierSelectForBien(chantierSel,bienVal){
   if(!chantierSel)return;
   const hadNew=[...chantierSel.options].some(o=>o.value==='__new__');
-  const matching=S.chantiers.filter(c=>!bienVal||chantierMatchesBien(c,bienVal));
+  const matching=chantiersVisibles().filter(c=>!bienVal||chantierMatchesBien(c,bienVal));
   const opts=[{v:'',l:'— Aucun chantier —'}];
   if(hadNew)opts.push({v:'__new__',l:'+ Nouveau chantier…'});
   matching.forEach(c=>opts.push({v:c.id,l:c.nom+(c.statut==='termine'?' (terminé)':'')}));
@@ -1402,6 +1403,80 @@ function getFilteredWOs(){
   return list;
 }
 
+// ---- Compte limite a certains biens : aucun autre bien ne doit apparaitre ----
+// Profil « 26 rue Dubail » : les biens SAVADUR. Autres comptes non administrateurs :
+// les biens et equipements coches dans leur fiche (visible_assets). Administrateur : tout.
+function perimetreUtilisateur(){
+  const u=S.currentUser;
+  if(!u||u.role==='admin')return null;
+  const savadur=u.profile==='dubail',va=u.visible_assets||u.assets||[];
+  if(!savadur&&!va.length)return null;
+  const ids=savadur?getDubailAssetIds():new Set(expandTopoAssetIds(va));
+  const coche=n=>!!(n?.assetId&&ids.has(n.assetId));
+  const meme=(n,nom)=>(n.name||'').toLowerCase()===(nom||'').toLowerCase();
+  const propriete=p=>savadur?dubailFilter(p.name)
+    :coche(p)||(p.zones||[]).some(z=>coche(z)||(z.subZones||[]).some(coche));
+  // texte « Bien - Zone - Sous-zone » (factures, chantiers, locataires)
+  const bien=texte=>{
+    if(savadur)return dubailFilter(texte);
+    const parts=(texte||'').split(/ - | — | › /).map(x=>x.trim());
+    const p=S.topology.properties.find(x=>meme(x,parts[0]));
+    if(!p)return false;
+    const z=(p.zones||[]).find(x=>meme(x,parts[1]));
+    return coche(p)||coche(z)||coche((z?.subZones||[]).find(x=>meme(x,parts[2])));
+  };
+  const bt=w=>{
+    if(savadur?woIsDubail(w,ids):((w.asset_id&&ids.has(w.asset_id))||topoRefNodeAssetIds(w.topo_ref).some(id=>ids.has(id))))return true;
+    if(w.topo_ref||w.asset_id)return false;
+    // BT sans lieu : il suit le bien de son chantier
+    const c=(S.chantiers||[]).find(x=>x.id===w.chantier_id);
+    return !!c?.bien&&bien(c.bien);
+  };
+  return {savadur,ids,propriete,bien,bt,famille:(u.visible_tabs||[]).includes('famille')};
+}
+function btVisibles(){const per=perimetreUtilisateur();return per?(S.workOrders||[]).filter(per.bt):S.workOrders;}
+// Un chantier sans bien n'est montre que s'il contient un BT visible.
+function chantiersVisibles(){
+  const per=perimetreUtilisateur();
+  if(!per)return S.chantiers||[];
+  const avecBT=new Set(btVisibles().map(w=>w.chantier_id).filter(Boolean));
+  return (S.chantiers||[]).filter(c=>c.bien?per.bien(c.bien):avecBT.has(c.id));
+}
+// Construit l'ecran avec les seules donnees du perimetre puis remet les listes
+// completes : les enregistrements ne sont jamais faits sur une liste reduite.
+// NB : c'est un filtre d'affichage, pas une protection des donnees en base.
+function avecPerimetre(construire){
+  const per=perimetreUtilisateur();
+  if(!per)return construire();
+  const bt=btVisibles(),chantiers=chantiersVisibles();
+  const idsBT=new Set(bt.map(w=>w.id)),idsCh=new Set(chantiers.map(c=>c.id));
+  // element en attente : son bien s'il en a un, sinon BT, chantier, equipement, personne ou compte SAVADUR
+  const visible=d=>d.bien?per.bien(d.bien):(idsBT.has(d.wo_id)||idsCh.has(d.chantier_id)||per.ids.has(d.asset_id)
+    ||(per.famille&&!!d.famille_id)||(per.savadur&&d.compte==='savadur'));
+  const topo=S.topology;
+  const complet={biens:topo.properties,assets:S.assets,bt:S.workOrders,chantiers:S.chantiers,
+    devis:S.devisAValider,factures:S.facturesAValider,documents:S.documentsAValider,locataires:S.tenants};
+  const biens=complet.biens.filter(per.propriete);
+  const locataires=(complet.locataires||[]).filter(t=>per.bien(t.logement||''));
+  const devis=(complet.devis||[]).filter(visible),factures=(complet.factures||[]).filter(visible),documents=(complet.documents||[]).filter(visible);
+  try{
+    topo.properties=biens;
+    S.tenants=locataires;
+    S.assets=complet.assets.filter(a=>per.ids.has(a.id));
+    S.workOrders=bt;
+    S.chantiers=chantiers;
+    S.devisAValider=devis;
+    S.facturesAValider=factures;
+    S.documentsAValider=documents;
+    return construire();
+  }finally{
+    topo.properties=complet.biens;
+    S.assets=complet.assets;S.workOrders=complet.bt;S.chantiers=complet.chantiers;
+    S.devisAValider=complet.devis;S.facturesAValider=complet.factures;S.documentsAValider=complet.documents;
+    S.tenants=complet.locataires;
+  }
+}
+
 // Retourne les assets filtrés selon le profil
 function getFilteredAssets(){
   const u=S.currentUser;
@@ -1445,7 +1520,7 @@ function render(){
   const root = document.getElementById('root');
   if (!S.currentUser) { root.innerHTML = renderLogin(); bindLogin(); return; }
   try{if(Array.isArray(S.tenants))S.tenants.sort(compareTenantsOrdre);}catch(e){}
-  root.innerHTML = S.fieldMode ? renderFieldApp() : renderApp();
+  root.innerHTML = avecPerimetre(()=>S.fieldMode ? renderFieldApp() : renderApp());
   bindAll();
 }
 
