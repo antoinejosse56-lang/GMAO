@@ -46,6 +46,15 @@ Remplacez `CHEMIN` par le chemin de l'étape 3.
   importé normalement.
 * Les journaux sont dans `gmao-imports/logs/`.
 
+## Sauvegarde de la base (tables)
+
+La tâche « GMAO - sauvegarde » (02h00) lance d'abord `backup_base.py`, puis la copie des fichiers.
+Chaque nuit crée `Documents GMAO Perso\_Sauvegarde base GMAO\gmao_base_AAAA-MM-JJ_HHMMSS.zip` (un fichier JSON
+par table). Rien n'est jamais écrasé ni supprimé. La base est seulement lue.
+
+À contrôler dans `logs/run_all.log` : `backup_base -> code 0`. Le code 2 signale une sauvegarde incomplète ou
+une table qui a perdu plus de 10 % de ses lignes, le code 1 un échec : détail dans `logs/backup_base.log`.
+
 ## 6. Une fois que tout fonctionne
 
 Désactiver les tâches planifiées Windows équivalentes pour éviter les doublons (demandez-le à Claude).
