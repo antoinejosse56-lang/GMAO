@@ -180,6 +180,7 @@ const HEADERS = { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_
 let pinValue = '';
 let facturePhotoId = null;
 let facturePhotoUrl = null;
+let factureEnvoi = null;   // envoi de la photo de facture en cours
 let pleinPhotoUrl = null;
 let vehicules = [];
 
@@ -265,7 +266,11 @@ document.getElementById('f-photo-file').addEventListener('change', async (e) => 
   const file = e.target.files?.[0];
   if (!file) return;
   const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
-  const url = await uploadPhoto(file, `factures/${facturePhotoId}/${Date.now()}.${ext}`, document.getElementById('f-photo-status'));
+  const statusEl = document.getElementById('f-photo-status');
+  facturePhotoUrl = null;
+  factureEnvoi = uploadPhoto(file, `factures/${facturePhotoId}/${Date.now()}.${ext}`, statusEl)
+    .catch(() => { statusEl.textContent = '❌ Erreur upload'; return null; });
+  const url = await factureEnvoi;
   if (url) facturePhotoUrl = url;
 });
 
@@ -289,36 +294,56 @@ async function saveFacture() {
   btn.textContent = '⏳ Enregistrement...';
   btn.disabled = true;
 
+  // attendre la fin de l'envoi de la photo, sinon la facture partirait sans elle
+  if (factureEnvoi) {
+    await factureEnvoi;
+    if (!facturePhotoUrl && !confirm("La photo n'a pas été envoyée. Enregistrer la facture sans photo ?")) {
+      btn.textContent = '✅ Enregistrer';
+      btn.disabled = false;
+      return;
+    }
+  }
+
+  const date = document.getElementById('f-date').value || null;
+  // La facture arrive dans "Factures > À valider" de la GMAO (bien, BT, fournisseur...)
   const rec = {
-    fournisseur,
-    date: document.getElementById('f-date').value || null,
+    fichier_nom: facturePhotoUrl ? 'Photo (saisie rapide)' : 'Saisie rapide sans photo',
+    fichier_date: date,
+    chemin_relatif: `saisie-rapide/${facturePhotoId}`,
+    storage_path: facturePhotoUrl,
+    entreprise: fournisseur,
+    montant_ttc: montant,
+    date_facture: date,
     categorie: document.getElementById('f-categorie').value || null,
     compte: document.getElementById('f-compte').value || 'savadur',
-    montant_ttc: montant,
-    montant_ht: 0,
-    tva_pct: 0,
-    drive_url: facturePhotoUrl,
+    statut: 'en_attente',
   };
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/factures`, {
-    method: 'POST',
-    headers: { ...HEADERS, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
-    body: JSON.stringify(rec)
-  });
+  let ok = false;
+  try {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/factures_a_valider`, {
+      method: 'POST',
+      headers: { ...HEADERS, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
+      body: JSON.stringify(rec)
+    });
+    ok = r.ok || r.status === 409;   // 409 : cette saisie est déjà enregistrée
+  } catch (e) { ok = false; }
 
   btn.textContent = '✅ Enregistrer';
   btn.disabled = false;
   const msg = document.getElementById('f-success');
   msg.style.display = 'block';
-  msg.textContent = r.ok ? '✓ Enregistré !' : '❌ Erreur, réessayez';
-  msg.style.background = r.ok ? '#e8f8f2' : '#fde8e8';
-  msg.style.color = r.ok ? '#1D9E75' : '#E74C3C';
+  msg.textContent = ok ? '✓ Envoyée dans « Factures à valider »' : '❌ Erreur, réessayez';
+  msg.style.background = ok ? '#e8f8f2' : '#fde8e8';
+  msg.style.color = ok ? '#1D9E75' : '#E74C3C';
   setTimeout(() => msg.style.display = 'none', 3000);
 
-  if (r.ok) {
+  if (ok) {
     document.getElementById('f-fournisseur').value = '';
     document.getElementById('f-montant').value = '';
     document.getElementById('f-photo-status').textContent = '';
+    document.getElementById('f-photo-file').value = '';
     facturePhotoUrl = null;
+    factureEnvoi = null;
     facturePhotoId = uid();
   }
 }
