@@ -54,12 +54,19 @@ def main(argv):
             f.write(contenu)
 
     ecrire("1_structure.sql", avant)
+    # Tableaux rattaches aux comptes de connexion Supabase (schema auth) : les comptes ne sont pas sauvegardes et
+    # auront d'autres identifiants dans un nouveau projet. Leurs lignes ne sont donc pas rechargees.
+    lies_aux_comptes = set(re.findall(r"alter table public\.(\w+) add constraint \w+ FOREIGN KEY \([^)]*\) "
+                                      r"REFERENCES auth\.", apres))
     blocs, total = ["begin;"], 0
     with zipfile.ZipFile(archive) as z:
         presents = {n[:-5] for n in z.namelist() if n.endswith(".json") and not n.startswith("_")}
         if set(tables) != presents:
             raise ValueError(f"tables differentes entre structure et sauvegarde : {sorted(set(tables) ^ presents)}")
         for t in tables:
+            if t in lies_aux_comptes:
+                print(f"A REFAIRE A LA MAIN : tableau {t} non recharge (recreer les comptes de connexion puis les relier)")
+                continue
             texte = z.read(f"{t}.json").decode("utf-8")   # texte d'origine : aucune valeur reconvertie
             if MARQUE in texte:
                 raise ValueError(f"marque de citation presente dans les donnees de {t}")

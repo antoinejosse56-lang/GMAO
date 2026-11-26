@@ -33,6 +33,14 @@ Une archive dont le nom finit par `_ALERTE` ou `_INCOMPLETE` est suspecte : pren
 4. Recréer les 4 espaces de stockage (publics, comme aujourd'hui) : `documents-locataires`, `factures-a-valider`,
    `devis-a-valider`, `documents-a-valider`, puis y renvoyer chaque fichier d'après `manifeste_fichiers.json`.
 5. Ressaisir la clé Brevo (elle n'est pas dans la sauvegarde) dans la table `app_config`.
+   Les **comptes de connexion** (Supabase Authentication) ne sont pas sauvegardés non plus : fermer les inscriptions
+   libres, recréer un compte par utilisateur, puis relier chaque compte à son profil dans le tableau `acces`
+   (restauré vide), par exemple pour les comptes ayant la même adresse que leur profil GMAO :
+
+       insert into public.acces (auth_id, utilisateur_id)
+         select a.id, u.id from auth.users a join public.users u on lower(u.email) = lower(a.email);
+
+   Vérifier ensuite chaque liaison : une adresse de connexion peut différer de celle du profil.
 6. Mettre la nouvelle adresse et les nouvelles clés dans `index.html`, `gestion.html`, `saisie.html` et dans le
    fichier `.env` du NAS.
 7. Contrôler avant de s'en servir : nombre de loyers, quelques documents qui s'ouvrent, envoi d'un mail d'essai.
