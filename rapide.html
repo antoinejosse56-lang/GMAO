@@ -158,6 +158,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;backgrou
         <div class="field"><label>Prix / litre (€)</label><input id="p-prix" type="number" step="0.001" inputmode="decimal" oninput="pCalcMontant()"></div>
       </div>
       <div class="field"><label>Montant (€)</label><input id="p-montant" type="number" step="0.01" placeholder="0.00"></div>
+      <div class="field">
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;margin-bottom:2px"><input type="checkbox" id="p-appoint" style="width:22px;height:22px;padding:0;flex:none"> Appoint seulement (réservoir non rempli)</label>
+        <div style="font-size:12px;color:#777">Cochez si ce n’est pas un plein complet : les litres seront comptés avec le plein suivant.</div>
+      </div>
       <div class="field"><label>📷 Photo (compteur, ticket...)</label>
         <div class="photo-row">
           <button type="button" class="photo-btn" onclick="document.getElementById('p-photo-file').click()">📷 Prendre une photo</button>
@@ -373,6 +377,8 @@ async function savePlein() {
     photo_url: pleinPhotoUrl,
     notes: document.getElementById('p-notes').value || null,
   };
+  // renseigne seulement pour un appoint : sinon la base le compte comme plein complet
+  if (document.getElementById('p-appoint').checked) rec.plein_complet = false;
   const r = await fetch(`${SUPABASE_URL}/rest/v1/vehicule_releves`, {
     method: 'POST',
     headers: { ...HEADERS, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
@@ -394,6 +400,7 @@ async function savePlein() {
     document.getElementById('p-prix').value = '';
     document.getElementById('p-montant').value = '';
     document.getElementById('p-notes').value = '';
+    document.getElementById('p-appoint').checked = false;
     document.getElementById('p-photo-status').textContent = '';
     pleinPhotoUrl = null;
   }

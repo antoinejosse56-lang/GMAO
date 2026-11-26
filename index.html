@@ -2084,7 +2084,12 @@ function renderAssetDetail(a){
       <div style="font-size:20px;font-weight:700;margin-bottom:10px">${dernierReleve?new Intl.NumberFormat('fr-FR').format(dernierReleve.valeur)+' '+dernierReleve.unite:'—'}</div>
       ${releves.length?releves.slice(0,10).map(v=>{
         const icon=v.type==='plein'?'⛽':v.type==='entretien'?'🔧':'📏';
-        return `<div class="row" style="font-size:12px"><span style="color:var(--text2)">${icon} ${dateLabel(v.date)}</span><span>${new Intl.NumberFormat('fr-FR').format(v.valeur)} ${v.unite}${v.montant?' — '+new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(v.montant):''}${v.photo_url?' <a href="'+v.photo_url+'" target="_blank">📷</a>':''}</span></div>`;
+        const litres=v.type==='plein'&&v.litres?' · '+new Intl.NumberFormat('fr-FR').format(v.litres)+' L':'';
+        const appoint=v.plein_complet===false;
+        const etat=v.type!=='plein'?'':canEdit()
+          ?' <button class="btn btn-sm" style="padding:1px 8px;font-size:11px;margin-left:4px'+(appoint?';border-color:#E67E22;color:#E67E22':'')+'" data-toggle-appoint="'+v.id+'" title="Changer : plein complet ou appoint">'+(appoint?'Appoint':'Complet')+'</button>'
+          :(appoint?' <span class="badge bamber">Appoint</span>':'');
+        return `<div class="row" style="font-size:12px"><span style="color:var(--text2)">${icon} ${dateLabel(v.date)}${litres}${etat}</span><span>${new Intl.NumberFormat('fr-FR').format(v.valeur)} ${v.unite}${v.montant?' — '+new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(v.montant):''}${v.photo_url?' <a href="'+v.photo_url+'" target="_blank">📷</a>':''}</span></div>`;
       }).join(''):'<div style="font-size:12px;color:var(--text2)">Aucun relevé enregistré.</div>'}
     </div>`:''}
     ${isVehicleOrBoat&&assetHasFuel(a)?vehConsoCardHtml(releves):''}
@@ -2334,11 +2339,13 @@ function renderDevisAValider(){
   const bienOptsFor=(sel)=>renderOpts(bienOptsBase,sel);
   const chantierOptsBase=buildChantierOptsBase();
   const chantierOptsFor=(sel)=>renderOpts(chantierOptsBase,sel);
+  const vehiculeOptsBase=[{v:'',l:'— Aucun véhicule —'},...S.assets.filter(a=>a.category==='Véhicule'||a.category==='Bateau').map(a=>({v:a.id,l:a.name}))];
+  const vehiculeDe=woId=>{const id=S.workOrders.find(w=>w.id===woId)?.asset_id;return vehiculeOptsBase.some(o=>o.v===id)?id:'';};
   return `<div class="card" style="margin-top:14px">
-    <div class="sec" style="margin-bottom:8px">📐 Devis détectés automatiquement, en attente de rattachement à un bon de travaux</div>
+    <div class="sec" style="margin-bottom:8px">📐 Devis détectés automatiquement, en attente de rattachement à un bon de travaux (bien ou véhicule)</div>
     ${pending.length===0?'<div style="text-align:center;padding:20px;color:var(--text2)">Rien à valider — tout est à jour.</div>':''}
     ${pending.length>0?`<div style="overflow-x:auto"><table>
-      <thead><tr><th>Date</th><th>Fichier</th><th>Entreprise</th><th>Montant TTC</th><th>Bien / Zone</th><th>Chantier</th><th>Bon de travaux</th><th>Motif</th><th>Actions</th></tr></thead>
+      <thead><tr><th>Date</th><th>Fichier</th><th>Entreprise</th><th>Montant TTC</th><th>Bien / Zone</th><th>Véhicule</th><th>Chantier</th><th>Bon de travaux</th><th>Motif</th><th>Actions</th></tr></thead>
       <tbody>
       ${pending.map(d=>{
         const fileUrl=(d.apercu_pdf_path||d.storage_path)?`${SUPABASE_URL}/storage/v1/object/public/devis-a-valider/${d.apercu_pdf_path||d.storage_path}`:null;
@@ -2352,6 +2359,7 @@ function renderDevisAValider(){
           <td style="vertical-align:top"><input class="dev-entreprise" data-dev-id="${d.id}" list="fournisseurs-list" value="${(d.entreprise||'').replace(/"/g,'&quot;')}" placeholder="Entreprise / artisan" style="width:150px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px"></td>
           <td style="vertical-align:top"><input type="number" step="0.01" class="dev-montant" data-dev-id="${d.id}" value="${d.montant_ttc!=null?d.montant_ttc:''}" placeholder="0.00" style="width:90px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px"></td>
           <td style="vertical-align:top"><select class="dev-bien" data-dev-id="${d.id}" style="width:170px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">${bienOptsFor(d.bien||'')}</select></td>
+          <td style="vertical-align:top"><select class="dev-asset" data-dev-id="${d.id}" style="width:160px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">${renderOpts(vehiculeOptsBase,vehiculeDe(d.wo_id))}</select></td>
           <td style="vertical-align:top"><select class="dev-chantier" data-dev-id="${d.id}" style="width:150px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">${chantierOptsFor(d.chantier_id||'')}</select></td>
           <td style="vertical-align:top"><select class="dev-wo" data-dev-id="${d.id}" style="width:200px;padding:5px 7px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px">${computeFilteredWoOpts(d.bien||'',d.chantier_id||'',d.wo_id||'',true)}</select></td>
           <td style="vertical-align:top">
@@ -11802,6 +11810,14 @@ function bindAll(){
   document.querySelectorAll('[data-add-wo-doc]').forEach(el=>el.onclick=e=>{
     e.stopPropagation();S.modal={type:'add-wo-doc',woId:el.dataset.addWoDoc};render();});
 
+  document.querySelectorAll('[data-toggle-appoint]').forEach(el=>el.onclick=async()=>{
+    const v=(S.vehiculeReleves||[]).find(x=>x.id===el.dataset.toggleAppoint);if(!v)return;
+    const complet=v.plein_complet===false; // nouvel etat
+    if(!confirm('Plein du '+dateLabel(v.date)+(v.litres?' ('+v.litres+' L)':'')+' : le marquer comme '+(complet?'plein complet':'appoint')+' ?'))return;
+    const{data,error}=await sb.from('vehicule_releves').update({plein_complet:complet}).eq('id',v.id).select('id');
+    if(error||!data?.length){alert('Erreur : '+(error?error.message:'modification refusée'));return;}
+    v.plein_complet=complet;render();
+  });
   document.querySelectorAll('[data-add-vehicule-releve]').forEach(el=>el.onclick=e=>{
     e.stopPropagation();S.modal={type:'add-vehicule-releve',assetId:el.dataset.addVehiculeReleve};render();});
 
@@ -12896,11 +12912,26 @@ function bindAll(){
     const chantierSel=document.querySelector('.dev-chantier[data-dev-id="'+id+'"]');
     const woSel=document.querySelector('.dev-wo[data-dev-id="'+id+'"]');
     if(!woSel)return;
-    woSel.innerHTML=computeFilteredWoOpts(bienSel?bienSel.value:'',chantierSel?chantierSel.value:'',woSel.value,true);
+    const asset=document.querySelector('.dev-asset[data-dev-id="'+id+'"]')?.value||'';
+    woSel.innerHTML=computeFilteredWoOpts(asset?'':(bienSel?bienSel.value:''),chantierSel?chantierSel.value:'',woSel.value,true,asset);
   };
+  // un devis concerne soit un bien, soit un vehicule
+  document.querySelectorAll('.dev-asset').forEach(sel=>{
+    sel.onchange=()=>{
+      const id=sel.dataset.devId;
+      const bienSel=document.querySelector('.dev-bien[data-dev-id="'+id+'"]');
+      if(sel.value&&bienSel&&bienSel.value){
+        bienSel.value='';
+        rebuildChantierSelectForBien(document.querySelector('.dev-chantier[data-dev-id="'+id+'"]'),'');
+      }
+      updateDevWoFilter(id);
+    };
+  });
   document.querySelectorAll('.dev-bien').forEach(sel=>{
     sel.onchange=()=>{
       const id=sel.dataset.devId;
+      const assetSel=document.querySelector('.dev-asset[data-dev-id="'+id+'"]');
+      if(sel.value&&assetSel)assetSel.value='';
       rebuildChantierSelectForBien(document.querySelector('.dev-chantier[data-dev-id="'+id+'"]'),sel.value);
       updateDevWoFilter(id);
     };
@@ -12920,7 +12951,8 @@ function bindAll(){
         const chantierId=document.querySelector('.dev-chantier[data-dev-id="'+id+'"]')?.value||null;
         const bienSel=document.querySelector('.dev-bien[data-dev-id="'+id+'"]');
         const topoRef=bienSel?resolveTopoRefFromBienStr(bienSel.value):null;
-        const rec={title:title.trim(),status:'open',date:NOW,chantier_id:chantierId||null,topo_ref:topoRef};
+        const assetId=document.querySelector('.dev-asset[data-dev-id="'+id+'"]')?.value||null;
+        const rec={title:title.trim(),status:'open',date:NOW,chantier_id:chantierId||null,topo_ref:assetId?null:topoRef,asset_id:assetId};
         const{data,error}=await sb.from('work_orders').insert(rec).select().single();
         if(error){alert('Erreur création BT : '+error.message);sel.value='';return;}
         S.workOrders.unshift(data);
@@ -12938,13 +12970,26 @@ function bindAll(){
     if(!d)return;
     const entreprise=(document.querySelector('.dev-entreprise[data-dev-id="'+id+'"]')?.value||'').trim();
     const montant=parseFloat(document.querySelector('.dev-montant[data-dev-id="'+id+'"]')?.value);
-    const woId=document.querySelector('.dev-wo[data-dev-id="'+id+'"]')?.value||'';
+    let woId=document.querySelector('.dev-wo[data-dev-id="'+id+'"]')?.value||'';
     const dateDevis=document.querySelector('.dev-date[data-dev-id="'+id+'"]')?.value||'';
     const motifAutre=(document.querySelector('.dev-motif-autre[data-dev-id="'+id+'"]')?.value||'').trim();
     let motif=motifAutre||document.querySelector('.dev-motif[data-dev-id="'+id+'"]')?.value||'';
     if(!entreprise){alert('Entreprise requise avant validation');return;}
     if(!montant||montant<=0){alert('Montant TTC requis avant validation');return;}
-    if(!woId){alert('Sélectionnez un bon de travaux avant validation');return;}
+    if(woId==='__new__')woId='';
+    if(!woId){
+      // devis d'un vehicule sans bon de travaux : on propose de le creer
+      const assetId=document.querySelector('.dev-asset[data-dev-id="'+id+'"]')?.value||'';
+      if(!assetId){alert('Sélectionnez un véhicule ou un bon de travaux avant validation');return;}
+      const vehicule=S.assets.find(a=>a.id===assetId)?.name||'ce véhicule';
+      const title=prompt('Aucun bon de travaux choisi.\nTitre du bon à créer pour '+vehicule+' :','Devis '+entreprise);
+      if(!title||!title.trim())return;
+      const chantierId=document.querySelector('.dev-chantier[data-dev-id="'+id+'"]')?.value||null;
+      const{data:bon,error:errBon}=await sb.from('work_orders').insert({title:title.trim(),status:'open',date:NOW,asset_id:assetId,chantier_id:chantierId}).select().single();
+      if(errBon){alert('Erreur création BT : '+errBon.message);return;}
+      S.workOrders.unshift(bon);
+      woId=bon.id;
+    }
     const wo=S.workOrders.find(w=>w.id===woId);
     const bien=bienForWorkOrder(wo);
     // Chantier + nom du BT categorisent deja suffisamment (ex: "17 rue
