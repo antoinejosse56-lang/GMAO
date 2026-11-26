@@ -8430,7 +8430,7 @@ function renderModal(){
     <div style="border:0.5px solid var(--border2);border-radius:var(--radius);padding:12px;margin-bottom:12px">
       <div class="sec" style="margin-bottom:10px">🏦 Virement locataire</div>
       <div class="g2c">
-        <div class="form-group"><label>Montant reçu (€)</label><input id="m-sl-loc" type="number" step="0.01" value="${p.locataire_part||p.loyer||0}" placeholder="0.00"></div>
+        <div class="form-group"><label>Montant reçu (€)</label><input id="m-sl-loc" type="number" step="0.01" value="${p.remise>0?(p.locataire_part||0):(p.locataire_part||p.loyer||0)}" placeholder="0.00"></div>
         <div class="form-group"><label>Date de réception</label><input id="m-sl-date" type="date" value="${p.date_loc||''}"></div>
       </div>
     </div>
@@ -8444,10 +8444,19 @@ function renderModal(){
     </div>
 
     <div style="border:0.5px solid var(--border2);border-radius:var(--radius);padding:12px;margin-bottom:12px">
+      <div class="sec" style="margin-bottom:8px">🎁 Remise de loyer (travaux, geste commercial…)</div>
+      <div class="g2c">
+        <div class="form-group"><label>Montant de la remise (€)</label><input id="m-sl-remise" type="number" step="0.01" min="0" value="${p.remise||''}" placeholder="0.00" oninput="const a=document.getElementById('m-sl-attendu');a.value=Math.round((Math.max(0,+a.dataset.base-(+this.value||0))+(+document.getElementById('m-sl-dette-ant').value||0))*100)/100"></div>
+        <div class="form-group"><label>Motif (apparaît sur le document)</label><input id="m-sl-remise-motif" value="${(p.remise_motif||'').replace(/"/g,'&quot;')}" placeholder="Ex: travaux de peinture réalisés par le locataire"></div>
+      </div>
+      <div style="font-size:11px;color:var(--text2)">La remise est déduite du loyer du mois : elle ne crée pas de dette. Loyer entièrement offert : remise = loyer, montant reçu = 0.</div>
+    </div>
+
+    <div style="border:0.5px solid var(--border2);border-radius:var(--radius);padding:12px;margin-bottom:12px">
       <div class="sec" style="margin-bottom:8px">Dette antérieure</div>
       <div class="g2c">
         <div class="form-group"><label>Dette antérieure (&#8364;)</label><input id="m-sl-dette-ant" type="number" step="0.01" value="${(p._dette_ant!=null?p._dette_ant:p.dette_ant!=null?p.dette_ant:(t.dette||0))}" placeholder="0.00"></div>
-        <div class="form-group"><label>Total attendu (&#8364;)</label><input type="number" value="${Math.round((totalTTCProrata+(p.dette_ant!=null?p.dette_ant:(t.dette||0)))*100)/100}" readonly style="background:var(--bg2)"></div>
+        <div class="form-group"><label>Total attendu (&#8364;)</label><input id="m-sl-attendu" data-base="${totalTTCProrata}" type="number" value="${Math.round((Math.max(0,totalTTCProrata-(p.remise||0))+(p.dette_ant!=null?p.dette_ant:(t.dette||0)))*100)/100}" readonly style="background:var(--bg2)"></div>
       </div>
     </div>
     <div class="form-group"><label>Payé intégralement ?</label><select id="m-sl-paye">
@@ -9382,11 +9391,15 @@ async function saveModal(){
     const detteAnt=parseFloat(q('m-sl-dette-ant')?.value)||0;
     const loyerAttendu=Math.round((base+detteAnt)*100)/100;
     const totalPaye=Math.round((locPart+cafPart)*100)/100;
-    const solde=Math.round((loyerAttendu-totalPaye)*100)/100;
+    // Remise de loyer (travaux...) : deduite du loyer du mois, voir calcDetteLigne
+    const remise=Math.max(0,Math.round((parseFloat(q('m-sl-remise')?.value)||0)*100)/100);
+    const remiseMotif=(q('m-sl-remise-motif')?.value||'').trim();
+    const solde=Math.round((Math.max(0,base-remise)+detteAnt-totalPaye)*100)/100;
     const rec={
       tenant_id:t.id,mois:m.mois,mois_num:moisNum,annee:m.annee,
       loyer:loyerAttendu,locataire_part:locPart,caf:cafPart,
       date_loc:dateL,date_caf:dateCaf,paye,notes,commentaire,
+      remise:remise>0?remise:null,remise_motif:remise>0?(remiseMotif||null):null,
       quittance_envoyee:false
     };
     let payment=m.existing;
@@ -13023,7 +13036,7 @@ function bindAll(){
     if(!tenant||!tenant.email)return alert('Pas d\'email pour ce locataire');
     const isPartial=!rp.paye&&((rp.locataire_part||0)+(rp.caf||0))>0;
     const recu=(rp.locataire_part||0)+(rp.caf||0);
-    const solde=Math.round(((rp.loyer||0)-recu)*100)/100;
+    const solde=Math.round(((rp.loyer||0)-(rp.remise||0)-recu)*100)/100;
     const fmtR=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(n||0);
     const partialComment=isPartial
       ?('[Règlement partiel — Reçu : '+fmtR(recu)+' — Solde restant : '+fmtR(solde)+']'+(rp.commentaire?' '+rp.commentaire:''))
@@ -14456,8 +14469,10 @@ async function autoSendQuittance(tenant,payment,mois,annee,commentaire='',isPart
   const sent=await previewAndConfirmSend(pdfBlob,filename,tenant,{
     fromEmail:SEND_FROM_EMAIL,fromName:SEND_FROM_NAME,subject,bodyHtml,bcc:copyBcc,
   });
-  if(sent){
-    // Copie archive séparée à l'admin (contenu HTML, usage interne uniquement)
+  if(sent&&!isDubailQ){
+    // Copie archive séparée à l'admin (contenu HTML, usage interne uniquement).
+    // Pas pour le Dubail : savadur56 reçoit déjà le document en copie cachée,
+    // et rien de Savadur ne doit arriver sur la boîte personnelle.
     const copySubject='[COPIE] '+subject+' — '+tenant.nom;
     fetch('https://api.brevo.com/v3/smtp/email',{
       method:'POST',
@@ -14539,7 +14554,8 @@ async function sendAccuseEau(releve,cpt,tenant,montant){
     fromEmail:FROM_EMAIL,fromName:FROM_NAME,
     subject:'Accusé de réception paiement eau — '+dateReleve+' — '+tenant.logement,
     bodyHtml:html,
-    bcc:[{email:ALERT_EMAIL},{email:'savadur56@gmail.com'}],
+    // Dubail (Savadur) : copie sur savadur56 uniquement
+    bcc:dubailFilter(tenant.logement||'')?[{email:'savadur56@gmail.com'}]:[{email:ALERT_EMAIL},{email:'savadur56@gmail.com'}],
   });
   return sent;
 }
