@@ -1,8 +1,7 @@
 // Connexion GMAO (Supabase Auth), partagee par les pages de l'application.
 // - Adresse et mot de passe demandes une seule fois par appareil ; le mot de passe n'est jamais enregistre.
 // - Les appels a la base partent ensuite avec le jeton de la personne connectee (renouvele automatiquement).
-// - ETAPE DE TRANSITION : la base accepte encore les acces sans connexion. En cas de probleme de connexion, la
-//   saisie reste possible comme avant. Ce repli sera retire avant de fermer la base.
+// - La base refuse tout acces sans connexion : une page non connectee demande l'adresse et le mot de passe.
 (function () {
   'use strict';
   if (window.GMAOSession) return;
@@ -43,7 +42,7 @@
     });
   }
 
-  // Jeton valable, ou null (on continue alors comme avant la connexion).
+  // Jeton valable, ou null (pas de session, ou renouvellement impossible).
   function jeton(forcer) {
     var s = session();
     if (!s) return Promise.resolve(null);
@@ -68,13 +67,12 @@
     return renouvellement;
   }
 
-  // La base repond 401 ou 403 ; l'espace de fichiers repond souvent 400 avec le code 403 dans le message.
-  function refusee(rep, adresse) {
-    if (rep.status === 401 || rep.status === 403) return Promise.resolve(true);
+  // Le jeton est-il refuse (expire, revoque) ? Un refus de droits ordinaire n'est pas concerne.
+  function jetonRefuse(rep, adresse) {
+    if (rep.status === 401) return Promise.resolve(true);
+    // l'espace de fichiers signale un jeton perime par une erreur 400 qui cite « jwt »
     if (rep.status !== 400 || adresse.indexOf(URL_BASE + '/storage/') !== 0) return Promise.resolve(false);
-    return rep.clone().json().then(
-      function (c) { var code = String(c && c.statusCode); return code === '401' || code === '403'; },
-      function () { return false; });
+    return rep.clone().text().then(function (t) { return /jwt/i.test(t); }, function () { return false; });
   }
 
   window.fetch = function (cible, options) {
@@ -90,20 +88,16 @@
       return envoyer(cible, o);
     }
     return jeton(false).then(function (t) {
-      if (!t) return envoyer(cible, options);
+      if (!t) {
+        // session presente mais jeton impossible a renouveler : une erreur vaut mieux qu'une liste vide
+        if (session()) throw new TypeError('Connexion indisponible, réessayez.');
+        return envoyer(cible, options);
+      }
       return avec(t).then(function (rep) {
-        return refusee(rep, adresse).then(function (non) {
-          if (!non) return rep;
-          // refuse avec ce jeton (rien n'a ete ecrit) : jeton neuf, sinon acces comme avant (transition)
-          return jeton(true).then(function (t2) {
-            return (t2 ? avec(t2) : envoyer(cible, options)).then(function (r2) {
-              return refusee(r2, adresse).then(function (encore) {
-                if (!encore) return r2;
-                console.warn('GMAO : acces refuse avec la session, nouvel essai sans connexion');
-                return envoyer(cible, options);
-              });
-            });
-          });
+        return jetonRefuse(rep, adresse).then(function (oui) {
+          if (!oui) return rep;
+          // rien n'a ete ecrit : un seul nouvel essai avec un jeton neuf
+          return jeton(true).then(function (t2) { return t2 ? avec(t2) : rep; });
         });
       });
     });
@@ -161,10 +155,7 @@
     erreur.id = 'gmao-erreur';
     var bouton = element('button', 'width:100%;padding:15px;border:none;border-radius:12px;background:#185FA5;color:#fff;font-size:16px;font-weight:700', 'Se connecter');
     bouton.type = 'submit';
-    var plusTard = element('button', 'display:none;width:100%;margin-top:12px;padding:10px;border:none;background:none;color:#666;font-size:13px;text-decoration:underline', 'Continuer sans me connecter cette fois');
-    plusTard.type = 'button';
-    plusTard.onclick = function () { voile.remove(); };
-    form.appendChild(erreur); form.appendChild(bouton); form.appendChild(plusTard);
+    form.appendChild(erreur); form.appendChild(bouton);
     form.onsubmit = function (ev) {
       ev.preventDefault();
       bouton.disabled = true; bouton.textContent = 'Connexion…'; erreur.textContent = '';
@@ -173,7 +164,6 @@
         .catch(function (e) {
           erreur.textContent = e.message;
           bouton.disabled = false; bouton.textContent = 'Se connecter';
-          plusTard.style.display = 'block';
         });
     };
     voile.appendChild(form);
